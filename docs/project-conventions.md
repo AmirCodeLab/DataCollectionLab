@@ -86,16 +86,21 @@ does not need a Node runtime beside Python.
 4. **Null semantics are the highest-risk area** (spec 4.4). Every change to
    comparison, arithmetic or boolean coercion needs a new vector.
 
-5. **Offline-first is a constraint, not a feature.** For any client change, ask:
+5. **Crypto rules are not negotiable.** `specs/encryption-envelope-v0.1.md`
+   is normative. Never remove a field from an AAD, never make a nonce constant
+   or random-without-justification, never hash media plaintext. Every change to
+   `backend/app/modules/crypto/` needs a test proving the property it protects.
+
+6. **Offline-first is a constraint, not a feature.** For any client change, ask:
    what happens with no network for 14 days?
 
-6. **No production form-builder UI until the IR and sync protocol are stable.**
+7. **No production form-builder UI until the IR and sync protocol are stable.**
    The builder is the most satisfying thing to build and the most expensive to
    rebuild.
 
-7. **RTL/Arabic from the start.** Not retrofitted.
+8. **RTL/Arabic from the start.** Not retrofitted.
 
-8. **The console uses the public API.** No private endpoints.
+9. **The console uses the public API.** No private endpoints.
 
 ## Form engine
 
@@ -151,29 +156,13 @@ docker compose up
 
 ## Current phase
 
-**Phase 0 — architecture proof.** Run `./scripts/status.sh` for the live,
-evidence-based report; the list below mirrors its output and goes stale the
-moment code changes.
+**Phase 0 — architecture proof.** Deliverables:
 
-1. Form IR specification — **DONE** for v0.1, repeat scope included, nested
-   repeats deferred to v0.2. Evidence: `specs/form-ir-v0.1.md`; both engines
-   pass 24/24 vectors in `conformance/vectors/`.
-2. Sync protocol specification — **PARTIAL**: drafted, conflict-resolution
-   detail missing. Evidence: `specs/sync-protocol-v0.1.md` exists,
-   `backend/app/modules/sync/` is empty.
-3. ERD / database schema — **NOT STARTED**. Evidence: no migrations in
-   `backend/migrations/versions/`, no ERD spec in `specs/`.
-4. OpenAPI contract — **PARTIAL**: 2 routes in `backend/app/api/`, no contract
-   file in `specs/`. Evidence: `backend/app/api/v1/forms.py`.
-5. Encryption envelope design — **NOT STARTED**. Evidence: no spec in
-   `specs/`, no crypto code in `shared/` or `backend/app/`.
-6. iOS Compose spike — **NOT STARTED** (MANUAL check — the script cannot
-   verify this). Evidence: `clients/iosApp` is still the unmodified KMP
-   template.
-
-Engine status: the Python reference and the Kotlin port agree on all 24
-conformance vectors, repeats included — verify with
-`cd backend && pytest tests/test_conformance.py -v` and
-`./gradlew :shared:form-engine:jvmTest`.
+1. Form IR specification — drafted, needs repeat-scope detail
+2. Sync protocol specification — drafted, needs conflict-resolution detail
+3. ERD / database schema — DDL + spec done; Alembic migration pending
+4. OpenAPI contract — skeleton only
+5. Encryption envelope design — spec + Python reference done; Kotlin port pending
+6. iOS Compose spike — not started
 
 Do not start Phase 1 (builder UI, Android app) until 1 and 2 are stable.

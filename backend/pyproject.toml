@@ -17,10 +17,11 @@ dependencies = [
     "passlib[argon2]>=1.7",
     "boto3>=1.35",
     "geoalchemy2>=0.15",
+    "cryptography>=44.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.7", "mypy>=1.13"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.7", "mypy>=1.13", "pglast>=7.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
