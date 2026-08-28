@@ -589,8 +589,64 @@ CREATE TABLE sync_cursor (
 """
 
 
+def _statements(sql: str) -> list[str]:
+    """Split the DDL on statement-terminating semicolons.
+
+    asyncpg's prepared-statement protocol rejects multi-command strings, so
+    each statement must be executed on its own. Semicolons inside `--`
+    comments and single-quoted literals are not terminators; the DDL uses no
+    dollar quoting, and the byte-equality test pins its contents.
+    """
+
+    def has_sql(chunk: str) -> bool:
+        return any(
+            line.strip() and not line.lstrip().startswith("--")
+            for line in chunk.splitlines()
+        )
+
+    statements: list[str] = []
+    buf: list[str] = []
+    in_string = False
+    in_comment = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < len(sql) else ""
+        if in_comment:
+            buf.append(ch)
+            if ch == "\n":
+                in_comment = False
+        elif in_string:
+            buf.append(ch)
+            if ch == "'":
+                if nxt == "'":
+                    buf.append(nxt)
+                    i += 1
+                else:
+                    in_string = False
+        elif ch == "-" and nxt == "-":
+            in_comment = True
+            buf.append(ch)
+        elif ch == "'":
+            in_string = True
+            buf.append(ch)
+        elif ch == ";":
+            chunk = "".join(buf).strip()
+            if has_sql(chunk):
+                statements.append(chunk)
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if has_sql(tail):
+        statements.append(tail)
+    return statements
+
+
 def upgrade() -> None:
-    op.execute(DDL)
+    for statement in _statements(DDL):
+        op.execute(statement)
 
 
 def downgrade() -> None:
