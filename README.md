@@ -14,8 +14,10 @@ proven before any production UI is built.
 | Path | Contents |
 |---|---|
 | `backend/` | Python + FastAPI. Includes the **reference** form engine |
-| `shared/` | Kotlin Multiplatform — form engine and core, shared by all clients |
-| `clients/` | Android, iOS and desktop app shells |
+| `shared/form-engine/` | Form IR engine — pure Kotlin library, no UI |
+| `shared/core/` | Sync, storage, networking, security |
+| `clients/composeApp/` | Shared Compose Multiplatform UI |
+| `clients/androidApp/`, `desktopApp/`, `iosApp/` | Platform launchers |
 | `web/` | React + TypeScript console |
 | `web-forms/` | Respondent-facing browser runtime |
 | `conformance/` | Language-neutral vectors every engine must pass |
@@ -32,6 +34,13 @@ cd backend
 pip install -e ".[dev]"
 pytest tests/ -v          # conformance suite
 uvicorn app.main:app --reload
+```
+
+Kotlin side (single Gradle build at the repo root):
+
+```bash
+./gradlew :shared:form-engine:jvmTest
+./gradlew :clients:androidApp:assembleDebug
 ```
 
 API docs at http://localhost:8000/docs

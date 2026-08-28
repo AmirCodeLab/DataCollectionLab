@@ -15,15 +15,29 @@ Full plan: `docs/DCP-Product-and-System-Architecture-v1.0.md`.
 ## Repository layout
 
 ```
-backend/       Python + FastAPI, modular monolith
-shared/        Kotlin Multiplatform — form-engine, core
-clients/       Android, iOS, desktop app shells
-web/           React + TypeScript + Vite console
-web-forms/     Respondent-facing runtime
-conformance/   Language-neutral test vectors — the contract between engines
-specs/         Form IR, sync protocol, ERD, OpenAPI
-deploy/        Docker Compose and deployment tooling
+settings.gradle.kts     ONE Gradle build for the whole repo
+gradle/                 wrapper + libs.versions.toml (single version catalog)
+backend/                Python + FastAPI, modular monolith
+shared/form-engine/     Form IR engine — pure library, NO UI, NO Android framework
+shared/core/            Sync, storage, networking, security — no UI
+clients/composeApp/     Shared Compose UI (iOS framework baseName "Shared")
+clients/androidApp/     Android launcher
+clients/desktopApp/     Desktop launcher
+clients/iosApp/         Xcode project, consumes the composeApp framework
+web/                    React + TypeScript + Vite console
+web-forms/              Respondent-facing runtime
+conformance/            Language-neutral vectors — the contract between engines
+specs/                  Form IR, sync protocol, ERD, OpenAPI
+deploy/                 Docker Compose and deployment tooling
 ```
+
+**One Gradle build, rooted at the repo root.** Do not add a `settings.gradle.kts`
+inside `clients/` or `shared/` — that was the original mistake and it stops the
+apps depending on `:shared:form-engine` directly.
+
+**`shared/form-engine` must stay dependency-free of UI and Android framework
+code.** It has to run on the server and in a browser via Wasm. If something needs
+Compose, it belongs in `clients/composeApp`.
 
 ## Locked decisions — do not change without an explicit discussion
 
@@ -115,8 +129,10 @@ ruff check . && mypy app
 python conformance/generate_vectors.py     # regenerate vectors
 cd backend && pytest tests/test_conformance.py -v
 
-# Kotlin engine
-cd shared && ./gradlew :form-engine:jvmTest
+# Kotlin engine (from the repo root — one build)
+./gradlew :shared:form-engine:jvmTest
+./gradlew :clients:androidApp:assembleDebug
+./gradlew :clients:desktopApp:run
 
 # Web
 cd web && npm install && npm run dev

@@ -31,6 +31,13 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-include(":androidApp")
-include(":desktopApp")
-include(":shared")
+// Platform-independent engine and core. No UI, no Android framework dependency —
+// these must stay consumable by the server and by a Wasm web build.
+include(":shared:form-engine")
+include(":shared:core")
+
+// Field clients. composeApp holds the shared UI; androidApp/desktopApp are thin
+// launchers; iosApp is an Xcode project consuming the composeApp framework.
+include(":clients:composeApp")
+include(":clients:androidApp")
+include(":clients:desktopApp")
