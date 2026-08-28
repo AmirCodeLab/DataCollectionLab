@@ -1,0 +1,8 @@
+{
+  "buildPath": ":",
+  "projectPath": ":shared:form-engine",
+  "moduleId": {
+    "groupId": "DataCollectionLab.shared",
+    "moduleId": "form-engine"
+  }
+}

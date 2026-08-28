@@ -1,0 +1,13 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml:2:13-83
+INJECTED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml:2:13-83
+	package
+		INJECTED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml
+	xmlns:android
+		ADDED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml:2:23-81
+uses-sdk
+INJECTED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml reason: use-sdk injection requested
+INJECTED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml
+	android:minSdkVersion
+		INJECTED from /Users/amir/DriveProjects/DataCollectionLab/clients/composeApp/build/intermediates/tmp/ProcessLibraryManifest/tempAndroidManifest16206864465240825957.xml
