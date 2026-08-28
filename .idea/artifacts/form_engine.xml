@@ -1,6 +1,0 @@
-<component name="ArtifactManager">
-  <artifact type="jar" name="form-engine">
-    <output-path>$PROJECT_DIR$/shared/form-engine/build/libs</output-path>
-    <root id="archive" name="form-engine.jar" />
-  </artifact>
-</component>
