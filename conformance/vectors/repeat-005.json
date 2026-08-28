@@ -1,0 +1,82 @@
+{
+  "id": "repeat-005",
+  "description": "Relevance inside a repeat is evaluated per instance",
+  "spec": "5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep5",
+    "version": 1,
+    "title": {
+      "en": "rep5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "age",
+            "dataType": "integer",
+            "label": {
+              "en": "Age"
+            }
+          },
+          {
+            "type": "question",
+            "id": "school",
+            "dataType": "text",
+            "label": {
+              "en": "School"
+            },
+            "relevant": {
+              "op": "lt",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "age"
+                },
+                {
+                  "op": "lit",
+                  "value": 18
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].age": 10,
+        "members[1].age": 40
+      }
+    },
+    {
+      "expect": {
+        "relevant": {
+          "members[0].school": true,
+          "members[1].school": false
+        }
+      }
+    }
+  ]
+}

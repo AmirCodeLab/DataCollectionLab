@@ -1,0 +1,80 @@
+{
+  "id": "repeat-001",
+  "description": "Adding instances creates independent field values per instance",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep1",
+    "version": 1,
+    "title": {
+      "en": "rep1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "age",
+            "dataType": "integer",
+            "label": {
+              "en": "Age"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 0
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "Ali",
+        "members[1].name": "Sara"
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[0].name": "Ali",
+          "members[1].name": "Sara",
+          "members[0].age": null
+        }
+      }
+    }
+  ]
+}

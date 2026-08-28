@@ -40,6 +40,10 @@ class EvalContext:
     now: datetime
     row: Mapping[str, Any] | None = None
     metadata: Mapping[str, Any] | None = None
+    # (repeat_id, instance_id) when evaluating inside a repeat instance.
+    scope: tuple[str, str] | None = None
+    # repeat_id -> ordered instance ids, for positional addressing.
+    instances: Mapping[str, list[str]] | None = None
 
 
 # --------------------------------------------------------------------------
@@ -300,18 +304,41 @@ def _resolve(path: str, ctx: EvalContext) -> Any:
         if ctx.row is None:
             raise CompileError(f"$row reference outside a choice filter: {path}")
         return ctx.row.get(path[5:])
+
     if path.startswith("_metadata."):
         return (ctx.metadata or {}).get(path[10:])
-    if path.endswith("[]") or "[]." in path:
-        prefix = path.split("[]")[0]
-        suffix = path.split("[].", 1)[1] if "[]." in path else None
-        out: list[Any] = []
-        for key, value in ctx.values.items():
-            if not key.startswith(prefix + "["):
-                continue
-            if suffix is None or key.endswith("." + suffix):
-                out.append(value)
-        return out
+
+    instances = ctx.instances or {}
+
+    # members[].age -> sequence across every instance, in order (spec 4.2)
+    if "[]." in path:
+        repeat_id, suffix = path.split("[].", 1)
+        return [
+            ctx.values.get(f"{repeat_id}[{iid}].{suffix}")
+            for iid in instances.get(repeat_id, [])
+        ]
+
+    # members[0].age -> a specific instance by position
+    if "[" in path and "]." in path:
+        repeat_id, rest = path.split("[", 1)
+        index_text, suffix = rest.split("].", 1)
+        if index_text == ".":
+            # members[.].age -> the current instance
+            if ctx.scope is None or ctx.scope[0] != repeat_id:
+                raise CompileError(f"[.] reference outside its repeat: {path}")
+            return ctx.values.get(f"{repeat_id}[{ctx.scope[1]}].{suffix}")
+        ordered = instances.get(repeat_id, [])
+        index = int(index_text)
+        if index < 0 or index >= len(ordered):
+            return None  # out-of-range instance reads as null, not an error
+        return ctx.values.get(f"{repeat_id}[{ordered[index]}].{suffix}")
+
+    # bare reference: current instance first, then outward to the form root
+    if ctx.scope is not None:
+        scoped = f"{ctx.scope[0]}[{ctx.scope[1]}].{path}"
+        if scoped in ctx.values:
+            return ctx.values[scoped]
+
     if path not in ctx.values:
         raise CompileError(f"unresolvable reference: {path}")
     return ctx.values[path]
@@ -422,7 +449,11 @@ def collect_refs(expr: Any, out: set[str] | None = None) -> set[str]:
     if expr.get("op") == "ref":
         path = expr["path"]
         if not path.startswith(("$row.", "_metadata.")):
-            out.add(path.replace("[]", "").replace("[.]", ""))
+            # members[].age / members[0].age / members[.].age all depend on `age`
+            if "]." in path:
+                out.add(path.split("].", 1)[1])
+            else:
+                out.add(path)
     for arg in expr.get("args", []):
         collect_refs(arg, out)
     return out

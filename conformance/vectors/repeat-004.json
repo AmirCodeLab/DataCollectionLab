@@ -1,0 +1,111 @@
+{
+  "id": "repeat-004",
+  "description": "Deleting an instance removes its data and updates aggregates; remaining instances keep their values",
+  "spec": "5.4",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep4",
+    "version": 1,
+    "title": {
+      "en": "rep4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "income",
+            "dataType": "decimal",
+            "label": {
+              "en": "Income"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "total",
+        "dataType": "decimal",
+        "label": {
+          "en": "Total"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "sum",
+          "args": [
+            {
+              "op": "ref",
+              "path": "members[].income"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "A",
+        "members[0].income": 10,
+        "members[1].name": "B",
+        "members[1].income": 20,
+        "members[2].name": "C",
+        "members[2].income": 30
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "total": 60
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 1
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "C",
+          "total": 40
+        }
+      }
+    }
+  ]
+}

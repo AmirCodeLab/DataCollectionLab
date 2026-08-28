@@ -115,9 +115,11 @@ A group does not create a data scope. Child paths are **not** nested under the g
 
 A repeat **does** create a data scope. Children are addressed as `members[i].name`.
 
-- If `countExpr` is present the instance count is controlled by it and the user cannot add or remove instances.
-- If absent, the user controls instance count, bounded by `minInstances` / `maxInstances`.
-- Nested repeats are permitted.
+- If `countExpr` is present the instance count is controlled by it and the user cannot add or remove instances. Growing the count creates empty instances; shrinking it discards the trailing instances and their data.
+- If absent, the user controls instance count, bounded by `minInstances` / `maxInstances`. `minInstances` instances are created when the form opens.
+- **Nested repeats are not supported in v0.1.** A repeat inside a repeat is a compile error. Deferred to v0.2 — the reference-resolution and aggregate rules need designing before implementation, and shipping a half-defined version would be worse than refusing it.
+
+Instances carry **stable ids** internally. Positional addressing (`members[0]`) resolves against the current ordered list at evaluation time. Deleting an instance removes it from the order and destroys its values; it never renumbers the surviving instances in storage, so an operation referring to a surviving instance stays valid after a concurrent delete elsewhere.
 
 ### 2.4 Identifier rules
 
@@ -191,6 +193,8 @@ Expressions are a **typed AST**, never strings. The builder produces the AST; im
 | `_metadata.start_time` | Runtime metadata |
 
 Resolution from inside a repeat searches the current instance first, then walks outward to the form root. A reference that cannot be resolved is a **compile error**, not a runtime null.
+
+One deliberate exception: a positional reference to an instance that does not currently exist (`members[0].name` when there are no instances) evaluates to `null` rather than erroring. The instance count is runtime state, not a static property, so this cannot be checked at compile time and must not crash a form mid-interview.
 
 ### 4.3 Functions (v0.1)
 
@@ -279,6 +283,8 @@ Evaluation is deterministic: identical IR plus identical answer state yields ide
 - Instances are addressed by stable instance ids, not positions. Deleting instance 1 of 3 does not renumber the others in storage.
 - Positional access (`members[0]`) resolves against the current ordered view.
 - Deleting an instance removes its values and emits a tombstone (see the sync protocol).
+- A repeat field is evaluated once per instance, in instance order, before the pass advances to the next field in topological order. A field outside a repeat that aggregates over it therefore always observes fully-evaluated instances.
+- Aggregate functions over `members[].field` ignore nulls: `sum` of an empty or all-null sequence is `0`, `count` counts non-null values, `min`/`max` of an empty sequence are `null`.
 
 ## 6. Validation states
 
@@ -339,6 +345,8 @@ Automatically captured, addressable under `_metadata`:
 
 ## 11. Open questions for v0.2
 
+- **Nested repeats** — reference resolution, aggregate semantics across levels, and instance lifecycle when a parent instance is deleted
+- Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
 - Server-only expressions and where they are declared
 - Encrypted-field addressing — can a constraint reference an encrypted field

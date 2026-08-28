@@ -1,0 +1,93 @@
+{
+  "id": "repeat-006",
+  "description": "countExpr controls the instance count and shrinking discards trailing data",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep6",
+    "version": 1,
+    "title": {
+      "en": "rep6"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "household_size",
+        "dataType": "integer",
+        "label": {
+          "en": "Household Size"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ],
+        "countExpr": {
+          "op": "ref",
+          "path": "household_size"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 0
+        }
+      }
+    },
+    {
+      "set": {
+        "household_size": 3
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        }
+      }
+    },
+    {
+      "set": {
+        "members[0].name": "A",
+        "members[2].name": "C"
+      }
+    },
+    {
+      "set": {
+        "household_size": 2
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[0].name": "A"
+        }
+      }
+    }
+  ]
+}

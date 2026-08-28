@@ -1,0 +1,79 @@
+{
+  "id": "repeat-002",
+  "description": "A bare reference inside a repeat resolves to the current instance",
+  "spec": "4.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep2",
+    "version": 1,
+    "title": {
+      "en": "rep2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "dob",
+            "dataType": "date",
+            "label": {
+              "en": "Dob"
+            }
+          },
+          {
+            "type": "question",
+            "id": "age",
+            "dataType": "integer",
+            "label": {
+              "en": "Age"
+            },
+            "calculate": {
+              "op": "call",
+              "fn": "age_years",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "dob"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].dob": "2000-01-01",
+        "members[1].dob": "2010-01-01"
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "members[0].age": 26,
+          "members[1].age": 16
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "id": "repeat-008",
+  "description": "Constraints inside a repeat are validated per instance",
+  "spec": "6",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep8",
+    "version": 1,
+    "title": {
+      "en": "rep8"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "age",
+            "dataType": "integer",
+            "label": {
+              "en": "Age"
+            },
+            "constraint": {
+              "op": "lte",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "age"
+                },
+                {
+                  "op": "lit",
+                  "value": 120
+                }
+              ]
+            },
+            "constraintMessage": {
+              "en": "Age must be 120 or less"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].age": 30,
+        "members[1].age": 200
+      }
+    },
+    {
+      "expect": {
+        "valid": {
+          "members[0].age": true,
+          "members[1].age": false
+        },
+        "errors": {
+          "members[1].age": [
+            "constraint"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

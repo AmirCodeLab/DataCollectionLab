@@ -24,29 +24,40 @@ def _load(path: pathlib.Path) -> dict:
     return json.loads(path.read_text())
 
 
+def _state(instance: FormInstance, path: str):
+    """Resolve a positional path from a vector to the canonical state entry."""
+    return instance.states[instance._canonical(path)]
+
+
 def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int) -> None:
     where = f"{vector_id} step {step_index}"
 
     for path, want in expect.get("relevant", {}).items():
-        got = instance.states[path].relevant
+        got = _state(instance, path).relevant
         assert got == want, f"{where}: relevant[{path}] expected {want}, got {got}"
 
     for path, want in expect.get("values", {}).items():
-        got = instance.states[path].value
+        got = _state(instance, path).value
         assert got == want, f"{where}: values[{path}] expected {want!r}, got {got!r}"
 
     for path, want in expect.get("required", {}).items():
-        got = instance.states[path].required
+        got = _state(instance, path).required
         assert got == want, f"{where}: required[{path}] expected {want}, got {got}"
 
     for path, want in expect.get("valid", {}).items():
-        got = instance.states[path].valid
+        got = _state(instance, path).valid
         assert got == want, f"{where}: valid[{path}] expected {want}, got {got}"
 
     for path, want_kinds in expect.get("errors", {}).items():
-        got_kinds = [e["kind"] for e in instance.states[path].errors]
+        got_kinds = [e["kind"] for e in _state(instance, path).errors]
         assert got_kinds == want_kinds, (
             f"{where}: errors[{path}] expected {want_kinds}, got {got_kinds}"
+        )
+
+    for repeat_id, want in expect.get("instanceCount", {}).items():
+        got = instance.instance_count(repeat_id)
+        assert got == want, (
+            f"{where}: instanceCount[{repeat_id}] expected {want}, got {got}"
         )
 
     if "formValid" in expect:
@@ -72,6 +83,12 @@ def test_vector(vector_path: pathlib.Path) -> None:
     instance = FormInstance(compiled, today=today, now=now)
 
     for i, step in enumerate(vector["steps"]):
+        if "addInstance" in step:
+            instance.add_instance(step["addInstance"])
+        if "deleteInstance" in step:
+            instance.delete_instance(
+                step["deleteInstance"]["repeat"], step["deleteInstance"]["index"]
+            )
         if "set" in step:
             instance.set_many(step["set"])
         if "expect" in step:

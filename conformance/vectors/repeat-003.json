@@ -1,0 +1,108 @@
+{
+  "id": "repeat-003",
+  "description": "Aggregates over members[].field see every instance",
+  "spec": "4.2, 4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep3",
+    "version": 1,
+    "title": {
+      "en": "rep3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "income",
+            "dataType": "decimal",
+            "label": {
+              "en": "Income"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "total_income",
+        "dataType": "decimal",
+        "label": {
+          "en": "Total Income"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "sum",
+          "args": [
+            {
+              "op": "ref",
+              "path": "members[].income"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "member_count",
+        "dataType": "integer",
+        "label": {
+          "en": "Member Count"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "count",
+          "args": [
+            {
+              "op": "ref",
+              "path": "members[].income"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "total_income": 0,
+          "member_count": 0
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].income": 100,
+        "members[1].income": 250
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "total_income": 350,
+          "member_count": 2
+        }
+      }
+    }
+  ]
+}

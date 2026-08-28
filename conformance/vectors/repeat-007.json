@@ -1,0 +1,75 @@
+{
+  "id": "repeat-007",
+  "description": "A field outside a repeat can reference a specific instance by position",
+  "spec": "4.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep7",
+    "version": 1,
+    "title": {
+      "en": "rep7"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "head_name",
+        "dataType": "text",
+        "label": {
+          "en": "Head Name"
+        },
+        "calculate": {
+          "op": "ref",
+          "path": "members[0].name"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "head_name": null
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "Ali"
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "head_name": "Ali"
+        }
+      }
+    }
+  ]
+}

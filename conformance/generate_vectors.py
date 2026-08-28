@@ -360,6 +360,181 @@ vector(
 )
 
 
+# --------------------------------------------------------------------------
+# Repeats
+# --------------------------------------------------------------------------
+
+
+def repeat(rid, children, **kw):
+    node = {"type": "repeat", "id": rid, "label": {"en": rid.title()},
+            "children": children}
+    node.update(kw)
+    return node
+
+
+vector(
+    "repeat-001",
+    "Adding instances creates independent field values per instance",
+    "2.3",
+    form("rep1", [
+        repeat("members", [q("name", "text"), q("age", "integer")]),
+    ]),
+    [
+        {"expect": {"instanceCount": {"members": 0}}},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].name": "Ali", "members[1].name": "Sara"}},
+        {"expect": {"instanceCount": {"members": 2},
+                    "values": {"members[0].name": "Ali",
+                               "members[1].name": "Sara",
+                               "members[0].age": None}}},
+    ],
+)
+
+vector(
+    "repeat-002",
+    "A bare reference inside a repeat resolves to the current instance",
+    "4.2",
+    form("rep2", [
+        repeat("members", [
+            q("dob", "date"),
+            q("age", "integer", calculate=call("age_years", ref("dob"))),
+        ]),
+    ]),
+    [
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].dob": "2000-01-01", "members[1].dob": "2010-01-01"}},
+        {"expect": {"values": {"members[0].age": 26, "members[1].age": 16}}},
+    ],
+    context={"today": "2026-08-28"},
+)
+
+vector(
+    "repeat-003",
+    "Aggregates over members[].field see every instance",
+    "4.2, 4.3",
+    form("rep3", [
+        repeat("members", [q("income", "decimal")]),
+        q("total_income", "decimal", calculate=call("sum", ref("members[].income"))),
+        q("member_count", "integer", calculate=call("count", ref("members[].income"))),
+    ]),
+    [
+        {"expect": {"values": {"total_income": 0, "member_count": 0}}},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].income": 100, "members[1].income": 250}},
+        # third instance is unanswered: sum ignores nulls, count counts non-nulls
+        {"expect": {"values": {"total_income": 350, "member_count": 2}}},
+    ],
+)
+
+vector(
+    "repeat-004",
+    "Deleting an instance removes its data and updates aggregates; "
+    "remaining instances keep their values",
+    "5.4",
+    form("rep4", [
+        repeat("members", [q("name", "text"), q("income", "decimal")]),
+        q("total", "decimal", calculate=call("sum", ref("members[].income"))),
+    ]),
+    [
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].name": "A", "members[0].income": 10,
+                 "members[1].name": "B", "members[1].income": 20,
+                 "members[2].name": "C", "members[2].income": 30}},
+        {"expect": {"values": {"total": 60}}},
+        {"deleteInstance": {"repeat": "members", "index": 1}},
+        # B is gone; A and C keep their values and C is now at position 1
+        {"expect": {"instanceCount": {"members": 2},
+                    "values": {"members[0].name": "A",
+                               "members[1].name": "C",
+                               "total": 40}}},
+    ],
+)
+
+vector(
+    "repeat-005",
+    "Relevance inside a repeat is evaluated per instance",
+    "5.2",
+    form("rep5", [
+        repeat("members", [
+            q("age", "integer"),
+            q("school", "text", relevant=op("lt", ref("age"), lit(18))),
+        ]),
+    ]),
+    [
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].age": 10, "members[1].age": 40}},
+        {"expect": {"relevant": {"members[0].school": True,
+                                 "members[1].school": False}}},
+    ],
+)
+
+vector(
+    "repeat-006",
+    "countExpr controls the instance count and shrinking discards trailing data",
+    "2.3",
+    form("rep6", [
+        q("household_size", "integer"),
+        repeat("members", [q("name", "text")],
+               countExpr=ref("household_size")),
+    ]),
+    [
+        {"expect": {"instanceCount": {"members": 0}}},
+        {"set": {"household_size": 3}},
+        {"expect": {"instanceCount": {"members": 3}}},
+        {"set": {"members[0].name": "A", "members[2].name": "C"}},
+        {"set": {"household_size": 2}},
+        {"expect": {"instanceCount": {"members": 2},
+                    "values": {"members[0].name": "A"}}},
+    ],
+)
+
+vector(
+    "repeat-007",
+    "A field outside a repeat can reference a specific instance by position",
+    "4.2",
+    form("rep7", [
+        repeat("members", [q("name", "text")]),
+        q("head_name", "text", calculate=ref("members[0].name")),
+    ]),
+    [
+        # no instances yet: out-of-range positional read is null, not an error
+        {"expect": {"values": {"head_name": None}}},
+        {"addInstance": "members"},
+        {"set": {"members[0].name": "Ali"}},
+        {"expect": {"values": {"head_name": "Ali"}}},
+    ],
+)
+
+vector(
+    "repeat-008",
+    "Constraints inside a repeat are validated per instance",
+    "6",
+    form("rep8", [
+        repeat("members", [
+            q("age", "integer",
+              constraint=op("lte", ref("age"), lit(120)),
+              constraintMessage={"en": "Age must be 120 or less"}),
+        ]),
+    ]),
+    [
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"set": {"members[0].age": 30, "members[1].age": 200}},
+        {"expect": {"valid": {"members[0].age": True, "members[1].age": False},
+                    "errors": {"members[1].age": ["constraint"]},
+                    "formValid": False}},
+    ],
+)
+
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):
