@@ -77,6 +77,57 @@ if [ "$PY_RAN" -ne "$VECTORS" ] || [ "$KT_RAN" -ne "$VECTORS" ]; then
     printf '  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
 fi
 
+# --- crypto conformance ----------------------------------------------------
+# Separate vector set with its own runners on both sides. Reported separately
+# because a green form suite says nothing about the crypto suite.
+
+CRYPTO_VECTORS=$(find conformance/crypto -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+CRYPTO_GREEN=true
+
+if [ "$CRYPTO_VECTORS" -gt 0 ]; then
+    printf '\n  crypto vectors:   %s\n' "$CRYPTO_VECTORS"
+
+    CPY_OUT=$(cd backend && "$PY" -m pytest tests/test_crypto_conformance.py -q 2>&1)
+    CPY_STATUS=$?
+    CPY_PASSED=$(printf '%s\n' "$CPY_OUT" | grep -o '[0-9]* passed' | grep -o '[0-9]*' | head -1)
+    [ -n "$CPY_PASSED" ] || CPY_PASSED=0
+    if [ "$CPY_STATUS" -eq 0 ]; then
+        printf '  python crypto:    PASS  (%s/%s vectors)\n' "$CPY_PASSED" "$CRYPTO_VECTORS"
+    else
+        printf '  python crypto:    FAIL\n'
+        printf '%s\n' "$CPY_OUT" | tail -4 | sed 's/^/    | /'
+        CRYPTO_GREEN=false
+    fi
+
+    CKT_DIR=shared/core/build/test-results/jvmTest
+    rm -rf "$CKT_DIR"
+    CKT_OUT=$(./gradlew :shared:core:jvmTest --rerun-tasks 2>&1)
+    CKT_STATUS=$?
+    CKT_XMLS=$(find "$CKT_DIR" -name 'TEST-*.xml' 2>/dev/null)
+    CKT_RAN=0
+    if [ -n "$CKT_XMLS" ]; then
+        CKT_RAN=$(grep -ho 'tests="[0-9]*"' $CKT_XMLS | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+    fi
+    if [ "$CKT_STATUS" -eq 0 ] && [ "$CKT_RAN" -gt 0 ]; then
+        printf '  kotlin crypto:    PASS  (%s tests)\n' "$CKT_RAN"
+    else
+        printf '  kotlin crypto:    FAIL  (%s ran)\n' "$CKT_RAN"
+        printf '%s\n' "$CKT_OUT" | grep -E 'FAILED|error:' | head -4 | sed 's/^/    | /'
+        CRYPTO_GREEN=false
+    fi
+
+    # A crypto suite that runs on only one side proves nothing: the vectors
+    # would just be one implementation agreeing with itself.
+    if [ "$CPY_PASSED" -eq 0 ] || [ "$CKT_RAN" -eq 0 ]; then
+        printf '\n  !! CRYPTO VECTORS RUN ON ONLY ONE ENGINE                !!\n'
+        printf '  !! Cross-engine agreement is unproven.                  !!\n'
+        CRYPTO_GREEN=false
+    fi
+else
+    printf '\n  crypto vectors:   none found in conformance/crypto\n'
+    CRYPTO_GREEN=false
+fi
+
 CONFORMANCE_GREEN=false
 [ "$PY_STATUS" -eq 0 ] && [ "$KT_STATUS" -eq 0 ] && \
     [ "$PY_RAN" -eq "$VECTORS" ] && [ "$KT_RAN" -eq "$VECTORS" ] && CONFORMANCE_GREEN=true
@@ -128,11 +179,14 @@ fi
 
 # Encryption envelope: a spec and/or crypto code anywhere in shared/ or backend/app.
 ENC_SPEC=$(find specs \( -name '*encrypt*' -o -name '*envelope*' \) 2>/dev/null | head -1)
-ENC_CODE=$(find shared backend/app -type f \( -name '*.py' -o -name '*.kt' \) \
-    -not -path '*/build/*' -not -path '*/__pycache__/*' 2>/dev/null \
-    | xargs grep -l -i 'encrypt' 2>/dev/null | head -1)
-if [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ]; then
-    item "Encryption envelope" "DONE" "$ENC_SPEC + code in $ENC_CODE"
+# Look for the implementation, not a test that merely mentions encryption.
+ENC_CODE=$(find shared/core/src/commonMain backend/app/modules/crypto -type f \
+    \( -name '*.py' -o -name '*.kt' \) -not -path '*/build/*' \
+    -not -path '*/__pycache__/*' -not -name '__init__.py' 2>/dev/null | head -1)
+if [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ] && [ "$CRYPTO_GREEN" = true ]; then
+    item "Encryption envelope" "DONE" "$ENC_SPEC, both engines pass $CRYPTO_VECTORS vectors"
+elif [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ]; then
+    item "Encryption envelope" "PARTIAL" "spec + code, but crypto vectors are not green on both engines"
 elif [ -n "$ENC_SPEC" ] || [ -n "$ENC_CODE" ]; then
     item "Encryption envelope" "PARTIAL" "spec: ${ENC_SPEC:-none}, code: ${ENC_CODE:-none}"
 else
