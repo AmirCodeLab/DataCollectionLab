@@ -2,22 +2,21 @@
 
 The SQL file is normative. Two enforcement layers:
 
-1. Without a database: the DDL embedded in the migration is byte-identical to
-   the file. If the file changes, this fails until the migration is updated.
-2. Against a real Postgres (docker compose up -d postgres): `alembic upgrade
-   head` and executing the SQL file directly yield identical schemas — same
-   tables, columns, types, defaults, constraints and indexes — and
-   downgrade → upgrade round-trips cleanly. Self-hosted users depend on
-   reversible migrations.
+1. Without a database: every table the DDL creates has a matching
+   op.create_table and op.drop_table in the migration.
+2. Against a real Postgres (docker compose up -d postgres, tests marked
+   ``db``): `alembic upgrade head` and executing the SQL file directly yield
+   identical schemas — same tables, columns, types, defaults, constraints and
+   indexes — and downgrade → upgrade round-trips cleanly. Self-hosted users
+   depend on reversible migrations.
 
-The live tests SKIP when Postgres is unreachable, so the rest of the suite
-does not need docker.
+Tests marked ``db`` SKIP when Postgres is unreachable, and are deselectable
+with `pytest -m "not db"`, so the rest of the suite does not need docker.
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import pathlib
 import re
 from typing import Any
@@ -36,34 +35,19 @@ REFERENCE_DB = "dcp_test_migration_ref"
 _EXCLUDED_TABLES = ("alembic_version", "spatial_ref_sys")
 
 
-def _load_migration_module() -> Any:
-    spec = importlib.util.spec_from_file_location("migration_0001", MIGRATION_FILE)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_migration_ddl_matches_normative_file() -> None:
-    """The embedded snapshot must equal 001_initial.sql byte for byte.
-
-    Runs without a database, so drift is caught even where docker is absent.
+def test_migration_creates_and_drops_every_table() -> None:
+    """Every table in the normative DDL has an op.create_table in upgrade()
+    and an op.drop_table in downgrade(). Runs without a database, so gross
+    drift is caught even where docker is absent; the ``db`` test does the
+    full column/constraint/index comparison.
     """
-    module = _load_migration_module()
-    assert module.DDL == DDL_FILE.read_text(), (
-        "migrations/versions/0001_initial_schema.py has drifted from "
-        "migrations/schema/001_initial.sql — the SQL file is normative; "
-        "update the migration's DDL snapshot to match it"
-    )
-
-
-def test_migration_downgrade_drops_every_table() -> None:
-    """Every table the DDL creates has a DROP TABLE in downgrade()."""
     source = MIGRATION_FILE.read_text()
-    created = set(re.findall(r"^CREATE TABLE (\w+)", DDL_FILE.read_text(), re.M))
-    downgrade_body = source.split("def downgrade")[1]
-    dropped = set(re.findall(r'DROP TABLE (\w+)"', downgrade_body))
-    assert dropped == created, f"missing drops: {created - dropped}, extra: {dropped - created}"
+    tables = set(re.findall(r"^CREATE TABLE (\w+)", DDL_FILE.read_text(), re.M))
+    upgrade_body, downgrade_body = source.split("def downgrade")
+    created = set(re.findall(r"op\.create_table\('(\w+)'", upgrade_body))
+    dropped = set(re.findall(r"op\.drop_table\('(\w+)'\)", downgrade_body))
+    assert created == tables, f"missing: {tables - created}, extra: {created - tables}"
+    assert dropped == tables, f"missing drops: {tables - dropped}, extra: {dropped - tables}"
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +216,7 @@ def postgres() -> Any:
     _run(_drop_databases())
 
 
+@pytest.mark.db
 def test_migration_up_down_up_matches_normative_schema(postgres: Any) -> None:
     from alembic import command
 
