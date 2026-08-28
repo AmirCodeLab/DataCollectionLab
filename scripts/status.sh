@@ -39,16 +39,29 @@ else
     printf '%s\n' "$PY_OUT" | tail -5 | sed 's/^/    | /'
 fi
 
+# Clear previous results first. Stale XML from a renamed or deleted test class
+# would otherwise be counted alongside the current run and inflate the totals.
+KT_DIR_PRE=shared/form-engine/build/test-results/jvmTest
+rm -rf "$KT_DIR_PRE"
+
 KT_OUT=$(./gradlew :shared:form-engine:jvmTest --rerun-tasks 2>&1)
 KT_STATUS=$?
-KT_XML=shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.ConformanceTest.xml
+# Match on the file pattern, not one hardcoded class name: renaming or moving
+# the test class must not make the script report a phantom failure.
+KT_DIR=shared/form-engine/build/test-results/jvmTest
+KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' 2>/dev/null)
 KT_RAN=0
 KT_FAILED=0
-if [ -f "$KT_XML" ]; then
-    KT_RAN=$(grep -o 'tests="[0-9]*"' "$KT_XML" | head -1 | grep -o '[0-9]*')
-    KT_FAILED=$(grep -o 'failures="[0-9]*"' "$KT_XML" | head -1 | grep -o '[0-9]*')
+if [ -n "$KT_XMLS" ]; then
+    KT_RAN=$(grep -ho 'tests="[0-9]*"' $KT_XMLS | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+    KT_FAILED=$(grep -ho 'failures="[0-9]*"' $KT_XMLS | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+    KT_ERRORS=$(grep -ho 'errors="[0-9]*"' $KT_XMLS | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+    KT_FAILED=$((KT_FAILED + KT_ERRORS))
+else
+    printf '  kotlin engine:    no TEST-*Conformance*.xml under %s\n' "$KT_DIR"
+    printf '                    (test class renamed, or the task did not run)\n'
 fi
-if [ "$KT_STATUS" -eq 0 ] && [ -f "$KT_XML" ]; then
+if [ "$KT_STATUS" -eq 0 ] && [ -n "$KT_XMLS" ]; then
     printf '  kotlin engine:    PASS  (%s/%s vectors)\n' "$KT_RAN" "$VECTORS"
 else
     printf '  kotlin engine:    FAIL  (%s ran, %s failed)\n' "$KT_RAN" "$KT_FAILED"
