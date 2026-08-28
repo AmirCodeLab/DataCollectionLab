@@ -41,6 +41,10 @@ data class EvalContext(
     val now: String,
     val row: Map<String, FormValue>? = null,
     val metadata: Map<String, FormValue> = emptyMap(),
+    /** (repeatId, instanceId) when evaluating inside a repeat instance. */
+    val scope: Pair<String, String>? = null,
+    /** repeat id -> ordered instance ids, for positional addressing. */
+    val instances: Map<String, List<String>>? = null,
 )
 
 object Evaluator {
@@ -60,15 +64,48 @@ object Evaluator {
         if (path.startsWith("_metadata.")) {
             return ctx.metadata[path.removePrefix("_metadata.")] ?: FormValue.Null
         }
-        if (path.endsWith("[]") || path.contains("[].")) {
-            val prefix = path.substringBefore("[]")
-            val suffix = if (path.contains("[].")) path.substringAfter("[].") else null
-            val items = ctx.values.entries
-                .filter { it.key.startsWith("$prefix[") }
-                .filter { suffix == null || it.key.endsWith(".$suffix") }
-                .map { it.value }
-            return FormValue.Sequence(items)
+
+        val instances = ctx.instances.orEmpty()
+
+        // members[].age -> sequence across every instance, in order (spec 4.2)
+        if ("[]." in path) {
+            val repeatId = path.substringBefore("[].")
+            val suffix = path.substringAfter("[].")
+            return FormValue.Sequence(
+                instances[repeatId].orEmpty().map {
+                    ctx.values["$repeatId[$it].$suffix"] ?: FormValue.Null
+                }
+            )
         }
+
+        // members[0].age -> a specific instance by position
+        if ("[" in path && "]." in path) {
+            val repeatId = path.substringBefore("[")
+            val rest = path.substringAfter("[")
+            val indexText = rest.substringBefore("].")
+            val suffix = rest.substringAfter("].")
+            if (indexText == ".") {
+                // members[.].age -> the current instance
+                val scope = ctx.scope
+                if (scope == null || scope.first != repeatId) {
+                    throw CompileException("[.] reference outside its repeat: $path")
+                }
+                return ctx.values["$repeatId[${scope.second}].$suffix"] ?: FormValue.Null
+            }
+            val ordered = instances[repeatId].orEmpty()
+            val index = indexText.toIntOrNull()
+                ?: throw CompileException("malformed positional reference: $path")
+            if (index < 0 || index >= ordered.size) {
+                return FormValue.Null // out-of-range instance reads as null, not an error
+            }
+            return ctx.values["$repeatId[${ordered[index]}].$suffix"] ?: FormValue.Null
+        }
+
+        // bare reference: current instance first, then outward to the form root
+        ctx.scope?.let { (repeatId, instanceId) ->
+            ctx.values["$repeatId[$instanceId].$path"]?.let { return it }
+        }
+
         return ctx.values[path] ?: throw CompileException("unresolvable reference: $path")
     }
 

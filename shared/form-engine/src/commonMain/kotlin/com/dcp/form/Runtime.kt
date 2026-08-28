@@ -29,12 +29,14 @@ class FieldState(
 }
 
 class CompiledField(
-    val path: String,
+    val fieldId: String,
     val node: QuestionNode,
     val dataType: String,
     val dependsOn: Set<String>,
     /** ids of enclosing groups/repeats, for relevance inheritance */
     val ancestors: List<String>,
+    /** innermost enclosing repeat id, if any */
+    val repeat: String?,
 )
 
 /** A validated form with its dependency graph resolved. */
@@ -43,6 +45,7 @@ class CompiledForm(val ir: FormIr) {
     val version: Int = ir.version
     val fields = LinkedHashMap<String, CompiledField>()
     val containers = LinkedHashMap<String, ContainerNode>()
+    val repeats = LinkedHashMap<String, RepeatNode>()
     val warnings = mutableListOf<String>()
     val order = mutableListOf<String>()
     val topoOrder: List<String>
@@ -78,6 +81,24 @@ class CompiledForm(val ir: FormIr) {
                 throw CompileException("duplicate id: ${node.id}")
             }
 
+            val enclosingRepeats = ancestors.filter { it in repeats }
+            if (enclosingRepeats.size > 1) {
+                throw CompileException(
+                    "nested repeats are not supported in IR v0.1 (field '${node.id}')"
+                )
+            }
+
+            if (node is RepeatNode) {
+                if (enclosingRepeats.isNotEmpty()) {
+                    throw CompileException(
+                        "nested repeats are not supported in IR v0.1 (repeat '${node.id}')"
+                    )
+                }
+                repeats[node.id] = node
+                containers[node.id] = node
+                return@walk
+            }
+
             if (node is ContainerNode) {
                 containers[node.id] = node
                 return@walk
@@ -98,11 +119,12 @@ class CompiledForm(val ir: FormIr) {
             }
 
             fields[node.id] = CompiledField(
-                path = node.id,
+                fieldId = node.id,
                 node = question,
                 dataType = question.dataType,
                 dependsOn = deps,
                 ancestors = ancestors,
+                repeat = enclosingRepeats.firstOrNull(),
             )
             order.add(node.id)
         }
@@ -114,7 +136,7 @@ class CompiledForm(val ir: FormIr) {
             for (dep in f.dependsOn) {
                 val base = dep.substringBefore("[").substringBefore(".")
                 if (base !in known) {
-                    throw CompileException("unresolvable reference '$dep' in field '${f.path}'")
+                    throw CompileException("unresolvable reference '$dep' in field '${f.fieldId}'")
                 }
             }
         }
@@ -161,115 +183,250 @@ class CompiledForm(val ir: FormIr) {
             val label = f.node.label ?: emptyMap()
             val missing = languages - label.keys
             if (missing.isNotEmpty()) {
-                warnings.add("${f.path}: missing translation for ${missing.sorted().joinToString(", ")}")
+                warnings.add("${f.fieldId}: missing translation for ${missing.sorted().joinToString(", ")}")
             }
             if (f.dataType == "decimal" && (f.node.constraint as? Expr.Op)?.op == "eq") {
-                warnings.add("${f.path}: direct equality comparison on a decimal field")
+                warnings.add("${f.fieldId}: direct equality comparison on a decimal field")
             }
         }
     }
 }
 
-/** A live answer state for one compiled form. */
+/**
+ * A live answer state for one compiled form.
+ *
+ * Canonical value paths:
+ *   top-level field   `age`
+ *   repeat field      `members[i3].age`   (`i3` is a stable instance id)
+ *
+ * Instance ids are stable: deleting an instance never renumbers the others in
+ * storage (spec 5.4). Positional addressing (`members[0].age`) resolves against
+ * the current ordered list at evaluation time.
+ */
 class FormInstance(
     val form: CompiledForm,
     private val today: String,
     private val now: String = "${today}T00:00:00",
     private val metadata: Map<String, FormValue> = emptyMap(),
 ) {
-    val values: MutableMap<String, FormValue> =
-        form.fields.keys.associateWithTo(LinkedHashMap()) { FormValue.Null }
-    val states: Map<String, FieldState> =
-        form.fields.entries.associate { (p, f) -> p to FieldState(p, f.dataType) }
+    /** repeat id -> ordered stable instance ids */
+    val instances: Map<String, MutableList<String>> =
+        form.repeats.keys.associateWithTo(LinkedHashMap()) { mutableListOf() }
+    private var instanceCounter = 0
+
+    val values: MutableMap<String, FormValue> = LinkedHashMap()
+    private val mutableStates = LinkedHashMap<String, FieldState>()
+    val states: Map<String, FieldState> get() = mutableStates
 
     init {
+        for ((fid, f) in form.fields) {
+            if (f.repeat == null) {
+                values[fid] = FormValue.Null
+                mutableStates[fid] = FieldState(fid, f.dataType)
+            }
+        }
+        for ((rid, node) in form.repeats) {
+            repeat(node.minInstances ?: 0) { createInstance(rid) }
+        }
         recalculate()
     }
+
+    // -- repeat instances --------------------------------------------------
+
+    private fun fieldsOf(repeatId: String): List<String> =
+        form.fields.entries.filter { it.value.repeat == repeatId }.map { it.key }
+
+    private fun createInstance(repeatId: String): String {
+        val instanceId = "i${++instanceCounter}"
+        instances.getValue(repeatId).add(instanceId)
+        for (fid in fieldsOf(repeatId)) {
+            val path = "$repeatId[$instanceId].$fid"
+            values[path] = FormValue.Null
+            mutableStates[path] = FieldState(path, form.fields.getValue(fid).dataType)
+        }
+        return instanceId
+    }
+
+    private fun destroyInstance(repeatId: String, instanceId: String) {
+        for (fid in fieldsOf(repeatId)) {
+            val path = "$repeatId[$instanceId].$fid"
+            values.remove(path)
+            mutableStates.remove(path)
+        }
+    }
+
+    fun addInstance(repeatId: String): String {
+        val node = form.repeats[repeatId] ?: throw CompileException("unknown repeat: $repeatId")
+        if (node.countExpr != null) {
+            throw CompileException(
+                "repeat $repeatId is controlled by countExpr; instances cannot be added"
+            )
+        }
+        val maximum = node.maxInstances
+        if (maximum != null && instances.getValue(repeatId).size >= maximum) {
+            throw CompileException("repeat $repeatId is at its maximum of $maximum")
+        }
+        val instanceId = createInstance(repeatId)
+        recalculate()
+        return instanceId
+    }
+
+    /** Deletes by position. Remaining instances keep their stable ids. */
+    fun deleteInstance(repeatId: String, index: Int) {
+        val ordered = instances[repeatId] ?: throw CompileException("unknown repeat: $repeatId")
+        if (index < 0 || index >= ordered.size) {
+            throw CompileException("no instance at $repeatId[$index]")
+        }
+        val instanceId = ordered.removeAt(index)
+        destroyInstance(repeatId, instanceId)
+        recalculate()
+    }
+
+    fun instanceCount(repeatId: String): Int = instances[repeatId]?.size ?: 0
 
     // -- answering ---------------------------------------------------------
 
-    fun set(path: String, value: FormValue) {
-        if (path !in form.fields) throw CompileException("unknown field: $path")
-        values[path] = value
-        recalculate()
+    /** Translates positional addressing into a stable-id path. */
+    fun canonical(path: String): String {
+        if ("[" in path && "]." in path) {
+            val repeatId = path.substringBefore("[")
+            val rest = path.substringAfter("[")
+            val indexText = rest.substringBefore("].")
+            val suffix = rest.substringAfter("].")
+            val ordered = instances[repeatId] ?: throw CompileException("unknown repeat: $repeatId")
+            if (indexText.isNotEmpty() && indexText.all { it.isDigit() }) {
+                val index = indexText.toInt()
+                if (index >= ordered.size) {
+                    throw CompileException("no instance at $repeatId[$index]")
+                }
+                return "$repeatId[${ordered[index]}].$suffix"
+            }
+            return path // already a stable id
+        }
+        return path
     }
+
+    fun set(path: String, value: FormValue) = setMany(mapOf(path to value))
 
     fun setMany(answers: Map<String, FormValue>) {
         for ((path, value) in answers) {
-            if (path !in form.fields) throw CompileException("unknown field: $path")
-            values[path] = value
+            val canonicalPath = canonical(path)
+            if (canonicalPath !in values) throw CompileException("unknown field: $path")
+            values[canonicalPath] = value
         }
         recalculate()
     }
 
     // -- evaluation --------------------------------------------------------
 
+    private fun context(scope: Pair<String, String>? = null): EvalContext = EvalContext(
+        values = values,
+        today = today,
+        now = now,
+        metadata = metadata,
+        scope = scope,
+        instances = instances,
+    )
+
+    private fun evaluateField(fid: String, path: String, scope: Pair<String, String>?) {
+        val cf = form.fields.getValue(fid)
+        val node = cf.node
+        val state = mutableStates.getValue(path)
+        val errors = mutableListOf<FieldError>()
+        val ctx = context(scope)
+
+        // 1. relevance, including inheritance from enclosing containers
+        var relevant = true
+        for (anc in cf.ancestors) {
+            val ancRelevant = form.containers[anc]?.relevant ?: continue
+            if (!Evaluator.coerceBoolean(Evaluator.evaluate(ancRelevant, ctx), nullIs = true)) {
+                relevant = false
+                break
+            }
+        }
+        if (relevant && node.relevant != null) {
+            relevant = Evaluator.coerceBoolean(Evaluator.evaluate(node.relevant, ctx), nullIs = true)
+        }
+        state.relevant = relevant
+
+        // 2. calculate
+        if (node.calculate != null && relevant) {
+            values[path] = Evaluator.evaluate(node.calculate, ctx)
+        }
+
+        state.value = values.getValue(path)
+
+        // 3. required
+        state.required = node.required?.let {
+            Evaluator.coerceBoolean(Evaluator.evaluate(it, ctx), nullIs = false)
+        } ?: false
+
+        // 4. readOnly
+        state.readOnly = node.readOnly?.let {
+            Evaluator.coerceBoolean(Evaluator.evaluate(it, ctx), nullIs = false)
+        } ?: false
+
+        // 5. constraint — only meaningful for relevant, answered fields
+        state.valid = true
+        if (relevant) {
+            if (state.required && state.value.isNull) {
+                state.valid = false
+                errors.add(FieldError(kind = "required"))
+            }
+            if (!state.value.isNull && node.constraint != null) {
+                val ok = Evaluator.coerceBoolean(Evaluator.evaluate(node.constraint, ctx), nullIs = true)
+                if (!ok) {
+                    state.valid = false
+                    errors.add(
+                        FieldError(
+                            kind = "constraint",
+                            message = node.constraintMessage,
+                            severity = node.severity ?: "error",
+                        )
+                    )
+                }
+            }
+        }
+        state.errors = errors
+    }
+
     /**
      * Full deterministic pass in topological order (spec 5.2), mirroring the
-     * reference implementation's full pass exactly.
+     * reference implementation's full pass exactly. A repeat field is evaluated
+     * once per instance, in instance order, before the pass moves to the next
+     * field, so a field outside a repeat that aggregates over one always sees
+     * fully-evaluated instances (spec 5.4).
      */
     fun recalculate() {
-        val ctx = EvalContext(values = values, today = today, now = now, metadata = metadata)
+        // countExpr governs instance count before anything inside is evaluated
+        for ((rid, node) in form.repeats) {
+            val countExpr = node.countExpr ?: continue
+            val counted = Evaluator.evaluate(countExpr, context())
+            val wanted = maxOf(
+                0,
+                when (counted) {
+                    is FormValue.Null -> 0
+                    is FormValue.Integer -> counted.value.toInt()
+                    is FormValue.Decimal -> counted.value.toInt()
+                    else -> throw EvaluationException("countExpr must be numeric, got $counted")
+                },
+            )
+            val ordered = instances.getValue(rid)
+            while (ordered.size < wanted) createInstance(rid)
+            while (ordered.size > wanted) {
+                destroyInstance(rid, ordered.removeAt(ordered.size - 1))
+            }
+        }
 
-        for (path in form.topoOrder) {
-            val cf = form.fields.getValue(path)
-            val node = cf.node
-            val state = states.getValue(path)
-            val errors = mutableListOf<FieldError>()
-
-            // 1. relevance, including inheritance from enclosing containers
-            var relevant = true
-            for (anc in cf.ancestors) {
-                val ancRelevant = form.containers[anc]?.relevant ?: continue
-                if (!Evaluator.coerceBoolean(Evaluator.evaluate(ancRelevant, ctx), nullIs = true)) {
-                    relevant = false
-                    break
+        for (fid in form.topoOrder) {
+            val cf = form.fields.getValue(fid)
+            if (cf.repeat == null) {
+                evaluateField(fid, fid, null)
+            } else {
+                for (instanceId in instances.getValue(cf.repeat).toList()) {
+                    evaluateField(fid, "${cf.repeat}[$instanceId].$fid", cf.repeat to instanceId)
                 }
             }
-            if (relevant && node.relevant != null) {
-                relevant = Evaluator.coerceBoolean(Evaluator.evaluate(node.relevant, ctx), nullIs = true)
-            }
-            state.relevant = relevant
-
-            // 2. calculate
-            if (node.calculate != null && relevant) {
-                values[path] = Evaluator.evaluate(node.calculate, ctx)
-            }
-
-            state.value = values.getValue(path)
-
-            // 3. required
-            state.required = node.required?.let {
-                Evaluator.coerceBoolean(Evaluator.evaluate(it, ctx), nullIs = false)
-            } ?: false
-
-            // 4. readOnly
-            state.readOnly = node.readOnly?.let {
-                Evaluator.coerceBoolean(Evaluator.evaluate(it, ctx), nullIs = false)
-            } ?: false
-
-            // 5. constraint — only meaningful for relevant, answered fields
-            state.valid = true
-            if (relevant) {
-                if (state.required && state.value.isNull) {
-                    state.valid = false
-                    errors.add(FieldError(kind = "required"))
-                }
-                if (!state.value.isNull && node.constraint != null) {
-                    val ok = Evaluator.coerceBoolean(Evaluator.evaluate(node.constraint, ctx), nullIs = true)
-                    if (!ok) {
-                        state.valid = false
-                        errors.add(
-                            FieldError(
-                                kind = "constraint",
-                                message = node.constraintMessage,
-                                severity = node.severity ?: "error",
-                            )
-                        )
-                    }
-                }
-            }
-            state.errors = errors
         }
     }
 
@@ -300,7 +457,9 @@ fun collectRefs(expr: Expr, out: MutableSet<String>) {
         is Expr.Ref -> {
             val path = expr.path
             if (!path.startsWith("\$row.") && !path.startsWith("_metadata.")) {
-                out.add(path.replace("[]", "").replace("[.]", ""))
+                // members[].age / members[0].age / members[.].age all depend on `age`
+                if ("]." in path) out.add(path.substringAfter("]."))
+                else out.add(path)
             }
         }
         is Expr.Op -> expr.args.forEach { collectRefs(it, out) }

@@ -42,6 +42,15 @@ fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit
 
     vector.getValue("steps").jsonArray.forEachIndexed { i, stepElement ->
         val step = stepElement.jsonObject
+        step["addInstance"]?.jsonPrimitive?.content?.let { repeatId ->
+            instance.addInstance(repeatId)
+        }
+        step["deleteInstance"]?.jsonObject?.let { deletion ->
+            instance.deleteInstance(
+                deletion.getValue("repeat").jsonPrimitive.content,
+                deletion.getValue("index").jsonPrimitive.content.toInt(),
+            )
+        }
         step["set"]?.jsonObject?.let { answers ->
             instance.setMany(answers.mapValues { formValueFromJson(it.value) })
         }
@@ -82,14 +91,17 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
     ) {
         val where = "$vectorId step $stepIndex"
 
+        // Vectors address repeat fields positionally; resolve to canonical paths.
+        fun state(path: String): FieldState = instance.states.getValue(instance.canonical(path))
+
         expect["relevant"]?.jsonObject?.forEach { (path, want) ->
-            val got = instance.states.getValue(path).relevant
+            val got = state(path).relevant
             assertEquals(want.jsonPrimitive.content.toBoolean(), got, "$where: relevant[$path]")
         }
 
         expect["values"]?.jsonObject?.forEach { (path, wantJson) ->
             val want = formValueFromJson(wantJson)
-            val got = instance.states.getValue(path).value
+            val got = state(path).value
             assertTrue(
                 formValuesEqual(got, want),
                 "$where: values[$path] expected $want, got $got",
@@ -97,19 +109,24 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
         }
 
         expect["required"]?.jsonObject?.forEach { (path, want) ->
-            val got = instance.states.getValue(path).required
+            val got = state(path).required
             assertEquals(want.jsonPrimitive.content.toBoolean(), got, "$where: required[$path]")
         }
 
         expect["valid"]?.jsonObject?.forEach { (path, want) ->
-            val got = instance.states.getValue(path).valid
+            val got = state(path).valid
             assertEquals(want.jsonPrimitive.content.toBoolean(), got, "$where: valid[$path]")
         }
 
         expect["errors"]?.jsonObject?.forEach { (path, wantKinds) ->
-            val got = instance.states.getValue(path).errors.map { it.kind }
+            val got = state(path).errors.map { it.kind }
             val want = wantKinds.jsonArray.map { it.jsonPrimitive.content }
             assertEquals(want, got, "$where: errors[$path]")
+        }
+
+        expect["instanceCount"]?.jsonObject?.forEach { (repeatId, want) ->
+            val got = instance.instanceCount(repeatId)
+            assertEquals(want.jsonPrimitive.content.toInt(), got, "$where: instanceCount[$repeatId]")
         }
 
         expect["formValid"]?.let { want ->
