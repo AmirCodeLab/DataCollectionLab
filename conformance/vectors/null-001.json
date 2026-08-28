@@ -1,0 +1,115 @@
+{
+  "id": "null-001",
+  "description": "false dominates null in AND; true dominates null in OR",
+  "spec": "4.4.5, 4.4.6",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "null1",
+    "version": 1,
+    "title": {
+      "en": "null1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "boolean",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "boolean",
+        "label": {
+          "en": "B"
+        }
+      },
+      {
+        "type": "question",
+        "id": "and_result",
+        "dataType": "boolean",
+        "label": {
+          "en": "And Result"
+        },
+        "calculate": {
+          "op": "and",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "or_result",
+        "dataType": "boolean",
+        "label": {
+          "en": "Or Result"
+        },
+        "calculate": {
+          "op": "or",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": false
+      },
+      "expect": {
+        "values": {
+          "and_result": false,
+          "or_result": null
+        }
+      }
+    },
+    {
+      "set": {
+        "a": true
+      },
+      "expect": {
+        "values": {
+          "and_result": null,
+          "or_result": true
+        }
+      }
+    },
+    {
+      "set": {
+        "b": true
+      },
+      "expect": {
+        "values": {
+          "and_result": true,
+          "or_result": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "id": "relevance-002",
+  "description": "Null relevance shows the question — never hide data because of missing input",
+  "spec": "4.4.7",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rel2",
+    "version": 1,
+    "title": {
+      "en": "rel2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "age",
+        "dataType": "integer",
+        "label": {
+          "en": "Age"
+        }
+      },
+      {
+        "type": "question",
+        "id": "employed",
+        "dataType": "boolean",
+        "label": {
+          "en": "Employed"
+        },
+        "relevant": {
+          "op": "gte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "age"
+            },
+            {
+              "op": "lit",
+              "value": 18
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "relevant": {
+          "employed": true
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 17
+      },
+      "expect": {
+        "relevant": {
+          "employed": false
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 18
+      },
+      "expect": {
+        "relevant": {
+          "employed": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "id": "constraint-002",
+  "description": "A required, relevant, unanswered field is invalid; hiding it makes the form valid",
+  "spec": "6",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "con2",
+    "version": 1,
+    "title": {
+      "en": "con2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "has_children",
+        "dataType": "boolean",
+        "label": {
+          "en": "Has Children"
+        }
+      },
+      {
+        "type": "question",
+        "id": "child_count",
+        "dataType": "integer",
+        "label": {
+          "en": "Child Count"
+        },
+        "required": true,
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "has_children"
+            },
+            {
+              "op": "lit",
+              "value": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "has_children": true
+      },
+      "expect": {
+        "valid": {
+          "child_count": false
+        },
+        "errors": {
+          "child_count": [
+            "required"
+          ]
+        },
+        "formValid": false
+      }
+    },
+    {
+      "set": {
+        "has_children": false
+      },
+      "expect": {
+        "formValid": true
+      }
+    },
+    {
+      "set": {
+        "has_children": true,
+        "child_count": 2
+      },
+      "expect": {
+        "formValid": true
+      }
+    }
+  ]
+}

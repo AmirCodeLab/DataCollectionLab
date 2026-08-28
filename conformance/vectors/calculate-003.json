@@ -1,0 +1,80 @@
+{
+  "id": "calculate-003",
+  "description": "round uses half away from zero, not banker's rounding",
+  "spec": "4.5",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "calc3",
+    "version": 1,
+    "title": {
+      "en": "calc3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "x",
+        "dataType": "decimal",
+        "label": {
+          "en": "X"
+        }
+      },
+      {
+        "type": "question",
+        "id": "r",
+        "dataType": "integer",
+        "label": {
+          "en": "R"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "ref",
+              "path": "x"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "x": 2.5
+      },
+      "expect": {
+        "values": {
+          "r": 3
+        }
+      }
+    },
+    {
+      "set": {
+        "x": 3.5
+      },
+      "expect": {
+        "values": {
+          "r": 4
+        }
+      }
+    },
+    {
+      "set": {
+        "x": -2.5
+      },
+      "expect": {
+        "values": {
+          "r": -3
+        }
+      }
+    }
+  ]
+}

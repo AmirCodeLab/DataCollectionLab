@@ -1,0 +1,90 @@
+{
+  "id": "null-002",
+  "description": "Comparison with null yields null, not false",
+  "spec": "4.4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "null2",
+    "version": 1,
+    "title": {
+      "en": "null2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "x",
+        "dataType": "integer",
+        "label": {
+          "en": "X"
+        }
+      },
+      {
+        "type": "question",
+        "id": "cmp",
+        "dataType": "boolean",
+        "label": {
+          "en": "Cmp"
+        },
+        "calculate": {
+          "op": "gt",
+          "args": [
+            {
+              "op": "ref",
+              "path": "x"
+            },
+            {
+              "op": "lit",
+              "value": 10
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "is_missing",
+        "dataType": "boolean",
+        "label": {
+          "en": "Is Missing"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "is_null",
+          "args": [
+            {
+              "op": "ref",
+              "path": "x"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "cmp": null,
+          "is_missing": true
+        }
+      }
+    },
+    {
+      "set": {
+        "x": 11
+      },
+      "expect": {
+        "values": {
+          "cmp": true,
+          "is_missing": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "id": "relevance-004",
+  "description": "Group relevance is inherited by every child",
+  "spec": "2.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rel4",
+    "version": 1,
+    "title": {
+      "en": "rel4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "consent",
+        "dataType": "boolean",
+        "label": {
+          "en": "Consent"
+        }
+      },
+      {
+        "type": "group",
+        "id": "details",
+        "label": {
+          "en": "Details"
+        },
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "consent"
+            },
+            {
+              "op": "lit",
+              "value": true
+            }
+          ]
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "phone",
+            "dataType": "text",
+            "label": {
+              "en": "Phone"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "consent": false
+      },
+      "expect": {
+        "relevant": {
+          "name": false,
+          "phone": false
+        }
+      }
+    },
+    {
+      "set": {
+        "consent": true
+      },
+      "expect": {
+        "relevant": {
+          "name": true,
+          "phone": true
+        }
+      }
+    }
+  ]
+}

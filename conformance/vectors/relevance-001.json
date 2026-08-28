@@ -1,0 +1,97 @@
+{
+  "id": "relevance-001",
+  "description": "A question is hidden when its relevance expression is false",
+  "spec": "5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rel1",
+    "version": 1,
+    "title": {
+      "en": "rel1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "sex",
+        "dataType": "select_one",
+        "label": {
+          "en": "Sex"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "m",
+              "label": {
+                "en": "Male"
+              }
+            },
+            {
+              "value": "f",
+              "label": {
+                "en": "Female"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "pregnant",
+        "dataType": "boolean",
+        "label": {
+          "en": "Pregnant"
+        },
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "sex"
+            },
+            {
+              "op": "lit",
+              "value": "f"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "relevant": {
+          "pregnant": true
+        }
+      }
+    },
+    {
+      "set": {
+        "sex": "m"
+      },
+      "expect": {
+        "relevant": {
+          "pregnant": false
+        }
+      }
+    },
+    {
+      "set": {
+        "sex": "f"
+      },
+      "expect": {
+        "relevant": {
+          "pregnant": true
+        }
+      }
+    }
+  ]
+}

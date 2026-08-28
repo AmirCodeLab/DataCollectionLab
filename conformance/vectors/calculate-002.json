@@ -1,0 +1,80 @@
+{
+  "id": "calculate-002",
+  "description": "age_years computes whole years and respects the birthday boundary",
+  "spec": "4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "calc2",
+    "version": 1,
+    "title": {
+      "en": "calc2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "dob",
+        "dataType": "date",
+        "label": {
+          "en": "Dob"
+        }
+      },
+      {
+        "type": "question",
+        "id": "age",
+        "dataType": "integer",
+        "label": {
+          "en": "Age"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "age_years",
+          "args": [
+            {
+              "op": "ref",
+              "path": "dob"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "dob": "2000-08-28"
+      },
+      "expect": {
+        "values": {
+          "age": 26
+        }
+      }
+    },
+    {
+      "set": {
+        "dob": "2000-08-29"
+      },
+      "expect": {
+        "values": {
+          "age": 25
+        }
+      }
+    },
+    {
+      "set": {
+        "dob": null
+      },
+      "expect": {
+        "values": {
+          "age": null
+        }
+      }
+    }
+  ]
+}

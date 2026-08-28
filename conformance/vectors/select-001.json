@@ -1,0 +1,129 @@
+{
+  "id": "select-001",
+  "description": "selected() tests membership in a multi-select; order is insensitive",
+  "spec": "4.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "sel1",
+    "version": 1,
+    "title": {
+      "en": "sel1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "symptoms",
+        "dataType": "select_multiple",
+        "label": {
+          "en": "Symptoms"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "fever",
+              "label": {
+                "en": "Fever"
+              }
+            },
+            {
+              "value": "cough",
+              "label": {
+                "en": "Cough"
+              }
+            },
+            {
+              "value": "rash",
+              "label": {
+                "en": "Rash"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "has_fever",
+        "dataType": "boolean",
+        "label": {
+          "en": "Has Fever"
+        },
+        "calculate": {
+          "op": "selected",
+          "args": [
+            {
+              "op": "ref",
+              "path": "symptoms"
+            },
+            {
+              "op": "lit",
+              "value": "fever"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "n",
+        "dataType": "integer",
+        "label": {
+          "en": "N"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "count_selected",
+          "args": [
+            {
+              "op": "ref",
+              "path": "symptoms"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "has_fever": null,
+          "n": 0
+        }
+      }
+    },
+    {
+      "set": {
+        "symptoms": [
+          "cough",
+          "fever"
+        ]
+      },
+      "expect": {
+        "values": {
+          "has_fever": true,
+          "n": 2
+        }
+      }
+    },
+    {
+      "set": {
+        "symptoms": [
+          "rash"
+        ]
+      },
+      "expect": {
+        "values": {
+          "has_fever": false,
+          "n": 1
+        }
+      }
+    }
+  ]
+}

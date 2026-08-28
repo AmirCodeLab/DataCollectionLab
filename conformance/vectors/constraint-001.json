@@ -1,0 +1,98 @@
+{
+  "id": "constraint-001",
+  "description": "A constraint only fails on an answered, relevant field",
+  "spec": "6",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "con1",
+    "version": 1,
+    "title": {
+      "en": "con1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "age",
+        "dataType": "integer",
+        "label": {
+          "en": "Age"
+        },
+        "constraint": {
+          "op": "and",
+          "args": [
+            {
+              "op": "gte",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "age"
+                },
+                {
+                  "op": "lit",
+                  "value": 0
+                }
+              ]
+            },
+            {
+              "op": "lte",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "age"
+                },
+                {
+                  "op": "lit",
+                  "value": 120
+                }
+              ]
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Age must be between 0 and 120"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "valid": {
+          "age": true
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 150
+      },
+      "expect": {
+        "valid": {
+          "age": false
+        },
+        "errors": {
+          "age": [
+            "constraint"
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 30
+      },
+      "expect": {
+        "valid": {
+          "age": true
+        }
+      }
+    }
+  ]
+}

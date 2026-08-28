@@ -1,0 +1,115 @@
+{
+  "id": "null-003",
+  "description": "Arithmetic with null yields null; division by zero yields null",
+  "spec": "4.4.2, 4.4.8",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "null3",
+    "version": 1,
+    "title": {
+      "en": "null3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "integer",
+        "label": {
+          "en": "B"
+        }
+      },
+      {
+        "type": "question",
+        "id": "total",
+        "dataType": "integer",
+        "label": {
+          "en": "Total"
+        },
+        "calculate": {
+          "op": "add",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "ratio",
+        "dataType": "decimal",
+        "label": {
+          "en": "Ratio"
+        },
+        "calculate": {
+          "op": "div",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": 5
+      },
+      "expect": {
+        "values": {
+          "total": null,
+          "ratio": null
+        }
+      }
+    },
+    {
+      "set": {
+        "b": 0
+      },
+      "expect": {
+        "values": {
+          "total": 5,
+          "ratio": null
+        }
+      }
+    },
+    {
+      "set": {
+        "b": 2
+      },
+      "expect": {
+        "values": {
+          "total": 7,
+          "ratio": 2.5
+        }
+      }
+    }
+  ]
+}

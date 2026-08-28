@@ -1,0 +1,96 @@
+{
+  "id": "calculate-001",
+  "description": "Chained calculations resolve in dependency order regardless of document order",
+  "spec": "5.1, 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "calc1",
+    "version": 1,
+    "title": {
+      "en": "calc1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "c",
+        "dataType": "integer",
+        "label": {
+          "en": "C"
+        },
+        "calculate": {
+          "op": "mul",
+          "args": [
+            {
+              "op": "ref",
+              "path": "b"
+            },
+            {
+              "op": "lit",
+              "value": 2
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "integer",
+        "label": {
+          "en": "B"
+        },
+        "calculate": {
+          "op": "add",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "lit",
+              "value": 10
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": 5
+      },
+      "expect": {
+        "values": {
+          "b": 15,
+          "c": 30
+        }
+      }
+    },
+    {
+      "set": {
+        "a": 1
+      },
+      "expect": {
+        "values": {
+          "b": 11,
+          "c": 22
+        }
+      }
+    }
+  ]
+}

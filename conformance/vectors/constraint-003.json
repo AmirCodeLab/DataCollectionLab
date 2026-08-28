@@ -1,0 +1,75 @@
+{
+  "id": "constraint-003",
+  "description": "Conditional required: only required when another answer demands it",
+  "spec": "2.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "con3",
+    "version": 1,
+    "title": {
+      "en": "con3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "employed",
+        "dataType": "boolean",
+        "label": {
+          "en": "Employed"
+        }
+      },
+      {
+        "type": "question",
+        "id": "employer",
+        "dataType": "text",
+        "label": {
+          "en": "Employer"
+        },
+        "required": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "employed"
+            },
+            {
+              "op": "lit",
+              "value": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "employed": false
+      },
+      "expect": {
+        "required": {
+          "employer": false
+        },
+        "formValid": true
+      }
+    },
+    {
+      "set": {
+        "employed": true
+      },
+      "expect": {
+        "required": {
+          "employer": true
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

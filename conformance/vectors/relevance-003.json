@@ -1,0 +1,95 @@
+{
+  "id": "relevance-003",
+  "description": "A non-relevant field retains its value but is excluded from answers",
+  "spec": "5.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rel3",
+    "version": 1,
+    "title": {
+      "en": "rel3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "has_job",
+        "dataType": "boolean",
+        "label": {
+          "en": "Has Job"
+        }
+      },
+      {
+        "type": "question",
+        "id": "employer",
+        "dataType": "text",
+        "label": {
+          "en": "Employer"
+        },
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "has_job"
+            },
+            {
+              "op": "lit",
+              "value": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "has_job": true,
+        "employer": "Acme"
+      }
+    },
+    {
+      "expect": {
+        "relevant": {
+          "employer": true
+        },
+        "values": {
+          "employer": "Acme"
+        }
+      }
+    },
+    {
+      "set": {
+        "has_job": false
+      },
+      "expect": {
+        "relevant": {
+          "employer": false
+        },
+        "values": {
+          "employer": "Acme"
+        }
+      }
+    },
+    {
+      "set": {
+        "has_job": true
+      },
+      "expect": {
+        "relevant": {
+          "employer": true
+        },
+        "values": {
+          "employer": "Acme"
+        }
+      }
+    }
+  ]
+}

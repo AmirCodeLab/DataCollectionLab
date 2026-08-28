@@ -1,0 +1,100 @@
+{
+  "id": "determinism-002",
+  "description": "The same answers applied in reverse order produce the same state",
+  "spec": "5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "det2",
+    "version": 1,
+    "title": {
+      "en": "det2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "integer",
+        "label": {
+          "en": "B"
+        }
+      },
+      {
+        "type": "question",
+        "id": "total",
+        "dataType": "integer",
+        "label": {
+          "en": "Total"
+        },
+        "calculate": {
+          "op": "add",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "flag",
+        "dataType": "boolean",
+        "label": {
+          "en": "Flag"
+        },
+        "calculate": {
+          "op": "gt",
+          "args": [
+            {
+              "op": "ref",
+              "path": "total"
+            },
+            {
+              "op": "lit",
+              "value": 10
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "b": 9
+      }
+    },
+    {
+      "set": {
+        "a": 4
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "total": 13,
+          "flag": true
+        }
+      }
+    }
+  ]
+}

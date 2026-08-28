@@ -1,0 +1,100 @@
+{
+  "id": "determinism-001",
+  "description": "Answer arrival order does not affect the final state",
+  "spec": "5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "det1",
+    "version": 1,
+    "title": {
+      "en": "det1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "integer",
+        "label": {
+          "en": "B"
+        }
+      },
+      {
+        "type": "question",
+        "id": "total",
+        "dataType": "integer",
+        "label": {
+          "en": "Total"
+        },
+        "calculate": {
+          "op": "add",
+          "args": [
+            {
+              "op": "ref",
+              "path": "a"
+            },
+            {
+              "op": "ref",
+              "path": "b"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "flag",
+        "dataType": "boolean",
+        "label": {
+          "en": "Flag"
+        },
+        "calculate": {
+          "op": "gt",
+          "args": [
+            {
+              "op": "ref",
+              "path": "total"
+            },
+            {
+              "op": "lit",
+              "value": 10
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": 4
+      }
+    },
+    {
+      "set": {
+        "b": 9
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "total": 13,
+          "flag": true
+        }
+      }
+    }
+  ]
+}

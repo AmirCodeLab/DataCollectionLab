@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* RTL support is a first-class requirement, not a retrofit.
+   Use logical properties (margin-inline-start, not margin-left) throughout. */
+:root {
+  color-scheme: light dark;
+}
