@@ -1,0 +1,79 @@
+{
+  "id": "wrap-multi-001",
+  "type": "wrap",
+  "description": "One content key wrapped to three project keys; each private key unwraps it",
+  "spec": "4.3",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "contentKeyId": "01J9TESTCONTENTKEY0000000A",
+      "projectKeyId": "01J9TESTPROJECTKEY0PRIMARY",
+      "recipientPublicKey": "e7a0ed1ad488a5ff884c273c2a17b3d2cee3195f22308326f3845f70a85b5a2b",
+      "recipientPrivateKey": "40474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b1219",
+      "ephemeralPrivateKey": "a1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a",
+      "nonce": "b1b8bfc6cdd4dbe2e9f0f7fe",
+      "expected": {
+        "ephemeralPublic": "09dd0412af2f37049ba1fc5a3495629d4ab401379067c2364b299ccb86798f0f",
+        "wrappedKey": "8af2212d1914bbb0a92730578c5b271d5fb0030b4b76bb7090fbd95d83255e191c3accd7fc1fa4d95f483a5e2be5ec8a"
+      },
+      "tamper": [
+        {
+          "field": "projectKeyId",
+          "value": "01J9TESTPROJECTKEYEVIL0000"
+        },
+        {
+          "field": "contentKeyId",
+          "value": "01J9TESTCONTENTKEY0000000B"
+        }
+      ]
+    },
+    {
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "contentKeyId": "01J9TESTCONTENTKEY0000000A",
+      "projectKeyId": "01J9TESTPROJECTKEY00BACKUP",
+      "recipientPublicKey": "262164287dd4b28b2833b6248eddfcd7438793463958855a0b21c87ccb34a35e",
+      "recipientPrivateKey": "60676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b3239",
+      "ephemeralPrivateKey": "a2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b",
+      "nonce": "b2b9c0c7ced5dce3eaf1f8ff",
+      "expected": {
+        "ephemeralPublic": "3dbd99c38db6e3d927e98ff714c3479e49756dbb61c0b8df8758e7ddb1b3961a",
+        "wrappedKey": "e62b4a0f70c353edc29105d91b35664bb09ef7fae99ca1ec37c14c67027a303e6e75eef5c7af50df4b5b66bcf9f6fdef"
+      },
+      "tamper": [
+        {
+          "field": "projectKeyId",
+          "value": "01J9TESTPROJECTKEYEVIL0000"
+        },
+        {
+          "field": "contentKeyId",
+          "value": "01J9TESTCONTENTKEY0000000B"
+        }
+      ]
+    },
+    {
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "contentKeyId": "01J9TESTCONTENTKEY0000000A",
+      "projectKeyId": "01J9TESTPROJECTKEYRECOVERY",
+      "recipientPublicKey": "cd179414145609b711a259146245ee4d9d6c92ae23380fdcd917c21f49809a7c",
+      "recipientPrivateKey": "80878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b5259",
+      "ephemeralPrivateKey": "a3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c",
+      "nonce": "b3bac1c8cfd6dde4ebf2f900",
+      "expected": {
+        "ephemeralPublic": "d83ef30d462b8d1618485446fe6a06fa21541ce2697aaa55a527459ab37d3763",
+        "wrappedKey": "8cc08cec3e1b581d99943ebdadb926f90c60d79604c04090c32c033c2588d6ce1ca195c3c846b73978c6431c64f427c6"
+      },
+      "tamper": [
+        {
+          "field": "projectKeyId",
+          "value": "01J9TESTPROJECTKEYEVIL0000"
+        },
+        {
+          "field": "contentKeyId",
+          "value": "01J9TESTCONTENTKEY0000000B"
+        }
+      ]
+    }
+  ]
+}

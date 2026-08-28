@@ -1,0 +1,115 @@
+{
+  "id": "canonical-json-001",
+  "type": "canonical_json",
+  "description": "Scalar canonicalisation: Python repr float formatting, UTF-8, escapes",
+  "spec": "5.1",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "name": "null",
+      "value": null,
+      "expected": "6e756c6c"
+    },
+    {
+      "name": "true",
+      "value": true,
+      "expected": "74727565"
+    },
+    {
+      "name": "false",
+      "value": false,
+      "expected": "66616c7365"
+    },
+    {
+      "name": "zero",
+      "value": 0,
+      "expected": "30"
+    },
+    {
+      "name": "negative int",
+      "value": -17,
+      "expected": "2d3137"
+    },
+    {
+      "name": "large int",
+      "value": 1234567890123456789,
+      "expected": "31323334353637383930313233343536373839"
+    },
+    {
+      "name": "simple decimal",
+      "value": 3.14,
+      "expected": "332e3134"
+    },
+    {
+      "name": "half",
+      "value": 0.5,
+      "expected": "302e35"
+    },
+    {
+      "name": "negative small decimal",
+      "value": -0.0075,
+      "expected": "2d302e30303735"
+    },
+    {
+      "name": "integral float keeps .0",
+      "value": 100.0,
+      "expected": "3130302e30"
+    },
+    {
+      "name": "fixed threshold high",
+      "value": 9999999999999998.0,
+      "expected": "393939393939393939393939393939382e30"
+    },
+    {
+      "name": "scientific high",
+      "value": 1e+16,
+      "expected": "31652b3136"
+    },
+    {
+      "name": "scientific high mantissa",
+      "value": 1.5e+16,
+      "expected": "312e35652b3136"
+    },
+    {
+      "name": "fixed threshold low",
+      "value": 0.0001,
+      "expected": "302e30303031"
+    },
+    {
+      "name": "scientific low",
+      "value": 1e-05,
+      "expected": "31652d3035"
+    },
+    {
+      "name": "negative zero float",
+      "value": -0.0,
+      "expected": "2d302e30"
+    },
+    {
+      "name": "ascii string",
+      "value": "hello",
+      "expected": "2268656c6c6f22"
+    },
+    {
+      "name": "unicode string",
+      "value": "héllo ✓ عربي",
+      "expected": "2268c3a96c6c6f20e29c9320d8b9d8b1d8a8d98a22"
+    },
+    {
+      "name": "emoji surrogate pair",
+      "value": "family 👍",
+      "expected": "2266616d696c7920f09f918d22"
+    },
+    {
+      "name": "escapes",
+      "value": "quote \" backslash \\ newline \n tab \t",
+      "expected": "2271756f7465205c22206261636b736c617368205c5c206e65776c696e65205c6e20746162205c7422"
+    },
+    {
+      "name": "control char",
+      "value": "bell \u0007 unit sep \u001f",
+      "expected": "2262656c6c205c753030303720756e697420736570205c753030316622"
+    }
+  ]
+}

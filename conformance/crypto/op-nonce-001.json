@@ -1,0 +1,40 @@
+{
+  "id": "op-nonce-001",
+  "type": "op_nonce",
+  "description": "Deterministic operation nonces from (deviceId, counter)",
+  "spec": "4.5",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "deviceId": "device-a",
+      "counter": 0,
+      "expected": "0fa13c7b3f84ae38983c10db"
+    },
+    {
+      "deviceId": "device-a",
+      "counter": 1,
+      "expected": "955ba2eeae4cba726f2c5624"
+    },
+    {
+      "deviceId": "device-a",
+      "counter": 1099511627776,
+      "expected": "b346c5202afde3824cb85c46"
+    },
+    {
+      "deviceId": "device-b",
+      "counter": 0,
+      "expected": "8df2dba4c2a34c91dc9d7a8f"
+    },
+    {
+      "deviceId": "جهاز-١",
+      "counter": 7,
+      "expected": "582e8d20fbcbae1b7ab7a693"
+    },
+    {
+      "deviceId": "device-a",
+      "counter": -1,
+      "expectError": true
+    }
+  ]
+}

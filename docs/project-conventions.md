@@ -162,7 +162,9 @@ docker compose up
 2. Sync protocol specification — drafted, needs conflict-resolution detail
 3. ERD / database schema — DDL + spec done; Alembic migration pending
 4. OpenAPI contract — skeleton only
-5. Encryption envelope design — spec + Python reference done; Kotlin port pending
+5. Encryption envelope design — spec, Python reference, Kotlin port and crypto
+   conformance vectors (`conformance/crypto/`) done; both implementations
+   produce byte-identical ciphertext
 6. iOS Compose spike — not started
 
 Do not start Phase 1 (builder UI, Android app) until 1 and 2 are stable.

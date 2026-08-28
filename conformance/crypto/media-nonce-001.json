@@ -1,0 +1,30 @@
+{
+  "id": "media-nonce-001",
+  "type": "media_nonce",
+  "description": "Deterministic media chunk nonces from (mediaId, chunkIndex)",
+  "spec": "6",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "mediaId": "01J9TESTMEDIA000000000000A",
+      "chunkIndex": 0,
+      "expected": "d1227fad9d3b979bcaa3b251"
+    },
+    {
+      "mediaId": "01J9TESTMEDIA000000000000A",
+      "chunkIndex": 1,
+      "expected": "c801a91b2411b000e11b1d1f"
+    },
+    {
+      "mediaId": "01J9TESTMEDIA000000000000A",
+      "chunkIndex": 255,
+      "expected": "9822e5612a424894d410834d"
+    },
+    {
+      "mediaId": "01J9TESTMEDIA000000000000B",
+      "chunkIndex": 0,
+      "expected": "f565f25c1d575f41980b25a5"
+    }
+  ]
+}

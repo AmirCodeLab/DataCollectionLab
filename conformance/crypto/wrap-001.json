@@ -1,0 +1,33 @@
+{
+  "id": "wrap-001",
+  "type": "wrap",
+  "description": "X25519 + HKDF-SHA256 + AES-256-GCM content key wrap, single recipient",
+  "spec": "4.4",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "contentKeyId": "01J9TESTCONTENTKEY0000000A",
+      "projectKeyId": "01J9TESTPROJECTKEY0PRIMARY",
+      "recipientPublicKey": "e7a0ed1ad488a5ff884c273c2a17b3d2cee3195f22308326f3845f70a85b5a2b",
+      "recipientPrivateKey": "40474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b1219",
+      "ephemeralPrivateKey": "a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b7279",
+      "nonce": "b0b7bec5ccd3dae1e8eff6fd",
+      "expected": {
+        "ephemeralPublic": "3e45cee0e77a28fc15e971c59288c5fa1ba562e6630cfa637f26783c20d47631",
+        "wrappedKey": "4906da6df65968a4d6cfeb0d1cac920181978f8e06de46b9128874cca89f0d820875c6388e85c7189cc98fe5f4952e0e"
+      },
+      "tamper": [
+        {
+          "field": "projectKeyId",
+          "value": "01J9TESTPROJECTKEYEVIL0000"
+        },
+        {
+          "field": "contentKeyId",
+          "value": "01J9TESTCONTENTKEY0000000B"
+        }
+      ]
+    }
+  ]
+}

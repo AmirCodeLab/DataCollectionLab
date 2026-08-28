@@ -1,0 +1,248 @@
+{
+  "id": "op-value-001",
+  "type": "op_value",
+  "description": "Operation value encryption: canonical JSON plaintext, derived nonce, location-bound AAD",
+  "spec": "5",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "name": "string value",
+      "value": "Amina",
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000000",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "name",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 0,
+      "expected": {
+        "nonce": "0fa13c7b3f84ae38983c10db",
+        "ciphertext": "9cd2c3e4c7b74e7bbc36821f5e459dfa89a4fbca6b20e2"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "int value",
+      "value": 34,
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000001",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "age",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 1,
+      "expected": {
+        "nonce": "955ba2eeae4cba726f2c5624",
+        "ciphertext": "25749f4b16df95228d777cd05c861196b783"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "decimal value",
+      "value": 12.5,
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000002",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "weight_kg",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 2,
+      "expected": {
+        "nonce": "cd35b4bf30571ca22567083c",
+        "ciphertext": "0ee8b44e4732ca44357ece9d1daf145da0e7c427"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "null value",
+      "value": null,
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000003",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "notes",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 3,
+      "expected": {
+        "nonce": "35af7935208b91ee70d08b2f",
+        "ciphertext": "759cba293d0aaaa589c884d2d09fe20f2f002a6e"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "array value",
+      "value": [
+        "opt_a",
+        "opt_c"
+      ],
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000004",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "symptoms",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 4,
+      "expected": {
+        "nonce": "d6d6bbffa725e753db881135",
+        "ciphertext": "83f2b078755eb051814216453d3a5ffdfb6f4e28747e76e01d8c3a00e2685d5aca"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "object value",
+      "value": {
+        "lat": 31.95,
+        "lon": 35.91,
+        "acc": 4.0
+      },
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000005",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "location",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 5,
+      "expected": {
+        "nonce": "1d8ee5c8474ecbb50517c00c",
+        "ciphertext": "d0311f8607a68e77110f2c96e249a6edc077cc9de58a639deb1cc989f8227f448368f8d94d821d3b072a89afdc631f53272c53"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    },
+    {
+      "name": "repeat path",
+      "value": "أمينة",
+      "contentKey": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+      "opId": "01J9TESTOP0000000000000006",
+      "submissionId": "01J9TESTSUBMISSION0000000A",
+      "path": "members[i3].name",
+      "formVersion": 3,
+      "deviceId": "device-a",
+      "counter": 6,
+      "expected": {
+        "nonce": "6d794484841d5516adea2ac8",
+        "ciphertext": "a78ffc93ac8416a655dadac30da3374ab4d46b770669ec942682e6b8"
+      },
+      "tamper": [
+        {
+          "field": "path",
+          "value": "age_moved"
+        },
+        {
+          "field": "formVersion",
+          "value": 4
+        },
+        {
+          "field": "opId",
+          "value": "01J9TESTOP9999999999999999"
+        },
+        {
+          "field": "submissionId",
+          "value": "01J9TESTSUBMISSION0000000B"
+        }
+      ]
+    }
+  ]
+}

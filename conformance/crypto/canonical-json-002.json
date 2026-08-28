@@ -1,0 +1,83 @@
+{
+  "id": "canonical-json-002",
+  "type": "canonical_json",
+  "description": "Structural canonicalisation: code-point key order, no whitespace, nesting",
+  "spec": "5.1",
+  "envelopeVersion": 1,
+  "warning": "TEST ONLY - fixed keys and nonces, public by design. Never use any value from this file outside conformance testing.",
+  "cases": [
+    {
+      "name": "empty object",
+      "value": {},
+      "expected": "7b7d"
+    },
+    {
+      "name": "empty array",
+      "value": [],
+      "expected": "5b5d"
+    },
+    {
+      "name": "key sorting ascii",
+      "value": {
+        "b": 1,
+        "a": 2,
+        "B": 3,
+        "1": 4
+      },
+      "expected": "7b2231223a342c2242223a332c2261223a322c2262223a317d"
+    },
+    {
+      "name": "key sorting unicode",
+      "value": {
+        "é": 1,
+        "e": 2,
+        "z": 3
+      },
+      "expected": "7b2265223a322c227a223a332c22c3a9223a317d"
+    },
+    {
+      "name": "key sorting beyond bmp",
+      "value": {
+        "😀": "emoji",
+        "｡": "halfwidth"
+      },
+      "expected": "7b22efbda1223a2268616c667769647468222c22f09f9880223a22656d6f6a69227d"
+    },
+    {
+      "name": "nested",
+      "value": {
+        "person": {
+          "name": "Amina",
+          "age": 34,
+          "tags": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      "expected": "7b22706572736f6e223a7b22616765223a33342c226e616d65223a22416d696e61222c2274616773223a5b2261222c2262225d7d7d"
+    },
+    {
+      "name": "array mixed",
+      "value": [
+        null,
+        true,
+        0,
+        -1.5,
+        "x",
+        {
+          "k": []
+        }
+      ],
+      "expected": "5b6e756c6c2c747275652c302c2d312e352c2278222c7b226b223a5b5d7d5d"
+    },
+    {
+      "name": "rtl values",
+      "value": {
+        "الاسم": "أمينة",
+        "المدينة": "عمّان"
+      },
+      "expected": "7b22d8a7d984d8a7d8b3d985223a22d8a3d985d98ad986d8a9222c22d8a7d984d985d8afd98ad986d8a9223a22d8b9d985d991d8a7d986227d"
+    }
+  ]
+}
