@@ -136,9 +136,9 @@ object Evaluator {
         if (a.isNull || b.isNull) return FormValue.Null
         if (a is FormValue.Integer && b is FormValue.Integer) {
             val result = when (op) {
-                "add" -> Math.addExact(a.value, b.value)
-                "sub" -> Math.subtractExact(a.value, b.value)
-                "mul" -> Math.multiplyExact(a.value, b.value)
+                "add" -> addExact(a.value, b.value)
+                "sub" -> subtractExact(a.value, b.value)
+                "mul" -> multiplyExact(a.value, b.value)
                 "mod" -> if (b.value == 0L) return FormValue.Null else a.value % b.value
                 else -> throw CompileException("unknown arithmetic op: $op")
             }
@@ -153,6 +153,37 @@ object Evaluator {
             "mod" -> if (y == 0.0) FormValue.Null else FormValue.Decimal(x % y)
             else -> throw CompileException("unknown arithmetic op: $op")
         }
+    }
+
+    // Overflow-checked 64-bit arithmetic without java.lang.Math, so the same
+    // code compiles on JVM, Native and Wasm. Overflow is an evaluation error,
+    // not a wrap (spec 4.5).
+
+    private fun addExact(a: Long, b: Long): Long {
+        val r = a + b
+        if (((a xor r) and (b xor r)) < 0) throw EvaluationException("integer overflow")
+        return r
+    }
+
+    private fun subtractExact(a: Long, b: Long): Long {
+        val r = a - b
+        if (((a xor b) and (a xor r)) < 0) throw EvaluationException("integer overflow")
+        return r
+    }
+
+    private fun multiplyExact(a: Long, b: Long): Long {
+        if (a == 0L || b == 0L) return 0L
+        if (a == -1L) {
+            if (b == Long.MIN_VALUE) throw EvaluationException("integer overflow")
+            return -b
+        }
+        if (b == -1L) {
+            if (a == Long.MIN_VALUE) throw EvaluationException("integer overflow")
+            return -a
+        }
+        val r = a * b
+        if (r / b != a) throw EvaluationException("integer overflow")
+        return r
     }
 
     /** Division by zero yields null, never an error or infinity (spec 4.4.8). */

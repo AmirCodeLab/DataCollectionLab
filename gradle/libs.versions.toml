@@ -15,9 +15,11 @@ kotlin = "2.4.10"
 kotlinx-coroutines = "1.11.0"
 material3 = "1.11.0-alpha07"
 
+# Built against Kotlin 2.3.20; consumable by the 2.4.10 compiler. Used by :shared:form-engine.
+kotlinx-serialization = "1.11.0"
+
 # TODO(phase-0): pin versions compatible with Kotlin 2.4.10 before use.
 # Deliberately not wired into any module yet so the build stays green.
-kotlinx-serialization = "1.9.0"
 kotlinx-datetime = "0.6.2"
 ktor = "3.0.3"
 sqldelight = "2.0.2"
@@ -44,8 +46,9 @@ compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-previ
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 
-# Not yet wired into any module — see TODO above.
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+
+# Not yet wired into any module — see TODO above.
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-contentNegotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
