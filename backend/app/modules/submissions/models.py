@@ -132,6 +132,7 @@ class SubmissionOp(Base):
         UniqueConstraint("content_key_id", "nonce"),
         # Ordering is by (counter, device_id), never wall clock.
         UniqueConstraint("device_id", "counter"),
+        UniqueConstraint("server_seq"),
         Index("submission_op_replay_idx", "submission_id", "counter", "device_id"),
         Index("submission_op_received_idx", "received_at"),
     )
@@ -158,6 +159,11 @@ class SubmissionOp(Base):
     wall_clock: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    # Server arrival order, the basis of the pull cursor. Conflict resolution
+    # orders by (counter, device_id), never by this and never by wall_clock.
+    server_seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("nextval('sync_stream_seq')")
     )
 
 

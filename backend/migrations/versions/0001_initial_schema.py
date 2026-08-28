@@ -27,6 +27,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS postgis')
+    # One arrival sequence shared by submission_op and tombstone: the pull
+    # cursor is a single integer over both streams (sync protocol §5).
+    op.execute('CREATE SEQUENCE sync_stream_seq')
     op.create_table('audit_event',
     sa.Column('id', sa.Text(), nullable=False),
     sa.Column('actor_id', sa.Text(), nullable=True),
@@ -431,11 +434,13 @@ def upgrade() -> None:
     sa.Column('counter', sa.BigInteger(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('server_seq', sa.BigInteger(), server_default=sa.text("nextval('sync_stream_seq')"), nullable=False),
     sa.CheckConstraint("subject_type IN ('submission', 'repeat_instance', 'case', 'entity', 'media')", name='tombstone_subject_check'),
     sa.ForeignKeyConstraint(['device_id'], ['device.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['project_id'], ['project.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['submission_id'], ['submission.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('server_seq')
     )
     op.create_index('tombstone_pull_idx', 'tombstone', ['project_id', 'created_at'], unique=False)
     op.create_table('media',
@@ -471,12 +476,14 @@ def upgrade() -> None:
     sa.Column('counter', sa.BigInteger(), nullable=False),
     sa.Column('wall_clock', sa.DateTime(timezone=True), nullable=False),
     sa.Column('received_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('server_seq', sa.BigInteger(), server_default=sa.text("nextval('sync_stream_seq')"), nullable=False),
     sa.CheckConstraint("op_kind IN ('set', 'unset', 'repeat_add', 'repeat_delete', 'finalize', 'reopen')", name='submission_op_kind_check'),
     sa.CheckConstraint('(value_ciphertext IS NULL AND content_key_id IS NULL AND nonce IS NULL) OR (value_ciphertext IS NOT NULL AND content_key_id IS NOT NULL AND nonce IS NOT NULL AND value IS NULL)', name='submission_op_encryption_check'),
     sa.ForeignKeyConstraint(['content_key_id'], ['submission_content_key.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['device_id'], ['device.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['submission_id'], ['submission.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('server_seq'),
     sa.UniqueConstraint('content_key_id', 'nonce'),
     sa.UniqueConstraint('device_id', 'counter')
     )
@@ -568,6 +575,7 @@ def downgrade() -> None:
     op.drop_table('outbox_event')
     op.drop_index('audit_event_subject_idx', table_name='audit_event')
     op.drop_table('audit_event')
+    op.execute('DROP SEQUENCE sync_stream_seq')
     # Dropped only if nothing else in the database depends on it — a
     # self-hosted install may share the database with other postgis users.
     op.execute(

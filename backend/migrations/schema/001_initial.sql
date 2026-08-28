@@ -276,6 +276,11 @@ CREATE TABLE visit (
 -- SUBMISSIONS  (specs/sync-protocol-v0.1.md)
 -- ===========================================================================
 
+-- One arrival sequence shared by submission_op and tombstone. The pull cursor
+-- (sync protocol §5) is a single integer over both streams; a per-table
+-- sequence would force clients to track two cursors.
+CREATE SEQUENCE sync_stream_seq;
+
 CREATE TABLE submission (
     id                  text PRIMARY KEY,
     project_id          text NOT NULL REFERENCES project (id) ON DELETE CASCADE,
@@ -335,6 +340,10 @@ CREATE TABLE submission_op (
     counter             bigint NOT NULL,
     wall_clock          timestamptz NOT NULL,
     received_at         timestamptz NOT NULL DEFAULT now(),
+    -- Server arrival order, the basis of the pull cursor. Ordering for
+    -- CONFLICT RESOLUTION is (counter, device_id), never this and never
+    -- wall_clock; server_seq only answers "what have I not pulled yet".
+    server_seq          bigint NOT NULL UNIQUE DEFAULT nextval('sync_stream_seq'),
     CONSTRAINT submission_op_kind_check
         CHECK (op_kind IN ('set', 'unset', 'repeat_add', 'repeat_delete',
                            'finalize', 'reopen')),
@@ -396,6 +405,8 @@ CREATE TABLE tombstone (
     counter         bigint,
     created_at      timestamptz NOT NULL DEFAULT now(),
     expires_at      timestamptz,
+    -- Same sequence as submission_op: tombstones ride the same pull cursor.
+    server_seq      bigint NOT NULL UNIQUE DEFAULT nextval('sync_stream_seq'),
     CONSTRAINT tombstone_subject_check
         CHECK (subject_type IN ('submission', 'repeat_instance', 'case',
                                 'entity', 'media'))

@@ -7,7 +7,16 @@ Normative DDL: migrations/schema/001_initial.sql.
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -21,6 +30,7 @@ class Tombstone(Base):
             name="tombstone_subject_check",
         ),
         Index("tombstone_pull_idx", "project_id", "created_at"),
+        UniqueConstraint("server_seq"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -41,6 +51,10 @@ class Tombstone(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Same sequence as submission_op: tombstones ride the same pull cursor.
+    server_seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("nextval('sync_stream_seq')")
+    )
 
 
 class SyncCursor(Base):

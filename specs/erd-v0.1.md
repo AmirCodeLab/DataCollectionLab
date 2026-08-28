@@ -82,7 +82,25 @@ independent of client correctness. The first is the last line of defence if a
 device's counter is broken; the second enforces the sync protocol's ordering
 guarantee.
 
-### 3.2 Plaintext and ciphertext side by side
+### 3.2 The pull cursor is a server arrival sequence
+
+`submission_op` and `tombstone` share one sequence, `sync_stream_seq`, in a
+`server_seq` column. The sync pull cursor (Sync Protocol §5) is a single
+integer over both streams, so a client resumes ops and tombstones with one
+number and `sync_cursor.cursor_value` stays a `bigint`.
+
+`server_seq` answers exactly one question — *what has this client not pulled
+yet*. Conflict resolution orders by `(counter, device_id)` and never by
+`server_seq` or `wall_clock`; arrival order at the server carries no semantic
+meaning.
+
+Known limitation, accepted for v0.1: a transaction that commits late can make
+its `server_seq` visible after a higher value has already been pulled, so a
+client polling at exactly the wrong moment can miss a row until its next pull
+from an earlier cursor. The push path keeps transactions short to shrink the
+window; a watermark-based fix is a v0.2 question.
+
+### 3.3 Plaintext and ciphertext side by side
 
 `submission_op` carries both `value` (jsonb) and `value_ciphertext` (bytea),
 with a check constraint that exactly one is populated along with its key and
