@@ -153,11 +153,22 @@ docker compose up
 
 **Phase 0 — architecture proof.** Deliverables:
 
-1. Form IR specification — drafted, needs repeat-scope detail
-2. Sync protocol specification — drafted, needs conflict-resolution detail
-3. ERD / database schema — not started
-4. OpenAPI contract — skeleton only
-5. Encryption envelope design — not started
-6. iOS Compose spike — not started
+1. Form IR specification — **done** for v0.1, including repeat scope (nested
+   repeats deferred to v0.2). Evidence: `specs/form-ir-v0.1.md`; both engines
+   pass all 24 vectors in `conformance/vectors/`.
+2. Sync protocol specification — **partial**: drafted, conflict-resolution
+   detail missing. Evidence: `specs/sync-protocol-v0.1.md`.
+3. ERD / database schema — **not started**. Evidence:
+   `backend/migrations/versions/` is empty.
+4. OpenAPI contract — **partial**: forms endpoints skeleton only, no contract
+   file in `specs/`. Evidence: `backend/app/api/v1/forms.py`.
+5. Encryption envelope design — **not started**. Evidence: no spec in `specs/`.
+6. iOS Compose spike — **not started**. Evidence: `clients/iosApp` is still the
+   unmodified KMP template.
+
+Engine status: the Python reference and the Kotlin port agree on all 24
+conformance vectors, repeats included — verify with
+`cd backend && pytest tests/test_conformance.py -v` and
+`./gradlew :shared:form-engine:jvmTest`.
 
 Do not start Phase 1 (builder UI, Android app) until 1 and 2 are stable.
