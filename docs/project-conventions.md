@@ -151,20 +151,25 @@ docker compose up
 
 ## Current phase
 
-**Phase 0 — architecture proof.** Deliverables:
+**Phase 0 — architecture proof.** Run `./scripts/status.sh` for the live,
+evidence-based report; the list below mirrors its output and goes stale the
+moment code changes.
 
-1. Form IR specification — **done** for v0.1, including repeat scope (nested
-   repeats deferred to v0.2). Evidence: `specs/form-ir-v0.1.md`; both engines
-   pass all 24 vectors in `conformance/vectors/`.
-2. Sync protocol specification — **partial**: drafted, conflict-resolution
-   detail missing. Evidence: `specs/sync-protocol-v0.1.md`.
-3. ERD / database schema — **not started**. Evidence:
-   `backend/migrations/versions/` is empty.
-4. OpenAPI contract — **partial**: forms endpoints skeleton only, no contract
+1. Form IR specification — **DONE** for v0.1, repeat scope included, nested
+   repeats deferred to v0.2. Evidence: `specs/form-ir-v0.1.md`; both engines
+   pass 24/24 vectors in `conformance/vectors/`.
+2. Sync protocol specification — **PARTIAL**: drafted, conflict-resolution
+   detail missing. Evidence: `specs/sync-protocol-v0.1.md` exists,
+   `backend/app/modules/sync/` is empty.
+3. ERD / database schema — **NOT STARTED**. Evidence: no migrations in
+   `backend/migrations/versions/`, no ERD spec in `specs/`.
+4. OpenAPI contract — **PARTIAL**: 2 routes in `backend/app/api/`, no contract
    file in `specs/`. Evidence: `backend/app/api/v1/forms.py`.
-5. Encryption envelope design — **not started**. Evidence: no spec in `specs/`.
-6. iOS Compose spike — **not started**. Evidence: `clients/iosApp` is still the
-   unmodified KMP template.
+5. Encryption envelope design — **NOT STARTED**. Evidence: no spec in
+   `specs/`, no crypto code in `shared/` or `backend/app/`.
+6. iOS Compose spike — **NOT STARTED** (MANUAL check — the script cannot
+   verify this). Evidence: `clients/iosApp` is still the unmodified KMP
+   template.
 
 Engine status: the Python reference and the Kotlin port agree on all 24
 conformance vectors, repeats included — verify with
