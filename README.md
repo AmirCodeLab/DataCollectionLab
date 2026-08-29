@@ -32,13 +32,20 @@ docker compose up -d postgres redis minio
 
 cd backend
 pip install -e ".[dev]"
-alembic upgrade head          # create the schema
-python ../scripts/seed_dev.py # seed the minimum data (see below)
-pytest tests/ -v              # conformance suite
+alembic upgrade head            # create the schema
+python ../scripts/seed_dev.py   # seed the minimum data (see below)
+pytest tests/ -v                # conformance suite
 uvicorn app.main:app --reload
 ```
 
 ### Seeding
+
+Run it from anywhere — the repo root works too, and the script finds the
+backend venv itself:
+
+```bash
+python scripts/seed_dev.py
+```
 
 `scripts/seed_dev.py` creates the minimum a fresh database needs to be usable:
 one organisation, one project with its development, staging and production
@@ -54,7 +61,38 @@ JSON drifts from the stored version the script warns rather than overwriting
 it — publish a new version deliberately instead.
 
 Without this step the server has no project to attach devices to, so device
-registration fails with `409 no_project` and every pushed op is rejected.
+registration fails and every pushed op is rejected. The failure says so:
+
+```json
+{ "detail": { "reason": "project_not_found",
+              "message": "The server has no active project ... Run scripts/seed_dev.py ..." } }
+```
+
+Registration failures always carry a machine-readable `reason` —
+`project_not_found`, `project_ambiguous`, `project_mismatch` or
+`device_revoked` — which the clients report in their sync error rather than a
+bare status code.
+
+### Request logging
+
+In development the server logs every endpoint hit: method, URL, headers,
+request body, response status, response body and duration. Failures are logged
+at WARNING so they stand out.
+
+```
+WARNING:     POST /api/v1/devices -> 409 (131ms)
+  request headers: {"content-type": "application/json", "authorization": "<redacted>"}
+  request body:
+    { "deviceId": "dev-x", "platform": "android" }
+  response body:
+    { "detail": { "reason": "project_not_found", "message": "..." } }
+```
+
+`Authorization`, `Cookie` and similar headers are **always** redacted, and
+bodies are truncated at 4 KB. Because submissions carry respondent data,
+logging defaults to on only when `ENVIRONMENT=development`; set `HTTP_LOG=true`
+to force it on, `HTTP_LOG=false` off, or `HTTP_LOG_BODIES=false` to keep the
+request lines without any payloads.
 
 Kotlin side (single Gradle build at the repo root):
 
