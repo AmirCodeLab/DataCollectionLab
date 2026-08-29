@@ -227,6 +227,17 @@ async def _db_snapshot(query: str) -> Any:
         await conn.close()
 
 
+async def _execute(statement: str) -> None:
+    import asyncpg
+
+    parts = urlsplit(_admin_dsn())
+    conn = await asyncpg.connect(urlunsplit(parts._replace(path=f"/{SYNC_DB}")))
+    try:
+        await conn.execute(statement)
+    finally:
+        await conn.close()
+
+
 async def _state(submission_id: str) -> dict[str, Any]:
     import json
 
@@ -432,6 +443,7 @@ def test_a_brand_new_device_registers_and_pushes_in_one_flow(sync_api: Any) -> N
             "osVersion": "Android 14 (API 34)",
             "appVersion": "0.1.0",
         }
+
         first = await client.post("/api/v1/devices", json=payload)
         assert first.status_code == 200, first.text
         assert first.json()["status"] == "registered"
@@ -450,5 +462,58 @@ def test_a_brand_new_device_registers_and_pushes_in_one_flow(sync_api: Any) -> N
         assert pushed["accepted"] == ["01OPUNSEEN1"]
         assert pushed["rejected"] == []
         assert await _state("01SUBUNSEEN") == {"name": "x"}
+
+    _run_with_client(sync_api, scenario)
+
+
+@pytest.mark.db
+def test_registration_refusals_name_a_machine_readable_reason(sync_api: Any) -> None:
+    """A bare 409 gave no clue which of several problems had occurred."""
+
+    async def scenario(client: Any) -> None:
+        async def register(device_id: str) -> Any:
+            return await client.post(
+                "/api/v1/devices", json={"deviceId": device_id, "platform": "desktop"}
+            )
+
+        # Revoked device: refused, and says so rather than re-registering.
+        assert (await register("dev-revoke-me")).status_code == 200
+        await _execute("UPDATE device SET revoked_at = now() WHERE id = 'dev-revoke-me'")
+        revoked = await register("dev-revoke-me")
+        assert revoked.status_code == 403, revoked.text
+        assert revoked.json()["detail"]["reason"] == "device_revoked"
+
+        # Two active projects: the target cannot be inferred, so nothing is guessed.
+        await _execute(
+            "INSERT INTO project (id, name, slug) VALUES ('01OTHERPROJ', 'Other', 'other')"
+        )
+        ambiguous = await register("dev-brand-new")
+        assert ambiguous.status_code == 409, ambiguous.text
+        assert ambiguous.json()["detail"]["reason"] == "project_ambiguous"
+
+        # A device enrolled elsewhere, against a server that resolves to one
+        # project: reseeded or swapped database, never silently re-filed.
+        assert (await register("dev-moved")).status_code == 409  # still ambiguous
+        await _execute("UPDATE project SET archived_at = now() WHERE id = '01OTHERPROJ'")
+        assert (await register("dev-moved")).status_code == 200  # now unambiguous
+        await _execute("UPDATE device SET project_id = '01OTHERPROJ' WHERE id = 'dev-moved'")
+        mismatch = await register("dev-moved")
+        assert mismatch.status_code == 409, mismatch.text
+        assert mismatch.json()["detail"]["reason"] == "project_mismatch"
+        assert "01OTHERPROJ" in mismatch.json()["detail"]["message"]
+
+        # No project at all — the unseeded-database case, which must point at
+        # the fix rather than leaving a developer guessing.
+        await _execute("UPDATE project SET archived_at = now()")
+        missing = await register("dev-brand-new")
+        assert missing.status_code == 409, missing.text
+        detail = missing.json()["detail"]
+        assert detail["reason"] == "project_not_found"
+        assert "seed_dev.py" in detail["message"]
+
+        # Restore the fixture's world for any test that runs after this one.
+        await _execute("UPDATE project SET archived_at = NULL WHERE id = '01PROJECT'")
+        await _execute("DELETE FROM device WHERE id IN ('dev-revoke-me', 'dev-moved')")
+        await _execute("DELETE FROM project WHERE id = '01OTHERPROJ'")
 
     _run_with_client(sync_api, scenario)

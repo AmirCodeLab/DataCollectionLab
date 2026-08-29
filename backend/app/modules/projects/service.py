@@ -15,34 +15,29 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.projects.models import Device, Project
-from app.modules.projects.schemas import DeviceRegisterRequest, DeviceRegisterResponse
+from app.modules.projects.schemas import (
+    DeviceRegisterRequest,
+    DeviceRegisterResponse,
+    RegisterFailure,
+)
 
 # Placeholder until enrollment binds a real user; user_id has no FK.
 _UNASSIGNED_USER = "usr_unassigned"
 
+_SEED_HINT = "Run scripts/seed_dev.py to create the development project."
+
 
 class RegistrationError(Exception):
-    def __init__(self, status_code: int, reason: str) -> None:
-        super().__init__(reason)
+    """A refusal a client can act on: `reason` is the contract, `message` explains."""
+
+    def __init__(self, status_code: int, reason: RegisterFailure, message: str) -> None:
+        super().__init__(f"{reason}: {message}")
         self.status_code = status_code
-        self.reason = reason
+        self.reason: RegisterFailure = reason
+        self.message = message
 
 
-async def register_device(
-    session: AsyncSession, request: DeviceRegisterRequest
-) -> DeviceRegisterResponse:
-    device = await session.get(Device, request.device_id)
-    if device is not None:
-        if device.revoked_at is not None:
-            raise RegistrationError(403, "device_revoked")
-        # Refresh the diagnostic metadata; identity and project stay fixed.
-        device.platform = request.platform
-        device.os_version = request.os_version or device.os_version
-        device.app_version = request.app_version or device.app_version
-        return DeviceRegisterResponse(
-            device_id=device.id, project_id=device.project_id, status="already_registered"
-        )
-
+async def _sole_project_id(session: AsyncSession) -> str:
     projects = (
         (
             await session.execute(
@@ -56,14 +51,57 @@ async def register_device(
         .all()
     )
     if not projects:
-        raise RegistrationError(409, "no_project")
+        raise RegistrationError(
+            409,
+            "project_not_found",
+            f"The server has no active project to register this device against. {_SEED_HINT}",
+        )
     if len(projects) > 1:
         # Attaching to an arbitrary project would silently misfile field data.
-        raise RegistrationError(409, "project_ambiguous")
+        raise RegistrationError(
+            409,
+            "project_ambiguous",
+            "Several active projects exist, so the target cannot be inferred. "
+            "Enroll the device against a specific project.",
+        )
+    return projects[0]
+
+
+async def register_device(
+    session: AsyncSession, request: DeviceRegisterRequest
+) -> DeviceRegisterResponse:
+    device = await session.get(Device, request.device_id)
+    if device is not None:
+        if device.revoked_at is not None:
+            raise RegistrationError(
+                403,
+                "device_revoked",
+                "This device has been revoked and cannot re-register.",
+            )
+        # A known device whose project no longer resolves to its own means the
+        # database changed underneath it (reseeded, restored, pointed
+        # elsewhere). Silently accepting would file its ops under a project it
+        # was never enrolled in.
+        expected_project_id = await _sole_project_id(session)
+        if device.project_id != expected_project_id:
+            raise RegistrationError(
+                409,
+                "project_mismatch",
+                f"Device is registered to project {device.project_id}, but this server "
+                f"resolves to {expected_project_id}. Clear the device's local database "
+                "to enroll it afresh.",
+            )
+        # Refresh the diagnostic metadata; identity and project stay fixed.
+        device.platform = request.platform
+        device.os_version = request.os_version or device.os_version
+        device.app_version = request.app_version or device.app_version
+        return DeviceRegisterResponse(
+            device_id=device.id, project_id=device.project_id, status="already_registered"
+        )
 
     device = Device(
         id=request.device_id,
-        project_id=projects[0],
+        project_id=await _sole_project_id(session),
         user_id=_UNASSIGNED_USER,
         platform=request.platform,
         os_version=request.os_version,
