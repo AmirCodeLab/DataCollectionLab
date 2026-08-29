@@ -7,6 +7,7 @@ package com.dcp.form
  */
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -131,6 +132,54 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
 
         expect["formValid"]?.let { want ->
             assertEquals(want.jsonPrimitive.content.toBoolean(), instance.isValid, "$where: formValid")
+        }
+
+        expect["screens"]?.jsonObject?.let { screens ->
+            val plan = instance.form.screens
+
+            fun idOrNull(element: kotlinx.serialization.json.JsonElement): String? =
+                if (element is JsonNull) null else element.jsonPrimitive.content
+
+            fun indexOrNull(element: kotlinx.serialization.json.JsonElement): Int? =
+                if (element is JsonNull) null else element.jsonPrimitive.content.toInt()
+
+            screens["count"]?.let { want ->
+                assertEquals(want.jsonPrimitive.content.toInt(), plan.size, "$where: screens.count")
+            }
+            screens["questions"]?.jsonObject?.forEach { (idx, want) ->
+                assertEquals(
+                    want.jsonArray.map { it.jsonPrimitive.content },
+                    plan[idx.toInt()].questionIds,
+                    "$where: screens.questions[$idx]",
+                )
+            }
+            screens["groups"]?.jsonObject?.forEach { (idx, want) ->
+                assertEquals(idOrNull(want), plan[idx.toInt()].groupId, "$where: screens.groups[$idx]")
+            }
+            screens["sections"]?.jsonObject?.forEach { (idx, want) ->
+                assertEquals(idOrNull(want), plan[idx.toInt()].sectionId, "$where: screens.sections[$idx]")
+            }
+            screens["relevant"]?.jsonArray?.let { want ->
+                assertEquals(
+                    want.map { it.jsonPrimitive.content.toInt() },
+                    relevantScreens(plan, instance),
+                    "$where: screens.relevant",
+                )
+            }
+            screens["next"]?.jsonObject?.forEach { (from, want) ->
+                assertEquals(
+                    indexOrNull(want),
+                    nextScreen(plan, instance, from.toInt()),
+                    "$where: screens.next[$from]",
+                )
+            }
+            screens["previous"]?.jsonObject?.forEach { (from, want) ->
+                assertEquals(
+                    indexOrNull(want),
+                    previousScreen(plan, instance, from.toInt()),
+                    "$where: screens.previous[$from]",
+                )
+            }
         }
     }
 

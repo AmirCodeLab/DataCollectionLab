@@ -3,12 +3,13 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
+    alias(libs.plugins.sqldelight)
 }
 
 /*
  * Shared non-UI core: sync engine, storage, networking, security.
- * Networking (Ktor), storage (SQLDelight) and DI (Koin) are added as those
- * subsystems land — see the TODO in gradle/libs.versions.toml.
+ * Networking (Ktor) and DI (Koin) are added as those subsystems land — see the
+ * TODO in gradle/libs.versions.toml.
  */
 kotlin {
     jvm()
@@ -30,22 +31,37 @@ kotlin {
             api(libs.cryptography.core)
             implementation(libs.cryptography.provider.optimal)
             implementation(project(":shared:form-engine"))
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutines)
         }
         jvmMain.dependencies {
             // Plain JCA cannot derive an X25519 public key from a private key,
             // which unwrapping needs; BouncyCastle backs the JDK provider.
             implementation(libs.cryptography.provider.jdk.bc)
+            implementation(libs.sqldelight.sqlite.driver)
         }
         androidMain.dependencies {
             // Platform JCA has no X25519 below API 33; BouncyCastle backs the
             // JDK provider so the envelope works from minSdk 24.
             implementation(libs.cryptography.provider.jdk.bc)
+            implementation(libs.sqldelight.android.driver)
+        }
+        iosMain.dependencies {
+            implementation(libs.sqldelight.native.driver)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.testJunit)
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("DcpDatabase") {
+            packageName.set("com.dcp.core.db")
         }
     }
 }

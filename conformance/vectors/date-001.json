@@ -1,0 +1,115 @@
+{
+  "id": "date-001",
+  "description": "A date answer compares against today() as ISO text",
+  "spec": "2.1, 4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "date1",
+    "version": 1,
+    "title": {
+      "en": "date1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "d",
+        "dataType": "date",
+        "label": {
+          "en": "D"
+        },
+        "constraint": {
+          "op": "lte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "d"
+            },
+            {
+              "op": "call",
+              "fn": "today",
+              "args": []
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "No future dates"
+        }
+      },
+      {
+        "type": "question",
+        "id": "today_echo",
+        "dataType": "date",
+        "label": {
+          "en": "Today Echo"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "today",
+          "args": []
+        },
+        "readOnly": true
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "today_echo": "2026-08-28"
+        }
+      }
+    },
+    {
+      "set": {
+        "d": "2026-08-27"
+      },
+      "expect": {
+        "valid": {
+          "d": true
+        }
+      }
+    },
+    {
+      "set": {
+        "d": "2026-08-28"
+      },
+      "expect": {
+        "valid": {
+          "d": true
+        }
+      }
+    },
+    {
+      "set": {
+        "d": "2026-08-29"
+      },
+      "expect": {
+        "valid": {
+          "d": false
+        },
+        "errors": {
+          "d": [
+            "constraint"
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "d": null
+      },
+      "expect": {
+        "valid": {
+          "d": true
+        }
+      }
+    }
+  ]
+}

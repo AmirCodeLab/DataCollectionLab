@@ -1,0 +1,84 @@
+-- Local submission store and operation outbox, per specs/sync-protocol-v0.1.md.
+-- A submission's answers are never stored materialised: the op log IS the
+-- durable state. Reopening a draft folds its ops back through the form engine.
+
+CREATE TABLE submission (
+    submission_id TEXT NOT NULL PRIMARY KEY,
+    form_id TEXT NOT NULL,
+    form_version INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Sync protocol §2. `counter` is the per-device monotonic logical counter;
+-- `wall_clock` is diagnostic only and never used for ordering (§3).
+CREATE TABLE op_outbox (
+    op_id TEXT NOT NULL PRIMARY KEY,
+    submission_id TEXT NOT NULL,
+    form_id TEXT NOT NULL,
+    form_version INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    path TEXT,
+    value_json TEXT,
+    device_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    counter INTEGER NOT NULL,
+    wall_clock TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX op_outbox_submission ON op_outbox(submission_id, counter);
+
+-- Single-row table holding this device's identity and its logical counter.
+-- The counter is never reset (§2), so it lives in the database, not in memory.
+CREATE TABLE device_state (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    device_id TEXT NOT NULL,
+    counter INTEGER NOT NULL
+);
+
+getDeviceState:
+SELECT device_id, counter FROM device_state WHERE id = 1;
+
+initDeviceState:
+INSERT OR IGNORE INTO device_state(id, device_id, counter) VALUES (1, ?, 0);
+
+bumpCounter:
+UPDATE device_state SET counter = counter + 1 WHERE id = 1;
+
+insertSubmission:
+INSERT INTO submission(submission_id, form_id, form_version, status, created_at, updated_at)
+VALUES (?, ?, ?, 'draft', ?, ?);
+
+touchSubmission:
+UPDATE submission SET updated_at = ? WHERE submission_id = ?;
+
+setSubmissionStatus:
+UPDATE submission SET status = ?, updated_at = ? WHERE submission_id = ?;
+
+getSubmission:
+SELECT s.submission_id, s.form_id, s.form_version, s.status, s.created_at, s.updated_at,
+       (SELECT COUNT(*) FROM op_outbox o
+         WHERE o.submission_id = s.submission_id AND o.synced = 0) AS pending_ops
+FROM submission s
+WHERE s.submission_id = ?;
+
+-- Newest first, with the count of ops still waiting to be pushed.
+listSubmissions:
+SELECT s.submission_id, s.form_id, s.form_version, s.status, s.created_at, s.updated_at,
+       (SELECT COUNT(*) FROM op_outbox o
+         WHERE o.submission_id = s.submission_id AND o.synced = 0) AS pending_ops
+FROM submission s
+ORDER BY s.updated_at DESC;
+
+insertOp:
+INSERT INTO op_outbox(op_id, submission_id, form_id, form_version, kind, path,
+                      value_json, device_id, actor_id, counter, wall_clock)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Replay order for materialising a draft: (counter, deviceId), sync §3.
+opsForSubmission:
+SELECT * FROM op_outbox
+WHERE submission_id = ?
+ORDER BY counter ASC, device_id ASC;

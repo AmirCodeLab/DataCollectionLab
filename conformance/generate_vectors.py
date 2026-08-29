@@ -535,6 +535,149 @@ vector(
 
 
 
+# --------------------------------------------------------------------------
+# Dates — runtime dates are ISO text (spec 2.1); today() must compare with a
+# date answer as text on every engine. Regression: the Kotlin engine returned
+# a distinct date type from today() and threw on `d <= today()`.
+# --------------------------------------------------------------------------
+
+vector(
+    "date-001",
+    "A date answer compares against today() as ISO text",
+    "2.1, 4.3",
+    form("date1", [
+        q("d", "date",
+          constraint=op("lte", ref("d"), call("today")),
+          constraintMessage={"en": "No future dates"}),
+        q("today_echo", "date", calculate=call("today"), readOnly=True),
+    ]),
+    [
+        {"expect": {"values": {"today_echo": "2026-08-28"}}},
+        {"set": {"d": "2026-08-27"}, "expect": {"valid": {"d": True}}},
+        {"set": {"d": "2026-08-28"}, "expect": {"valid": {"d": True}}},
+        {"set": {"d": "2026-08-29"},
+         "expect": {"valid": {"d": False}, "errors": {"d": ["constraint"]}}},
+        {"set": {"d": None}, "expect": {"valid": {"d": True}}},
+    ],
+)
+
+vector(
+    "date-002",
+    "date_diff_days and date_add_days take ISO text; null operands yield null",
+    "4.3, 4.4",
+    form("date2", [
+        q("a", "date"),
+        q("diff", "integer",
+          calculate=call("date_diff_days", ref("a"), lit("2026-08-20"))),
+        q("plus", "date", calculate=call("date_add_days", ref("a"), lit(10))),
+    ]),
+    [
+        {"expect": {"values": {"diff": None, "plus": None}}},
+        {"set": {"a": "2026-08-28"},
+         "expect": {"values": {"diff": 8, "plus": "2026-09-07"}}},
+        {"set": {"a": "2026-02-27"},
+         "expect": {"values": {"diff": -174, "plus": "2026-03-09"}}},
+    ],
+)
+
+
+# --------------------------------------------------------------------------
+# Screen flow (spec 11) — partition and navigation must match on every runtime
+# --------------------------------------------------------------------------
+
+def group(gid, children, **kw):
+    node = {"type": "group", "id": gid,
+            "label": {"en": gid.replace("_", " ").title()}, "children": children}
+    node.update(kw)
+    return node
+
+
+vector(
+    "screens-001",
+    "One question per screen by default; a field-list group is one screen; "
+    "plain groups flatten into field-lists; repeats are excluded from the plan",
+    "11.1",
+    form("scr1", [
+        q("a", "text"),
+        group("fl", [
+            q("b", "integer"),
+            group("inner", [q("c", "text")]),
+        ], appearance="field-list"),
+        group("plain", [
+            q("d", "text"),
+            {"type": "repeat", "id": "kids", "label": {"en": "Kids"},
+             "children": [q("kid_age", "integer")]},
+            q("e", "text"),
+        ]),
+    ]),
+    [
+        {"expect": {"screens": {
+            "count": 4,
+            "questions": {"0": ["a"], "1": ["b", "c"], "2": ["d"], "3": ["e"]},
+            "groups": {"0": None, "1": "fl", "2": None},
+            "sections": {"0": None, "1": None, "2": "plain", "3": "plain"},
+        }}},
+    ],
+)
+
+vector(
+    "screens-002",
+    "next/previous skip screens with no relevant question; -1 addresses the first",
+    "11.2",
+    form("scr2", [
+        q("consent", "boolean"),
+        q("x", "text", relevant=op("eq", ref("consent"), lit(True))),
+        group("fl", [
+            q("y", "text", relevant=op("eq", ref("consent"), lit(True))),
+            q("z", "text", relevant=op("eq", ref("consent"), lit(True))),
+        ], appearance="field-list"),
+        q("w", "text"),
+    ]),
+    [
+        # consent null -> relevance coerces null to true -> everything shown
+        {"expect": {"screens": {
+            "relevant": [0, 1, 2, 3],
+            "next": {"-1": 0, "0": 1, "1": 2, "3": None},
+            "previous": {"0": None, "2": 1, "3": 2},
+        }}},
+        {"set": {"consent": False},
+         "expect": {"screens": {
+             "relevant": [0, 3],
+             "next": {"-1": 0, "0": 3, "3": None},
+             "previous": {"0": None, "3": 0},
+         }}},
+        {"set": {"consent": True},
+         "expect": {"screens": {
+             "relevant": [0, 1, 2, 3],
+             "next": {"0": 1},
+             "previous": {"3": 2},
+         }}},
+    ],
+)
+
+vector(
+    "screens-003",
+    "A field-list screen stays relevant while any one of its questions is",
+    "11.2",
+    form("scr3", [
+        q("k", "text"),
+        group("fl", [
+            q("a", "text", relevant=op("eq", ref("k"), lit("a"))),
+            q("b", "text", relevant=op("eq", ref("k"), lit("b"))),
+        ], appearance="field-list"),
+    ]),
+    [
+        {"set": {"k": "a"},
+         "expect": {"screens": {"relevant": [0, 1], "next": {"0": 1}}}},
+        {"set": {"k": "b"},
+         "expect": {"screens": {"relevant": [0, 1], "next": {"0": 1}}}},
+        {"set": {"k": "neither"},
+         "expect": {"screens": {"relevant": [0], "next": {"0": None},
+                                "previous": {"1": 0}}}},
+    ],
+)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):

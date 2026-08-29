@@ -24,11 +24,14 @@ kotlinx-serialization = "1.11.0"
 # Used by :shared:core for the encryption envelope.
 cryptography = "0.6.0"
 
+# SQLDelight backs the local op log and submission store in :shared:core.
+# 2.1.0 generates plain Kotlin source, so it is not tied to the compiler version.
+sqldelight = "2.1.0"
+
 # TODO(phase-0): pin versions compatible with Kotlin 2.4.10 before use.
 # Deliberately not wired into any module yet so the build stays green.
 kotlinx-datetime = "0.6.2"
 ktor = "3.0.3"
-sqldelight = "2.0.2"
 koin = "4.0.0"
 
 [libraries]
@@ -67,6 +70,10 @@ ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-contentNegotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
+sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
+sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 
 [plugins]
@@ -76,4 +83,5 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

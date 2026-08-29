@@ -50,6 +50,9 @@ class CompiledForm(val ir: FormIr) {
     val order = mutableListOf<String>()
     val topoOrder: List<String>
 
+    /** Static screen partition (spec 11.1). */
+    val screens: List<FormScreen> by lazy { buildScreenPlan(ir) }
+
     init {
         compile()
         checkReferences()

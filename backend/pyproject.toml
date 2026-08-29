@@ -41,3 +41,5 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+[tool.setuptools]
+packages = ["app"]

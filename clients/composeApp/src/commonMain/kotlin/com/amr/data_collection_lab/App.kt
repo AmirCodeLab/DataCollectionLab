@@ -1,47 +1,59 @@
 package com.amr.data_collection_lab
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import datacollectionlab.clients.composeapp.generated.resources.Res
-import datacollectionlab.clients.composeapp.generated.resources.compose_multiplatform
-import org.jetbrains.compose.resources.painterResource
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.amr.data_collection_lab.collection.AppGraph
+import com.amr.data_collection_lab.collection.CollectionRoot
+import com.amr.data_collection_lab.collection.CollectionViewModel
+import com.amr.data_collection_lab.collection.SubmissionListRoot
+import com.amr.data_collection_lab.collection.SubmissionListViewModel
+import com.dcp.core.sync.DatabaseDriverFactory
+
+private sealed interface Route {
+    data object Submissions : Route
+    data class Collection(val submissionId: String) : Route
+}
 
 @Composable
-@Preview
-fun App() {
-    MaterialTheme {
-        var showContent by remember { mutableStateOf(false) }
-        Column(
+fun App(driverFactory: DatabaseDriverFactory) {
+    MaterialTheme(
+        colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),
+    ) {
+        val graph = remember { AppGraph(driverFactory) }
+        var route by remember { mutableStateOf<Route>(Route.Submissions) }
+
+        Box(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .safeDrawingPadding(),
         ) {
-            Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
-            }
-            AnimatedVisibility(showContent) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
-                }
+            when (val current = route) {
+                Route.Submissions -> SubmissionListRoot(
+                    viewModel = viewModel {
+                        SubmissionListViewModel(graph.store, graph.formCatalog)
+                    },
+                    onNavigateToCollection = { route = Route.Collection(it) },
+                )
+                is Route.Collection -> CollectionRoot(
+                    viewModel = viewModel(key = "collection_${current.submissionId}") {
+                        CollectionViewModel(graph.store, graph.formCatalog, current.submissionId)
+                    },
+                    onNavigateBack = { route = Route.Submissions },
+                )
             }
         }
     }

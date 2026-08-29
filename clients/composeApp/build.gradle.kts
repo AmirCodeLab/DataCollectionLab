@@ -47,9 +47,11 @@ kotlin {
             implementation(libs.compose.uiTooling)
         }
         commonMain.dependencies {
-            // Shared, platform-independent engine and core
+            // Shared, platform-independent engine and core. Core is api() so the
+            // thin launchers can construct the platform DatabaseDriverFactory.
             implementation(project(":shared:form-engine"))
-            implementation(project(":shared:core"))
+            api(project(":shared:core"))
+            implementation(libs.kotlinx.coroutines.core)
 
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)

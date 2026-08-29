@@ -1,0 +1,142 @@
+{
+  "id": "screens-001",
+  "description": "One question per screen by default; a field-list group is one screen; plain groups flatten into field-lists; repeats are excluded from the plan",
+  "spec": "11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr1",
+    "version": 1,
+    "title": {
+      "en": "scr1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "text",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "group",
+        "id": "fl",
+        "label": {
+          "en": "Fl"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "b",
+            "dataType": "integer",
+            "label": {
+              "en": "B"
+            }
+          },
+          {
+            "type": "group",
+            "id": "inner",
+            "label": {
+              "en": "Inner"
+            },
+            "children": [
+              {
+                "type": "question",
+                "id": "c",
+                "dataType": "text",
+                "label": {
+                  "en": "C"
+                }
+              }
+            ]
+          }
+        ],
+        "appearance": "field-list"
+      },
+      {
+        "type": "group",
+        "id": "plain",
+        "label": {
+          "en": "Plain"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "d",
+            "dataType": "text",
+            "label": {
+              "en": "D"
+            }
+          },
+          {
+            "type": "repeat",
+            "id": "kids",
+            "label": {
+              "en": "Kids"
+            },
+            "children": [
+              {
+                "type": "question",
+                "id": "kid_age",
+                "dataType": "integer",
+                "label": {
+                  "en": "Kid Age"
+                }
+              }
+            ]
+          },
+          {
+            "type": "question",
+            "id": "e",
+            "dataType": "text",
+            "label": {
+              "en": "E"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "screens": {
+          "count": 4,
+          "questions": {
+            "0": [
+              "a"
+            ],
+            "1": [
+              "b",
+              "c"
+            ],
+            "2": [
+              "d"
+            ],
+            "3": [
+              "e"
+            ]
+          },
+          "groups": {
+            "0": null,
+            "1": "fl",
+            "2": null
+          },
+          "sections": {
+            "0": null,
+            "1": null,
+            "2": "plain",
+            "3": "plain"
+          }
+        }
+      }
+    }
+  ]
+}

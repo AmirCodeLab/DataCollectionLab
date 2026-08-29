@@ -1,0 +1,134 @@
+{
+  "id": "screens-003",
+  "description": "A field-list screen stays relevant while any one of its questions is",
+  "spec": "11.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr3",
+    "version": 1,
+    "title": {
+      "en": "scr3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "k",
+        "dataType": "text",
+        "label": {
+          "en": "K"
+        }
+      },
+      {
+        "type": "group",
+        "id": "fl",
+        "label": {
+          "en": "Fl"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "a",
+            "dataType": "text",
+            "label": {
+              "en": "A"
+            },
+            "relevant": {
+              "op": "eq",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "k"
+                },
+                {
+                  "op": "lit",
+                  "value": "a"
+                }
+              ]
+            }
+          },
+          {
+            "type": "question",
+            "id": "b",
+            "dataType": "text",
+            "label": {
+              "en": "B"
+            },
+            "relevant": {
+              "op": "eq",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "k"
+                },
+                {
+                  "op": "lit",
+                  "value": "b"
+                }
+              ]
+            }
+          }
+        ],
+        "appearance": "field-list"
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "k": "a"
+      },
+      "expect": {
+        "screens": {
+          "relevant": [
+            0,
+            1
+          ],
+          "next": {
+            "0": 1
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "k": "b"
+      },
+      "expect": {
+        "screens": {
+          "relevant": [
+            0,
+            1
+          ],
+          "next": {
+            "0": 1
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "k": "neither"
+      },
+      "expect": {
+        "screens": {
+          "relevant": [
+            0
+          ],
+          "next": {
+            "0": null
+          },
+          "previous": {
+            "1": 0
+          }
+        }
+      }
+    }
+  ]
+}

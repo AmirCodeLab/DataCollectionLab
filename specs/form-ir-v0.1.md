@@ -343,9 +343,51 @@ Automatically captured, addressable under `_metadata`:
 
 **Warnings** (allow publish): missing translation, decimal equality comparison, unreachable relevance (statically false), repeat with no bound, unused calculate.
 
-## 11. Open questions for v0.2
+## 11. Screen flow
+
+How an interactive runtime partitions a form into screens and navigates between
+them. Every runtime MUST derive the same screen sequence from the same IR and
+answer state — a screen skipped on one platform and shown on another is a
+conformance failure, not a UX difference.
+
+### 11.1 Partition
+
+The screen plan is a pure function of the IR, computed once at compile time:
+
+- Walk `children` in document order.
+- A `question` becomes its own screen. **One question per screen is the default.**
+- A `group` with `appearance: "field-list"` becomes a single screen containing
+  every question in its subtree, in document order. Nested plain groups inside
+  it are flattened into the screen; a nested `field-list` has no additional
+  effect. A field-list group containing no questions produces no screen.
+- Any other `group` contributes no screen of its own; its children are walked.
+- A `repeat` subtree is excluded from the screen plan entirely. Screen flow for
+  repeats is deferred to v0.2 together with repeat navigation UX.
+
+Each screen records, in order: its zero-based `index`, the ordered question ids
+it contains, the id of the field-list group that produced it (if any), and the
+id of its nearest enclosing group (for headers). Screen indices are stable for
+a given IR; relevance never renumbers them.
+
+### 11.2 Navigation
+
+Navigation is over the static plan filtered by live relevance:
+
+- A screen is **relevant** when at least one of its questions is currently
+  relevant (§5). Screens add no evaluation semantics of their own.
+- `next(from)` is the lowest-index relevant screen with index greater than
+  `from`; `next(-1)` is therefore the first relevant screen.
+- `previous(from)` is the highest-index relevant screen with index less than
+  `from`.
+- Both yield nothing when no such screen exists. `from` itself need not be
+  relevant.
+- Progress is the screen's 1-based position within the ordered list of
+  currently relevant screens, out of that list's length.
+
+## 12. Open questions for v0.2
 
 - **Nested repeats** — reference resolution, aggregate semantics across levels, and instance lifecycle when a parent instance is deleted
+- Screen flow across repeats — per-instance sub-screens vs one screen per repeat
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
 - Server-only expressions and where they are declared

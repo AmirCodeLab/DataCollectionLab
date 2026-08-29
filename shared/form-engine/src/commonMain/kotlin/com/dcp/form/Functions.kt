@@ -64,8 +64,28 @@ object Functions {
             "max" -> sequenceOf(args[0]).mapNotNull { numberOf(it) }.maxOrNull()
                 ?.let { FormValue.Decimal(it).simplify() } ?: FormValue.Null
             "coalesce" -> args.firstOrNull { !it.isNull } ?: FormValue.Null
-            "today" -> FormValue.DateValue(ctx.today)
+            // Dates are ISO text at runtime (spec 2.1); the reference's today()
+            // returns a string, so returning DateValue here made comparisons
+            // like `d <= today()` throw on this engine only.
+            "today" -> FormValue.Text(ctx.today)
             "now" -> FormValue.Text(ctx.now)
+            "date_diff_days" -> {
+                val a = parseDateOrNull(args[0])
+                val b = parseDateOrNull(args[1])
+                if (a == null || b == null) FormValue.Null
+                else FormValue.Integer(epochDays(a) - epochDays(b))
+            }
+            "date_add_days" -> {
+                val a = parseDateOrNull(args[0])
+                val days = args[1]
+                if (a == null || days.isNull) FormValue.Null
+                else FormValue.Text(
+                    fromEpochDays(
+                        epochDays(a) + (numberOf(days)?.toLong()
+                            ?: throw EvaluationException("date_add_days expects a number of days"))
+                    )
+                )
+            }
             "age_years" -> ageYears(args, ctx)
             "len" -> textOrNull(args[0])?.let { FormValue.Integer(it.length.toLong()) }
                 ?: FormValue.Null
@@ -140,14 +160,57 @@ object Functions {
     private data class Ymd(val year: Int, val month: Int, val day: Int)
 
     private fun parse(iso: String): Ymd {
-        val parts = iso.substring(0, 10).split("-")
-        return Ymd(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+        val parts = if (iso.length >= 10) iso.substring(0, 10).split("-") else emptyList()
+        if (parts.size != 3) throw EvaluationException("invalid date: '$iso'")
+        return Ymd(
+            parts[0].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
+            parts[1].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
+            parts[2].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
+        )
     }
 
     private fun isoDate(v: FormValue): Ymd? = when (v) {
         is FormValue.DateValue -> parse(v.iso)
         is FormValue.Text -> parse(v.value)
         else -> null
+    }
+
+    /** Mirrors the reference `_parse_date`: null passes through, a non-date
+     * operand is an evaluation error. */
+    private fun parseDateOrNull(v: FormValue): Ymd? = when (v) {
+        is FormValue.Null -> null
+        is FormValue.DateValue -> parse(v.iso)
+        is FormValue.Text -> parse(v.value)
+        else -> throw EvaluationException("expected date, got $v")
+    }
+
+    // Civil-date <-> epoch-day conversion (Howard Hinnant's algorithms), so day
+    // arithmetic works identically on JVM, Native and Wasm.
+
+    private fun epochDays(d: Ymd): Long {
+        val y = (if (d.month <= 2) d.year - 1 else d.year).toLong()
+        val era = (if (y >= 0) y else y - 399).floorDiv(400)
+        val yoe = y - era * 400
+        val mp = if (d.month > 2) d.month - 3 else d.month + 9
+        val doy = (153 * mp + 2) / 5 + d.day - 1
+        val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        return era * 146_097 + doe - 719_468
+    }
+
+    private fun fromEpochDays(days: Long): String {
+        val z = days + 719_468
+        val era = (if (z >= 0) z else z - 146_096).floorDiv(146_097)
+        val doe = z - era * 146_097
+        val yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
+        val y = yoe + era * 400
+        val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        val mp = (5 * doy + 2) / 153
+        val day = doy - (153 * mp + 2) / 5 + 1
+        val month = if (mp < 10) mp + 3 else mp - 9
+        val year = if (month <= 2) y + 1 else y
+        return "${year.toString().padStart(4, '0')}-" +
+            "${month.toString().padStart(2, '0')}-" +
+            day.toString().padStart(2, '0')
     }
 
     /** Integral decimals render as integers so results match the reference. */

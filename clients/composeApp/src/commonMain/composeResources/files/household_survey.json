@@ -1,0 +1,2309 @@
+{
+  "irVersion": "0.1",
+  "formId": "household_survey",
+  "version": 1,
+  "title": {
+    "en": "Household Survey",
+    "ar": "مسح الأسر المعيشية"
+  },
+  "defaultLanguage": "en",
+  "languages": [
+    "en",
+    "ar"
+  ],
+  "children": [
+    {
+      "type": "group",
+      "id": "intro",
+      "label": {
+        "en": "Interview",
+        "ar": "المقابلة"
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "enumerator_name",
+          "dataType": "text",
+          "label": {
+            "en": "Enumerator name",
+            "ar": "اسم الباحث"
+          },
+          "required": true,
+          "hint": {
+            "en": "As on your ID card",
+            "ar": "كما هو مدوّن في بطاقتك"
+          }
+        },
+        {
+          "type": "question",
+          "id": "interview_date",
+          "dataType": "date",
+          "label": {
+            "en": "Interview date",
+            "ar": "تاريخ المقابلة"
+          },
+          "required": true,
+          "constraint": {
+            "op": "lte",
+            "args": [
+              {
+                "op": "ref",
+                "path": "interview_date"
+              },
+              {
+                "op": "call",
+                "fn": "today",
+                "args": []
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "The interview date cannot be in the future",
+            "ar": "لا يمكن أن يكون تاريخ المقابلة في المستقبل"
+          }
+        },
+        {
+          "type": "question",
+          "id": "consent",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the respondent consent to the interview?",
+            "ar": "هل يوافق المستجيب على إجراء المقابلة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          },
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "demographics",
+      "label": {
+        "en": "Demographics",
+        "ar": "البيانات الديموغرافية"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "resp_name",
+          "dataType": "text",
+          "label": {
+            "en": "Respondent name",
+            "ar": "اسم المستجيب"
+          },
+          "required": true,
+          "constraint": {
+            "op": "gte",
+            "args": [
+              {
+                "op": "call",
+                "fn": "len",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "resp_name"
+                  }
+                ]
+              },
+              {
+                "op": "lit",
+                "value": 2
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Please enter the full name",
+            "ar": "يرجى إدخال الاسم الكامل"
+          }
+        },
+        {
+          "type": "question",
+          "id": "resp_gender",
+          "dataType": "select_one",
+          "label": {
+            "en": "Gender",
+            "ar": "الجنس"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "m",
+                "label": {
+                  "en": "Male",
+                  "ar": "ذكر"
+                }
+              },
+              {
+                "value": "f",
+                "label": {
+                  "en": "Female",
+                  "ar": "أنثى"
+                }
+              }
+            ]
+          },
+          "required": true
+        },
+        {
+          "type": "question",
+          "id": "resp_age",
+          "dataType": "integer",
+          "label": {
+            "en": "Age (completed years)",
+            "ar": "العمر (بالسنوات الكاملة)"
+          },
+          "required": true,
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "resp_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "resp_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 120
+                  }
+                ]
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Age must be between 0 and 120",
+            "ar": "يجب أن يكون العمر بين 0 و 120"
+          },
+          "hint": {
+            "en": "Completed years",
+            "ar": "عدد السنوات الكاملة"
+          }
+        },
+        {
+          "type": "question",
+          "id": "resp_dob",
+          "dataType": "date",
+          "label": {
+            "en": "Date of birth",
+            "ar": "تاريخ الميلاد"
+          },
+          "constraint": {
+            "op": "lte",
+            "args": [
+              {
+                "op": "ref",
+                "path": "resp_dob"
+              },
+              {
+                "op": "ref",
+                "path": "interview_date"
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Date of birth cannot be after the interview date",
+            "ar": "لا يمكن أن يكون تاريخ الميلاد بعد تاريخ المقابلة"
+          }
+        },
+        {
+          "type": "question",
+          "id": "marital_status",
+          "dataType": "select_one",
+          "label": {
+            "en": "Marital status",
+            "ar": "الحالة الاجتماعية"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "single",
+                "label": {
+                  "en": "Single",
+                  "ar": "أعزب"
+                }
+              },
+              {
+                "value": "married",
+                "label": {
+                  "en": "Married",
+                  "ar": "متزوج"
+                }
+              },
+              {
+                "value": "divorced",
+                "label": {
+                  "en": "Divorced",
+                  "ar": "مطلق"
+                }
+              },
+              {
+                "value": "widowed",
+                "label": {
+                  "en": "Widowed",
+                  "ar": "أرمل"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "resp_age"
+                  }
+                ]
+              },
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "resp_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 12
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "education_level",
+          "dataType": "select_one",
+          "label": {
+            "en": "Highest education level",
+            "ar": "أعلى مستوى تعليمي"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "none",
+                "label": {
+                  "en": "None",
+                  "ar": "لا يوجد"
+                }
+              },
+              {
+                "value": "primary",
+                "label": {
+                  "en": "Primary",
+                  "ar": "ابتدائي"
+                }
+              },
+              {
+                "value": "secondary",
+                "label": {
+                  "en": "Secondary",
+                  "ar": "ثانوي"
+                }
+              },
+              {
+                "value": "tertiary",
+                "label": {
+                  "en": "Tertiary",
+                  "ar": "جامعي"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "literate",
+          "dataType": "select_one",
+          "label": {
+            "en": "Can the respondent read and write?",
+            "ar": "هل يجيد المستجيب القراءة والكتابة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "education_level"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "education_level"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "none"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "household",
+      "label": {
+        "en": "Household",
+        "ar": "الأسرة"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "hh_size",
+          "dataType": "integer",
+          "label": {
+            "en": "Household size",
+            "ar": "عدد أفراد الأسرة"
+          },
+          "required": true,
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_size"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_size"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 50
+                  }
+                ]
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Household size must be between 1 and 50",
+            "ar": "يجب أن يكون عدد أفراد الأسرة بين 1 و 50"
+          }
+        },
+        {
+          "type": "question",
+          "id": "hh_children",
+          "dataType": "integer",
+          "label": {
+            "en": "Members under 18",
+            "ar": "الأفراد دون 18 عامًا"
+          },
+          "required": true,
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_children"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_children"
+                  },
+                  {
+                    "op": "ref",
+                    "path": "hh_size"
+                  }
+                ]
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Cannot exceed the household size",
+            "ar": "لا يمكن أن يتجاوز عدد أفراد الأسرة"
+          }
+        },
+        {
+          "type": "question",
+          "id": "hh_adults",
+          "dataType": "integer",
+          "label": {
+            "en": "Members 18 or older (calculated)",
+            "ar": "الأفراد البالغون 18 عامًا أو أكثر (محسوب)"
+          },
+          "calculate": {
+            "op": "sub",
+            "args": [
+              {
+                "op": "ref",
+                "path": "hh_size"
+              },
+              {
+                "op": "ref",
+                "path": "hh_children"
+              }
+            ]
+          },
+          "readOnly": true
+        },
+        {
+          "type": "question",
+          "id": "hh_rooms",
+          "dataType": "integer",
+          "label": {
+            "en": "Rooms used for sleeping",
+            "ar": "عدد غرف النوم"
+          },
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_rooms"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "hh_rooms"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 30
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "monthly_income",
+          "dataType": "decimal",
+          "label": {
+            "en": "Monthly household income",
+            "ar": "الدخل الشهري للأسرة"
+          },
+          "constraint": {
+            "op": "gte",
+            "args": [
+              {
+                "op": "ref",
+                "path": "monthly_income"
+              },
+              {
+                "op": "lit",
+                "value": 0
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Income cannot be negative",
+            "ar": "لا يمكن أن يكون الدخل سالبًا"
+          }
+        },
+        {
+          "type": "question",
+          "id": "income_source",
+          "dataType": "select_one",
+          "label": {
+            "en": "Main income source",
+            "ar": "مصدر الدخل الرئيسي"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "salary",
+                "label": {
+                  "en": "Salary",
+                  "ar": "راتب"
+                }
+              },
+              {
+                "value": "business",
+                "label": {
+                  "en": "Business",
+                  "ar": "عمل حر"
+                }
+              },
+              {
+                "value": "farming",
+                "label": {
+                  "en": "Farming",
+                  "ar": "زراعة"
+                }
+              },
+              {
+                "value": "remittance",
+                "label": {
+                  "en": "Remittances",
+                  "ar": "تحويلات"
+                }
+              },
+              {
+                "value": "other",
+                "label": {
+                  "en": "Other",
+                  "ar": "أخرى"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "monthly_income"
+                  }
+                ]
+              },
+              {
+                "op": "gt",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "monthly_income"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "water_source",
+          "dataType": "select_one",
+          "label": {
+            "en": "Main source of drinking water",
+            "ar": "المصدر الرئيسي لمياه الشرب"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "piped",
+                "label": {
+                  "en": "Piped into dwelling",
+                  "ar": "أنابيب داخل المسكن"
+                }
+              },
+              {
+                "value": "well",
+                "label": {
+                  "en": "Well or borehole",
+                  "ar": "بئر"
+                }
+              },
+              {
+                "value": "surface",
+                "label": {
+                  "en": "Surface water",
+                  "ar": "مياه سطحية"
+                }
+              },
+              {
+                "value": "bottled",
+                "label": {
+                  "en": "Bottled water",
+                  "ar": "مياه معبأة"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "water_distance_min",
+          "dataType": "integer",
+          "label": {
+            "en": "Minutes to reach the water source",
+            "ar": "الدقائق للوصول إلى مصدر المياه"
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "water_source"
+                  }
+                ]
+              },
+              {
+                "op": "ne",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "water_source"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "piped"
+                  }
+                ]
+              }
+            ]
+          },
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "water_distance_min"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "water_distance_min"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 600
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "electricity",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the dwelling have electricity?",
+            "ar": "هل يتوفر الكهرباء في المسكن؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "assets",
+      "label": {
+        "en": "Assets",
+        "ar": "الممتلكات"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "appearance": "field-list",
+      "children": [
+        {
+          "type": "question",
+          "id": "owns_radio",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a radio?",
+            "ar": "هل تمتلك الأسرة راديو؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_tv",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a television?",
+            "ar": "هل تمتلك الأسرة تلفازًا؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_fridge",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a refrigerator?",
+            "ar": "هل تمتلك الأسرة ثلاجة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_phone",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a basic phone?",
+            "ar": "هل تمتلك الأسرة هاتفًا عاديًا؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_smartphone",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a smartphone?",
+            "ar": "هل تمتلك الأسرة هاتفًا ذكيًا؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_bicycle",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a bicycle?",
+            "ar": "هل تمتلك الأسرة دراجة هوائية؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_motorcycle",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a motorcycle?",
+            "ar": "هل تمتلك الأسرة دراجة نارية؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_car",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a car?",
+            "ar": "هل تمتلك الأسرة سيارة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_livestock",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a livestock?",
+            "ar": "هل تمتلك الأسرة ماشية؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "owns_land",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does the household own a agricultural land?",
+            "ar": "هل تمتلك الأسرة أرضًا زراعية؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "land_area_ha",
+          "dataType": "decimal",
+          "label": {
+            "en": "Agricultural land area (hectares)",
+            "ar": "مساحة الأرض الزراعية (هكتار)"
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "owns_land"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "owns_land"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              }
+            ]
+          },
+          "constraint": {
+            "op": "gt",
+            "args": [
+              {
+                "op": "ref",
+                "path": "land_area_ha"
+              },
+              {
+                "op": "lit",
+                "value": 0
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "Area must be greater than zero",
+            "ar": "يجب أن تكون المساحة أكبر من صفر"
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "health",
+      "label": {
+        "en": "Health",
+        "ar": "الصحة"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "chronic_illness",
+          "dataType": "select_one",
+          "label": {
+            "en": "Does any member have a chronic illness?",
+            "ar": "هل يعاني أي فرد من مرض مزمن؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "illness_type",
+          "dataType": "select_one",
+          "label": {
+            "en": "Main chronic illness",
+            "ar": "المرض المزمن الرئيسي"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "diabetes",
+                "label": {
+                  "en": "Diabetes",
+                  "ar": "السكري"
+                }
+              },
+              {
+                "value": "hypertension",
+                "label": {
+                  "en": "Hypertension",
+                  "ar": "ضغط الدم"
+                }
+              },
+              {
+                "value": "asthma",
+                "label": {
+                  "en": "Asthma",
+                  "ar": "الربو"
+                }
+              },
+              {
+                "value": "other",
+                "label": {
+                  "en": "Other",
+                  "ar": "أخرى"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "chronic_illness"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "chronic_illness"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "visited_clinic",
+          "dataType": "select_one",
+          "label": {
+            "en": "Visited a health facility in the last 12 months?",
+            "ar": "هل تمت زيارة منشأة صحية خلال الاثني عشر شهرًا الماضية؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "last_visit_date",
+          "dataType": "date",
+          "label": {
+            "en": "Date of last visit",
+            "ar": "تاريخ آخر زيارة"
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "visited_clinic"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "visited_clinic"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              }
+            ]
+          },
+          "constraint": {
+            "op": "lte",
+            "args": [
+              {
+                "op": "ref",
+                "path": "last_visit_date"
+              },
+              {
+                "op": "ref",
+                "path": "interview_date"
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "The visit cannot be after the interview date",
+            "ar": "لا يمكن أن تكون الزيارة بعد تاريخ المقابلة"
+          }
+        },
+        {
+          "type": "question",
+          "id": "pregnant",
+          "dataType": "select_one",
+          "label": {
+            "en": "Is the respondent currently pregnant?",
+            "ar": "هل المستجيبة حامل حاليًا؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "call",
+                    "fn": "is_not_null",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "path": "resp_gender"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "eq",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "path": "resp_gender"
+                      },
+                      {
+                        "op": "lit",
+                        "value": "f"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "call",
+                    "fn": "is_not_null",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "path": "resp_age"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "and",
+                    "args": [
+                      {
+                        "op": "gte",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "path": "resp_age"
+                          },
+                          {
+                            "op": "lit",
+                            "value": 12
+                          }
+                        ]
+                      },
+                      {
+                        "op": "lte",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "path": "resp_age"
+                          },
+                          {
+                            "op": "lit",
+                            "value": 50
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "anc_visits",
+          "dataType": "integer",
+          "label": {
+            "en": "Antenatal care visits so far",
+            "ar": "عدد زيارات رعاية الحمل حتى الآن"
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "pregnant"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "pregnant"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              }
+            ]
+          },
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "anc_visits"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "anc_visits"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 20
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "children_module",
+      "label": {
+        "en": "Oldest child",
+        "ar": "الطفل الأكبر"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "hh_children"
+              }
+            ]
+          },
+          {
+            "op": "gt",
+            "args": [
+              {
+                "op": "ref",
+                "path": "hh_children"
+              },
+              {
+                "op": "lit",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "child_name",
+          "dataType": "text",
+          "label": {
+            "en": "Name of the oldest child",
+            "ar": "اسم الطفل الأكبر"
+          }
+        },
+        {
+          "type": "question",
+          "id": "child_age",
+          "dataType": "integer",
+          "label": {
+            "en": "Age of the oldest child",
+            "ar": "عمر الطفل الأكبر"
+          },
+          "constraint": {
+            "op": "and",
+            "args": [
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "op": "lte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 17
+                  }
+                ]
+              }
+            ]
+          },
+          "constraintMessage": {
+            "en": "A child must be under 18",
+            "ar": "يجب أن يكون عمر الطفل أقل من 18"
+          }
+        },
+        {
+          "type": "question",
+          "id": "child_in_school",
+          "dataType": "select_one",
+          "label": {
+            "en": "Is the child enrolled in school?",
+            "ar": "هل الطفل مسجل في المدرسة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_age"
+                  }
+                ]
+              },
+              {
+                "op": "gte",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_age"
+                  },
+                  {
+                    "op": "lit",
+                    "value": 6
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "school_type",
+          "dataType": "select_one",
+          "label": {
+            "en": "Type of school",
+            "ar": "نوع المدرسة"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "public",
+                "label": {
+                  "en": "Public",
+                  "ar": "حكومية"
+                }
+              },
+              {
+                "value": "private",
+                "label": {
+                  "en": "Private",
+                  "ar": "خاصة"
+                }
+              },
+              {
+                "value": "religious",
+                "label": {
+                  "en": "Religious",
+                  "ar": "دينية"
+                }
+              }
+            ]
+          },
+          "relevant": {
+            "op": "and",
+            "args": [
+              {
+                "op": "call",
+                "fn": "is_not_null",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_in_school"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "child_in_school"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "child_vaccinated",
+          "dataType": "select_one",
+          "label": {
+            "en": "Is the child fully vaccinated?",
+            "ar": "هل الطفل مطعّم بالكامل؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "food_security",
+      "label": {
+        "en": "Food security",
+        "ar": "الأمن الغذائي"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "appearance": "field-list",
+      "children": [
+        {
+          "type": "question",
+          "id": "fs_worried",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did you worry about food running out?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة قلقت من نفاد الطعام؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_few_kinds",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did the household eat few kinds of food?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة تناولت الأسرة أنواعًا قليلة من الطعام؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_skipped_meal",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did anyone skip a meal?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة تخطى أحد الأفراد وجبة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_ate_less",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did anyone eat less than needed?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة أكل أحد الأفراد أقل من حاجته؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_ran_out",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did the household run out of food?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة نفد الطعام من المنزل؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_hungry",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did anyone go to sleep hungry?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة نام أحد الأفراد جائعًا؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_whole_day",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did anyone go a whole day without eating?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة أمضى أحد الأفراد يومًا كاملًا دون طعام؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "fs_borrowed",
+          "dataType": "select_one",
+          "label": {
+            "en": "In the last 30 days, how often did you borrow food or money for food?",
+            "ar": "خلال الثلاثين يومًا الماضية، كم مرة اقترضت طعامًا أو مالًا لشراء الطعام؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "often",
+                "label": {
+                  "en": "Often",
+                  "ar": "غالبًا"
+                }
+              },
+              {
+                "value": "sometimes",
+                "label": {
+                  "en": "Sometimes",
+                  "ar": "أحيانًا"
+                }
+              },
+              {
+                "value": "never",
+                "label": {
+                  "en": "Never",
+                  "ar": "أبدًا"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "closing",
+      "label": {
+        "en": "Closing",
+        "ar": "الختام"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "dwelling_condition",
+          "dataType": "select_one",
+          "label": {
+            "en": "Observed condition of the dwelling",
+            "ar": "حالة المسكن الملاحظة"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "good",
+                "label": {
+                  "en": "Good",
+                  "ar": "جيدة"
+                }
+              },
+              {
+                "value": "fair",
+                "label": {
+                  "en": "Fair",
+                  "ar": "متوسطة"
+                }
+              },
+              {
+                "value": "poor",
+                "label": {
+                  "en": "Poor",
+                  "ar": "سيئة"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "question",
+          "id": "observations",
+          "dataType": "text",
+          "label": {
+            "en": "Enumerator observations",
+            "ar": "ملاحظات الباحث"
+          },
+          "hint": {
+            "en": "Anything unusual about the interview",
+            "ar": "أي شيء غير معتاد بشأن المقابلة"
+          }
+        },
+        {
+          "type": "question",
+          "id": "callback_needed",
+          "dataType": "select_one",
+          "label": {
+            "en": "Is a follow-up visit needed?",
+            "ar": "هل هناك حاجة لزيارة متابعة؟"
+          },
+          "choices": {
+            "kind": "inline",
+            "items": [
+              {
+                "value": "yes",
+                "label": {
+                  "en": "Yes",
+                  "ar": "نعم"
+                }
+              },
+              {
+                "value": "no",
+                "label": {
+                  "en": "No",
+                  "ar": "لا"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

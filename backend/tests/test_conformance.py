@@ -13,6 +13,12 @@ from datetime import date, datetime
 import pytest
 
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
+from app.modules.form_engine.screens import (
+    build_screen_plan,
+    next_screen,
+    previous_screen,
+    relevant_screens,
+)
 
 VECTOR_DIR = pathlib.Path(__file__).resolve().parents[2] / "conformance" / "vectors"
 VECTORS = sorted(VECTOR_DIR.glob("*.json"))
@@ -65,6 +71,44 @@ def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int
         assert got == expect["formValid"], (
             f"{where}: formValid expected {expect['formValid']}, got {got}"
         )
+
+    screens = expect.get("screens")
+    if screens is not None:
+        plan = build_screen_plan(instance.form.ir)
+        if "count" in screens:
+            assert len(plan) == screens["count"], (
+                f"{where}: screens.count expected {screens['count']}, got {len(plan)}"
+            )
+        for idx, want in screens.get("questions", {}).items():
+            got_q = list(plan[int(idx)].question_ids)
+            assert got_q == want, (
+                f"{where}: screens.questions[{idx}] expected {want}, got {got_q}"
+            )
+        for idx, want in screens.get("groups", {}).items():
+            got_g = plan[int(idx)].group_id
+            assert got_g == want, (
+                f"{where}: screens.groups[{idx}] expected {want}, got {got_g}"
+            )
+        for idx, want in screens.get("sections", {}).items():
+            got_s = plan[int(idx)].section_id
+            assert got_s == want, (
+                f"{where}: screens.sections[{idx}] expected {want}, got {got_s}"
+            )
+        if "relevant" in screens:
+            got_r = relevant_screens(plan, instance)
+            assert got_r == screens["relevant"], (
+                f"{where}: screens.relevant expected {screens['relevant']}, got {got_r}"
+            )
+        for frm, want in screens.get("next", {}).items():
+            got_n = next_screen(plan, instance, int(frm))
+            assert got_n == want, (
+                f"{where}: screens.next[{frm}] expected {want}, got {got_n}"
+            )
+        for frm, want in screens.get("previous", {}).items():
+            got_p = previous_screen(plan, instance, int(frm))
+            assert got_p == want, (
+                f"{where}: screens.previous[{frm}] expected {want}, got {got_p}"
+            )
 
 
 @pytest.mark.parametrize("vector_path", VECTORS, ids=lambda p: p.stem)
