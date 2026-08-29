@@ -39,8 +39,7 @@ def _constraints(node):
         if isinstance(element, ast.Constraint):
             yield element
         if isinstance(element, ast.ColumnDef):
-            for c in element.constraints or ():
-                yield c
+            yield from element.constraints or ()
 
 
 @pytest.fixture(scope="module")

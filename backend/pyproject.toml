@@ -41,5 +41,11 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+# Without this mypy reads a model's `__init__` off the dataclass_transform
+# alone, so `Field(alias="opId")` looks like a constructor that takes `opId`
+# and `populate_by_name = True` is invisible to it. That produced ten
+# "unexpected keyword argument" errors against code the wire tests prove
+# correct — the kind of false positive that teaches people to ignore mypy.
+plugins = ["pydantic.mypy"]
 [tool.setuptools]
 packages = ["app"]

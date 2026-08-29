@@ -44,8 +44,12 @@ def test_migration_creates_and_drops_every_table() -> None:
     source = MIGRATION_FILE.read_text()
     tables = set(re.findall(r"^CREATE TABLE (\w+)", DDL_FILE.read_text(), re.M))
     upgrade_body, downgrade_body = source.split("def downgrade")
-    created = set(re.findall(r"op\.create_table\('(\w+)'", upgrade_body))
-    dropped = set(re.findall(r"op\.drop_table\('(\w+)'\)", downgrade_body))
+    # Insensitive to quote style and line wrapping. A formatter that rewrites
+    # '' to "" or breaks the call across lines changes nothing about which
+    # tables the migration creates, and this test must not fail for it — it
+    # exists to catch drift between the DDL and the migration, nothing else.
+    created = set(re.findall(r"""op\.create_table\(\s*['"](\w+)['"]""", upgrade_body))
+    dropped = set(re.findall(r"""op\.drop_table\(\s*['"](\w+)['"]""", downgrade_body))
     assert created == tables, f"missing: {tables - created}, extra: {created - tables}"
     assert dropped == tables, f"missing drops: {tables - dropped}, extra: {dropped - tables}"
 
