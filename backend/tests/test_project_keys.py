@@ -157,6 +157,32 @@ async def _seed() -> None:
         await engine.dispose()
 
 
+async def _make_project(project_id: str, security_mode: str) -> None:
+    """A project of its own for a test that counts a project's active keys.
+
+    The shared PROJECT_ID accumulates keys from every test in the module, so
+    "this is the last recipient" can only be arranged in a project nothing else
+    touches.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.modules.projects.models import Project
+
+    engine = create_async_engine(_keys_db_url())
+    try:
+        async with async_sessionmaker(engine)() as session, session.begin():
+            session.add(
+                Project(
+                    id=project_id,
+                    name=project_id,
+                    slug=project_id.lower(),
+                    security_mode=security_mode,
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
 @pytest.fixture(scope="module")
 def keys_api() -> Any:
     import asyncpg
@@ -441,5 +467,148 @@ def test_no_endpoint_hands_back_key_material_that_could_decrypt(keys_api: Any) -
         # The public half is returned, and is meant to be: it is what a device
         # wraps to, and it is useless on its own.
         assert public_hex in bodies[1]
+
+    _run_with_client(keys_api, scenario)
+
+
+# ---------------------------------------------------------------------------
+# Revocation (encryption envelope §8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.db
+def test_a_revoked_key_stops_receiving_wraps_but_keeps_opening_what_it_has(
+    keys_api: Any,
+) -> None:
+    """Revocation is about the future, and only about the future.
+
+    A retired key must disappear from what devices wrap to. It must NOT
+    disappear from the record: the submissions collected while it was active
+    are encrypted to it permanently — the server cannot re-wrap them because it
+    cannot open them — so the console still has to be able to name it when it
+    tells someone which private key opens an old submission.
+    """
+    retiring = _public_hex()
+    staying = _public_hex()
+
+    async def scenario(client: Any) -> None:
+        created = []
+        for public_key, role, label in (
+            (retiring, "primary", "Leaving — Priya"),
+            (staying, "backup", "Staying — Omar"),
+        ):
+            response = await client.post(
+                f"/api/v1/projects/{PROJECT_ID}/keys",
+                json={"publicKey": public_key, "role": role, "label": label},
+            )
+            assert response.status_code == 201, response.text
+            created.append(response.json()["keyId"])
+        leaving, remaining = created
+
+        revoked = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke"
+        )
+        assert revoked.status_code == 200, revoked.text
+        assert revoked.json()["revokedAt"] is not None
+        stamp = revoked.json()["revokedAt"]
+
+        # Gone from the default listing and from what devices wrap to...
+        active = (await client.get(f"/api/v1/projects/{PROJECT_ID}/keys")).json()["keys"]
+        assert leaving not in [k["keyId"] for k in active]
+        assert remaining in [k["keyId"] for k in active]
+
+        await client.post(
+            "/api/v1/devices", json={"deviceId": "dev-revoke", "platform": "android"}
+        )
+        crypto = await client.get("/api/v1/devices/dev-revoke/crypto")
+        assert crypto.status_code == 200, crypto.text
+        assert retiring not in {k["publicKey"] for k in crypto.json()["projectKeys"]}
+        assert staying in {k["publicKey"] for k in crypto.json()["projectKeys"]}
+
+        # ...and still there, named, for anyone holding an old submission.
+        including = (
+            await client.get(
+                f"/api/v1/projects/{PROJECT_ID}/keys", params={"includeRevoked": True}
+            )
+        ).json()["keys"]
+        retired = next(k for k in including if k["keyId"] == leaving)
+        assert retired["revokedAt"] == stamp
+        assert retired["publicKey"] == retiring
+        assert retired["label"] == "Leaving — Priya"
+
+        # Idempotent: a retry does not move when the revocation happened.
+        again = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke"
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["revokedAt"] == stamp
+
+    _run_with_client(keys_api, scenario)
+
+
+@pytest.mark.db
+def test_the_last_recipient_of_an_encrypting_project_cannot_be_revoked(
+    keys_api: Any,
+) -> None:
+    """Otherwise collection stops in the field and nobody is told.
+
+    A project in an encrypting mode with no recipients cannot receive data at
+    all — its devices hold everything locally rather than send answers in the
+    clear. The refusal names the fix, and the fix leaves the same end state.
+    """
+    sole = _public_hex()
+    replacement = _public_hex()
+
+    async def scenario(client: Any) -> None:
+        # A project of its own, so the count is unambiguous.
+        project_id = "01PROJLASTKEY"
+        await _make_project(project_id, "project_e2e")
+
+        first = await client.post(
+            f"/api/v1/projects/{project_id}/keys",
+            json={"publicKey": sole, "role": "primary", "label": "Only holder"},
+        )
+        assert first.status_code == 201, first.text
+        only_key = first.json()["keyId"]
+
+        refused = await client.post(
+            f"/api/v1/projects/{project_id}/keys/{only_key}/revoke"
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["reason"] == "last_active_key"
+
+        # Register the replacement first, exactly as the message says, and the
+        # same revocation goes through.
+        second = await client.post(
+            f"/api/v1/projects/{project_id}/keys",
+            json={"publicKey": replacement, "role": "primary", "label": "New holder"},
+        )
+        assert second.status_code == 201, second.text
+
+        now_allowed = await client.post(
+            f"/api/v1/projects/{project_id}/keys/{only_key}/revoke"
+        )
+        assert now_allowed.status_code == 200, now_allowed.text
+        assert now_allowed.json()["revokedAt"] is not None
+
+    _run_with_client(keys_api, scenario)
+
+
+@pytest.mark.db
+def test_revoking_something_that_is_not_there_says_which_thing(keys_api: Any) -> None:
+    """A 404 with no reason leaves you guessing which id was wrong."""
+
+    async def scenario(client: Any) -> None:
+        missing_key = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/keys/01NOSUCHKEY/revoke"
+        )
+        assert missing_key.status_code == 404, missing_key.text
+        assert missing_key.json()["detail"]["reason"] == "key_not_found"
+
+        missing_project = await client.post(
+            "/api/v1/projects/01NOSUCHPROJECT/keys/01NOSUCHKEY/revoke"
+        )
+        assert missing_project.status_code == 404, missing_project.text
+        assert missing_project.json()["detail"]["reason"] == "project_not_found"
 
     _run_with_client(keys_api, scenario)

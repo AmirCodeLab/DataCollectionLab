@@ -53,7 +53,7 @@ async function describeFailure(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object" && "detail" in body) {
-      const detail = (body as { detail: unknown }).detail;
+      const detail: unknown = body.detail;
       if (typeof detail === "string") return detail;
       return JSON.stringify(detail);
     }

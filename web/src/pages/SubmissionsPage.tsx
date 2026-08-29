@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { REFRESH_INTERVAL_MS, formListQuery, submissionListQuery } from "@/api/queries";
 import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/api/types";
-import { RefreshControls, useAutoRefresh } from "@/components/RefreshControls";
+import { RefreshControls } from "@/components/RefreshControls";
+import { useAutoRefresh } from "@/lib/autoRefresh";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp, shortId, statusLabel } from "@/lib/format";
 import { Td, Th } from "@/components/Table";

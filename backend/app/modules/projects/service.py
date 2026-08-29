@@ -11,6 +11,7 @@ the deployment's single active project and an unassigned user; a deployment
 with several projects must enroll devices explicitly (spec §11).
 """
 
+from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import func, select
@@ -361,6 +362,84 @@ async def add_project_key(
         label=request.label,
     )
     session.add(key)
+    await session.flush()
+    await session.refresh(key)
+    return _key_detail(key)
+
+
+async def revoke_project_key(
+    session: AsyncSession, project_id: str, key_id: str
+) -> ProjectKeyDetail:
+    """Retire a recipient (encryption envelope §8).
+
+    Revocation stops the FUTURE. Devices wrap each submission's content key to
+    the recipients that are active at the moment of collection, so from here a
+    revoked key receives no new wraps and `GET /devices/{id}/crypto` stops
+    offering it.
+
+    Revocation cannot touch the past, and nothing here pretends otherwise. Every
+    wrap already written stays exactly as it is, and the submissions behind them
+    are still readable only with the revoked private key — the server cannot
+    re-wrap them to a replacement because it cannot open them either. So this
+    marks a key retired; it does not make the data it opens safe, and if the
+    private half is in the wrong hands the only real remedy is that the data it
+    already opens is compromised. Deleting the row would be worse than useless:
+    the submission would still be encrypted to that key and the console could no
+    longer name whose key it was.
+
+    Idempotent: revoking an already-revoked key returns the row unchanged rather
+    than moving its timestamp, so a retried request cannot rewrite when the
+    revocation happened.
+    """
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise KeyRegistrationError(404, "project_not_found", f"No project {project_id}.")
+
+    key = (
+        await session.execute(
+            select(ProjectKey).where(
+                ProjectKey.id == key_id,
+                ProjectKey.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if key is None:
+        raise KeyRegistrationError(
+            404, "key_not_found", f"No key {key_id} on project {project_id}."
+        )
+
+    if key.revoked_at is not None:
+        return _key_detail(key)
+
+    if project.security_mode != "standard":
+        remaining = (
+            await session.execute(
+                select(func.count())
+                .select_from(ProjectKey)
+                .where(
+                    ProjectKey.project_id == project_id,
+                    ProjectKey.revoked_at.is_(None),
+                    ProjectKey.id != key_id,
+                )
+            )
+        ).scalar_one()
+        if remaining == 0:
+            # A project in an encrypting mode with no recipients cannot receive
+            # data at all: its devices hold everything locally rather than send
+            # answers in the clear. Revoking the last key would stop collection
+            # in the field silently, and the person doing it would find out
+            # from a fieldworker days later. Registering the replacement first
+            # costs one request and is the same end state.
+            raise KeyRegistrationError(
+                409,
+                "last_active_key",
+                f"{key_id} is the only active recipient on a {project.security_mode} "
+                "project. Revoking it would stop every device collecting, because "
+                "they hold data on the device rather than push it unencrypted. "
+                "Register the replacement key first, then revoke this one.",
+            )
+
+    key.revoked_at = datetime.now(UTC)
     await session.flush()
     await session.refresh(key)
     return _key_detail(key)

@@ -53,7 +53,7 @@ export async function generateProjectKeypair(): Promise<GeneratedKeypair> {
 
   const algorithms: Array<AlgorithmIdentifier | EcKeyGenParams> = [
     { name: "X25519" },
-    { name: "ECDH", namedCurve: "X25519" } as EcKeyGenParams,
+    { name: "ECDH", namedCurve: "X25519" },
   ];
 
   let lastError = "no algorithm accepted";
@@ -137,12 +137,12 @@ async function assertHalvesMatch(
   ])) as CryptoKeyPair;
 
   const fromGenerated = await subtle.deriveBits(
-    { name, public: witness.publicKey } as EcdhKeyDeriveParams,
+    { name, public: witness.publicKey },
     reimported,
     256,
   );
   const fromWitness = await subtle.deriveBits(
-    { name, public: pair.publicKey } as EcdhKeyDeriveParams,
+    { name, public: pair.publicKey },
     witness.privateKey,
     256,
   );

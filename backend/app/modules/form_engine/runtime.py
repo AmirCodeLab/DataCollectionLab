@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import itertools
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Iterator
+from typing import Any
 
 from .expression import (
     CompileError,

@@ -111,3 +111,18 @@ export const addProjectKey = (projectId: string, key: ProjectKeyCreate) =>
     `/api/v1/projects/${encodeURIComponent(projectId)}/keys`,
     key,
   );
+
+/** Retires a recipient (encryption envelope §8).
+ *
+ * A POST, not a DELETE: nothing is deleted. Submissions collected while the key
+ * was active stay encrypted to it forever — the server cannot re-wrap what it
+ * cannot open — so the row survives to name whose private key opens them. What
+ * stops is future wrapping.
+ */
+export const revokeProjectKey = (projectId: string, keyId: string) =>
+  apiPost<ProjectKeyDetail>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(
+      keyId,
+    )}/revoke`,
+    {},
+  );

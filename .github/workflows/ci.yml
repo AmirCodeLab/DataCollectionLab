@@ -1,0 +1,174 @@
+# Continuous integration.
+#
+# This repository had none. The conformance gate, the crypto vectors and the
+# migration round-trip all existed and none of them had ever run on a push —
+# every quality signal was a person remembering to run ./scripts/status.sh. That
+# is how 78 ruff errors and a lint script pointing at an uninstalled binary sat
+# unnoticed for weeks.
+#
+# Four jobs, matching the four things that can independently break. They run in
+# parallel because none of them needs another's output, and every one of them
+# fails the build: there is no `continue-on-error` in this file, and there is
+# not going to be. A job that cannot fail is worse than no job — it produces the
+# paperwork of having been checked.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff
+        working-directory: backend
+        run: ruff check .
+
+      - name: mypy
+        working-directory: backend
+        run: mypy app
+
+      # Everything that does not need a database, including the conformance
+      # vectors — the Python half of the cross-engine contract.
+      - name: pytest
+        working-directory: backend
+        run: pytest tests/ -v -m "not db"
+
+  db:
+    name: db (migrations and API against Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # PostGIS, not plain Postgres: migration 0001 creates the extension and
+        # geography columns, so a stock postgres image fails at upgrade head and
+        # would look like a broken migration rather than a wrong image.
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: dcp
+          POSTGRES_PASSWORD: dcp
+          POSTGRES_DB: dcp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dcp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # The db tests create and drop their own scratch databases, so they need
+      # a role that can CREATE DATABASE — the image's superuser is one.
+      - name: pytest -m db
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://dcp:dcp@localhost:5432/dcp
+        run: pytest tests/ -v -m db
+
+  kotlin:
+    name: kotlin (form-engine and core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Both shared modules declare an `android { }` target, so configuring the
+      # build needs an SDK even though only the JVM targets are tested here.
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The other half of the conformance contract. A vector that passes here
+      # and fails in the backend job — or the reverse — is a release blocker,
+      # never a platform difference (docs/project-conventions.md rule 2).
+      - name: jvmTest
+        run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-test-reports
+          path: shared/*/build/reports/tests/
+
+  web:
+    name: web (typecheck, lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The tests borrow Node's WebCrypto for X25519, which jsdom has not
+          # got. Pinned to an LTS that certainly has it rather than to
+          # whatever `latest` becomes.
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `ci`, not `install`: the lockfile is committed so every install
+      # resolves the same tree, and `npm ci` is the one that honours it.
+      - name: Install
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: lint
+        run: npm run lint
+
+      # Reads the crypto conformance vectors off disk, from ../conformance —
+      # so the browser is held to the same envelope bytes as the other engines.
+      - name: test
+        run: npm test
+
+      - name: build
+        run: npm run build

@@ -1,0 +1,11 @@
+{
+  // The tests, which do run in Node: they read the conformance vectors off
+  // disk and borrow Node's WebCrypto because jsdom has none. Kept separate so
+  // `process` and `node:fs` are in scope here and nowhere near the app.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src", "vite.config.ts"],
+  "exclude": []
+}

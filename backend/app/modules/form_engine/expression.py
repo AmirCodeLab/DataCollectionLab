@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 
 INT_MIN = -(2**63)
 INT_MAX = 2**63 - 1
@@ -133,6 +134,22 @@ def _parse_date(value: Any) -> date | None:
     raise EvaluationError(f"expected date, got {type(value).__name__}")
 
 
+def _parse_date_required(value: Any) -> date:
+    """`_parse_date` for a value the caller has already excluded null for.
+
+    `_parse_date` returns None for null and *only* for null — anything else
+    that is not a date raises. Callers that have tested `_is_null` first are
+    therefore guaranteed a date, but the type does not say so. This says it,
+    and keeps the impossible case an error rather than a None that would
+    surface three frames later as an AttributeError. The Kotlin engine spells
+    the same invariant `isoDate(args[1])!!` (Functions.kt, ageYears).
+    """
+    parsed = _parse_date(value)
+    if parsed is None:
+        raise EvaluationError("expected date, got null")
+    return parsed
+
+
 def _fn_count(ctx: EvalContext, args: list[Any]) -> Any:
     return len(_non_null(_seq(args[0])))
 
@@ -176,7 +193,7 @@ def _fn_age_years(ctx: EvalContext, args: list[Any]) -> Any:
     born = _parse_date(args[0])
     if born is None:
         return None
-    ref = _parse_date(args[1]) if len(args) > 1 and not _is_null(args[1]) else ctx.today
+    ref = _parse_date_required(args[1]) if len(args) > 1 and not _is_null(args[1]) else ctx.today
     years = ref.year - born.year
     if (ref.month, ref.day) < (born.month, born.day):
         years -= 1
@@ -344,7 +361,7 @@ def _resolve(path: str, ctx: EvalContext) -> Any:
     return ctx.values[path]
 
 
-_BINARY = {
+_BINARY: dict[str, Callable[[Any, Any], Any]] = {
     "add": lambda a, b: _arith(lambda x, y: x + y, a, b),
     "sub": lambda a, b: _arith(lambda x, y: x - y, a, b),
     "mul": lambda a, b: _arith(lambda x, y: x * y, a, b),

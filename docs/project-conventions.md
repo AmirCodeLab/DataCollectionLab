@@ -141,10 +141,21 @@ cd backend && pytest tests/test_conformance.py -v
 
 # Web
 cd web && npm install && npm run dev
+npm run typecheck && npm run lint && npm test && npm run build
 
 # Full stack
 docker compose up
 ```
+
+## CI
+
+`.github/workflows/ci.yml` — four jobs, all of them blocking: **backend**
+(ruff, mypy, pytest without `db`), **db** (pytest `-m db` against a PostGIS
+service), **kotlin** (`:shared:form-engine:jvmTest`, `:shared:core:jvmTest`),
+**web** (typecheck, lint, test, build).
+
+These are the same commands listed above. Run them locally before pushing —
+but the point of the workflow is that nobody has to remember to.
 
 ## Conventions
 
@@ -153,6 +164,8 @@ docker compose up
 - Commits: imperative mood, scope prefix — `engine: add null coercion at boundary`
 - Every behavioural change to the engine ships with a conformance vector
 - Migrations must be reversible; self-hosted users run old versions
+- A guarantee is not defended until its break has been watched to fail —
+  record it in `docs/known-breaks.md`
 
 ## Current phase
 
@@ -214,8 +227,12 @@ Plainly NOT done yet:
   WebCrypto, downloads the private half and registers only the public one
   (`web/src/pages/ProjectKeysPage.tsx`, `POST /api/v1/projects/{id}/keys`), and
   `scripts/dev_project_key.py` installs a TEST ONLY fixed keypair for local
-  work. Decryption with a held private key works (above). There is still no
-  revocation or rotation *flow* (§8) — the console states plainly that a new key
-  opens nothing older, but nothing revokes a key or re-registers a holder — and
-  no import of a keypair generated elsewhere
+  work. Decryption with a held private key works (above). Revocation now exists
+  (`POST /api/v1/projects/{id}/keys/{keyId}/revoke`, with a Revoke button on the
+  keys page): it stops future wrapping, keeps the row so the console can still
+  name whose private key opens old submissions, is idempotent, and refuses to
+  retire the last active recipient of an encrypting project — which would stop
+  collection in the field silently. What is still missing is the rest of the §8
+  *flow*: no rotation (register-new-then-revoke-old is manual and unguided), no
+  re-registration of a holder, and no import of a keypair generated elsewhere
 - **OpenAPI contract** — still skeleton (see item 4)

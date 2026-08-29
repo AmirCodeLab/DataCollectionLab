@@ -93,3 +93,35 @@ async def add_project_key(
                 status_code=error.status_code,
                 detail={"reason": error.reason, "message": error.message},
             ) from error
+
+
+@router.post(
+    "/{project_id}/keys/{key_id}/revoke",
+    response_model=ProjectKeyDetail,
+    response_model_by_alias=True,
+)
+async def revoke_project_key(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    project_id: Annotated[str, Path(min_length=1, max_length=64)],
+    key_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> ProjectKeyDetail:
+    """Retire a recipient key (encryption envelope §8).
+
+    A POST rather than a DELETE, because nothing is deleted. The row stays and
+    the wraps that name it stay: submissions collected while this key was active
+    are still encrypted to it and always will be, and the console needs the row
+    to say whose private key opens them. What changes is the future — no new
+    submission is wrapped to it, and devices stop being offered it.
+
+    Refuses to retire the last active recipient of an encrypting project, which
+    would stop collection in the field without telling anyone. Idempotent: a
+    second revoke returns the first one's timestamp rather than moving it.
+    """
+    async with session.begin():
+        try:
+            return await service.revoke_project_key(session, project_id, key_id)
+        except service.KeyRegistrationError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail={"reason": error.reason, "message": error.message},
+            ) from error
