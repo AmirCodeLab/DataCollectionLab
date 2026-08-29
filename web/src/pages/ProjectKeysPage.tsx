@@ -12,7 +12,12 @@ import { useState } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { addProjectKey, projectKeysQuery, projectListQuery } from "@/api/queries";
+import {
+  addProjectKey,
+  projectKeysQuery,
+  projectListQuery,
+  revokeProjectKey,
+} from "@/api/queries";
 import { KEY_ROLES, type KeyRole, type SecurityMode } from "@/api/types";
 import { Td, Th } from "@/components/Table";
 import { formatTimestamp } from "@/lib/format";
@@ -46,7 +51,10 @@ export function ProjectKeysPage() {
   const queryClient = useQueryClient();
 
   const projects = useQuery(projectListQuery());
-  const keys = useQuery(projectKeysQuery(projectId));
+  // Revoked keys included: a retired key still opens everything collected while
+  // it was active, and the console is the only place that can say whose key
+  // that was (envelope §8).
+  const keys = useQuery(projectKeysQuery(projectId, true));
 
   const project = projects.data?.projects.find((p) => p.id === projectId);
 
@@ -131,7 +139,28 @@ export function ProjectKeysPage() {
     onError: () => setStatus(null),
   });
 
-  const active = keys.data?.keys ?? [];
+  // Which key the Revoke button is currently asking about. Retiring a
+  // recipient is not undoable and changes what every device does next, so it
+  // takes two deliberate clicks rather than one stray one.
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const revoke = useMutation({
+    mutationFn: (keyId: string) => revokeProjectKey(projectId, keyId),
+    onSuccess: async (retired) => {
+      setConfirming(null);
+      setStatus(
+        `Retired ${retired.keyId}. Devices stop wrapping to it from now on. ` +
+          "Everything already collected is still encrypted to it and always " +
+          "will be — keep that private key file.",
+      );
+      await queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  const allKeys = keys.data?.keys ?? [];
+  const active = allKeys.filter((key) => key.revokedAt === null);
+  const revoked = allKeys.filter((key) => key.revokedAt !== null);
   const canSubmit = label.trim() !== "" && saved && !generate.isPending;
 
   return (
@@ -216,6 +245,9 @@ export function ProjectKeysPage() {
                 <Th>Public key</Th>
                 <Th>Added</Th>
                 <Th>Opens</Th>
+                <Th>
+                  <span className="sr-only">Actions</span>
+                </Th>
               </tr>
             </thead>
             <tbody>
@@ -232,11 +264,94 @@ export function ProjectKeysPage() {
                   <Td className="whitespace-nowrap text-xs text-slate-600">
                     submissions encrypted after this
                   </Td>
+                  <Td className="whitespace-nowrap">
+                    {confirming === key.keyId ? (
+                      <span className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={revoke.isPending}
+                          onClick={() => revoke.mutate(key.keyId)}
+                          className="rounded bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800 disabled:bg-slate-300"
+                        >
+                          {revoke.isPending ? "Retiring…" : "Yes, retire it"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirming(null)}
+                          className="text-xs text-slate-600 hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirming(key.keyId)}
+                        className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </Td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {confirming !== null && (
+        <div className="mt-3 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-semibold">
+            Retiring a key does not protect the data it already opens.
+          </p>
+          <p className="mt-2">
+            Devices stop wrapping new submissions to{" "}
+            <code className="text-xs">{confirming}</code> immediately. Everything
+            collected while it was active stays encrypted to it permanently —
+            nothing gets re-wrapped, because the server cannot open it to
+            re-wrap it (envelope §8). If that private key is in the wrong hands,
+            the submissions it opens are already compromised and revoking it
+            here changes nothing about them.
+          </p>
+          <p className="mt-2">
+            Do not delete the private key file. It is still the only thing that
+            opens those submissions.
+          </p>
+        </div>
+      )}
+
+      {revoke.isError && (
+        <p className="mt-3 text-sm text-red-600">{String(revoke.error)}</p>
+      )}
+
+      {revoked.length > 0 && (
+        <>
+          <h3 className="mt-6 text-sm font-semibold text-slate-700">Retired</h3>
+          <p className="text-xs text-slate-600">
+            No longer wrapped to. Still the only thing that opens the
+            submissions collected while they were active — which is why they are
+            listed rather than deleted.
+          </p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[40rem] border-collapse text-sm text-slate-500">
+              <tbody>
+                {revoked.map((key) => (
+                  <tr key={key.keyId} className="border-b border-slate-100">
+                    <Td>
+                      <code>{key.role}</code>
+                    </Td>
+                    <Td>{key.label}</Td>
+                    <Td className="break-all font-mono text-xs">{key.publicKey}</Td>
+                    <Td className="whitespace-nowrap text-xs">
+                      retired {formatTimestamp(key.revokedAt)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       {active.length > 0 && (
         <p className="mt-2 max-w-3xl text-xs text-slate-600">
