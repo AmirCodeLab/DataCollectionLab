@@ -156,15 +156,32 @@ docker compose up
 
 ## Current phase
 
-**Phase 0 — architecture proof.** Deliverables:
+**Phase 0 — architecture proof: complete except the OpenAPI contract.**
+**Phase 1 — clients: in progress (Android collection app).**
 
-1. Form IR specification — drafted, needs repeat-scope detail
-2. Sync protocol specification — drafted, needs conflict-resolution detail
-3. ERD / database schema — DDL + spec done; Alembic migration pending
-4. OpenAPI contract — skeleton only
-5. Encryption envelope design — spec, Python reference, Kotlin port and crypto
-   conformance vectors (`conformance/crypto/`) done; both implementations
-   produce byte-identical ciphertext
-6. iOS Compose spike — not started
+Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
-Do not start Phase 1 (builder UI, Android app) until 1 and 2 are stable.
+1. Form IR specification — done incl. screen flow (§11); 29 conformance
+   vectors pass identically on the Python and Kotlin engines
+2. Sync protocol specification — done; server push/pull implemented
+   (`backend/app/modules/sync/`, commit e9f30d7) and the client op log +
+   outbox live in `shared/core` (`SubmissionStore`, 5 JVM tests)
+3. ERD / database schema — done; Alembic migration 0001 in
+   `backend/migrations/versions/`, migration tests green against Postgres
+4. OpenAPI contract — **still skeleton**: 4 routes exist, no contract file
+   in `specs/`
+5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
+6. iOS Compose spike — composeApp compiles for iosArm64/iosSimulatorArm64 and
+   `MainViewController` is wired; **not yet launched on a simulator**
+
+Phase 1 so far: Android collection screen in `clients/composeApp` — paged
+navigation driven by the shared engine's screen plan, live relevance and
+constraints, local op log, RTL, tested on a real device with a 52-question form.
+
+Plainly NOT done yet:
+
+- **Client-side encryption is not wired** — the envelope exists in
+  `shared/core` but the op log and submissions are stored in cleartext
+- **No network sync client** — server endpoints exist; the app is local-only
+- **Media** (capture, chunked upload) — not started
+- **OpenAPI contract** — still skeleton (see item 4)
