@@ -171,8 +171,10 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 4. OpenAPI contract — **still skeleton**: 4 routes exist, no contract file
    in `specs/`
 5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
-6. iOS Compose spike — composeApp compiles for iosArm64/iosSimulatorArm64 and
-   `MainViewController` is wired; **not yet launched on a simulator**
+6. iOS Compose spike — done: builds and runs on the iPhone 17 Pro simulator;
+   the submission list renders with the SQLDelight native driver and the
+   bundled form compiling on-device (app link needs `-lsqlite3`, set in
+   `clients/iosApp/Configuration/Config.xcconfig`)
 
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
