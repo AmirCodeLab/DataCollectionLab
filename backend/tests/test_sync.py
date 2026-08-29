@@ -38,6 +38,7 @@ def _op(
     path: str | None = "name",
     value: Any = None,
     form_version: int = FORM_VERSION,
+    wall_clock: str = "2026-08-28T09:14:22Z",
 ) -> dict[str, Any]:
     return {
         "opId": op_id,
@@ -49,7 +50,7 @@ def _op(
         "value": value,
         "deviceId": device_id,
         "counter": counter,
-        "wallClock": "2026-08-28T09:14:22Z",
+        "wallClock": wall_clock,
     }
 
 
@@ -298,19 +299,29 @@ def test_malformed_op_does_not_block_the_rest_of_the_batch(sync_api: Any) -> Non
 @pytest.mark.db
 def test_two_devices_converge_regardless_of_arrival_order(sync_api: Any) -> None:
     """Field-level LWW by (counter, deviceId): same ops, opposite arrival
-    order, identical folded state (spec §6). Never wall clock — the ops all
-    carry the same wallClock on purpose.
+    order, identical folded state (spec §6). Never wall clock (spec §3).
+
+    The wallClocks are arranged so that ordering by wall clock picks the
+    WRONG winner in both cases — the real-world case of a device with a
+    wrong clock. A fold that orders by wallClock cannot pass this test:
+
+      name: dev-a counter+5 @ 10:00  vs  dev-b counter+3 @ 11:00
+            (counter, deviceId) -> dev-a wins; wall clock -> dev-b.
+      age:  dev-a counter+7 @ 12:00  vs  dev-b counter+7 @ 09:00
+            counters tie, deviceId decides -> dev-b wins; wall clock -> dev-a.
     """
 
     async def scenario(client: Any) -> None:
         def edits(sub: str, tag: str, counter_base: int) -> tuple[dict[str, Any], ...]:
-            # Same counter for 'name' → deviceId is the tiebreak (dev-b wins).
-            # Higher counter for dev-a's 'age' → counter wins over arrival.
             return (
-                _op(f"01A{tag}NAME", sub, "dev-a", counter_base, value="from-a"),
-                _op(f"01B{tag}NAME", sub, "dev-b", counter_base, value="from-b"),
-                _op(f"01A{tag}AGE", sub, "dev-a", counter_base + 1, path="age", value=30),
-                _op(f"01B{tag}AGE", sub, "dev-b", counter_base + 1, path="age", value=25),
+                _op(f"01A{tag}NAME", sub, "dev-a", counter_base + 5,
+                    value="from-a", wall_clock="2026-08-28T10:00:00Z"),
+                _op(f"01B{tag}NAME", sub, "dev-b", counter_base + 3,
+                    value="from-b", wall_clock="2026-08-28T11:00:00Z"),
+                _op(f"01A{tag}AGE", sub, "dev-a", counter_base + 7,
+                    path="age", value=30, wall_clock="2026-08-28T12:00:00Z"),
+                _op(f"01B{tag}AGE", sub, "dev-b", counter_base + 7,
+                    path="age", value=25, wall_clock="2026-08-28T09:00:00Z"),
             )
 
         a_name, b_name, a_age, b_age = edits("01SUBORDERAB", "AB", 300)
@@ -324,9 +335,10 @@ def test_two_devices_converge_regardless_of_arrival_order(sync_api: Any) -> None
         state_ab = await _state("01SUBORDERAB")
         state_ba = await _state("01SUBORDERBA")
         assert state_ab == state_ba
-        assert state_ab["name"] == "from-b"  # (300, dev-b) > (300, dev-a)
-        # age: both devices used counter+1, so deviceId breaks the tie again;
-        # dev-b's 25 wins even though dev-a pushed later in one ordering.
+        # name: higher counter wins even though the loser's clock is later
+        assert state_ab["name"] == "from-a"
+        # age: counters tie, deviceId is the tiebreak (dev-b > dev-a);
+        # dev-b wins despite carrying the EARLIEST wall clock of all four ops
         assert state_ab["age"] == 25
 
     _run_with_client(sync_api, scenario)
