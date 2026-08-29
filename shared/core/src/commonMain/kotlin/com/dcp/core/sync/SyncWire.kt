@@ -47,6 +47,21 @@ data class WireDeviceRegisterResponse(
     val status: String,
 )
 
+/**
+ * Body of a failed registration. `reason` is the contract — project_not_found,
+ * project_ambiguous, project_mismatch, device_revoked — and `message` says what
+ * to do about it. Reported verbatim so a developer sees "the database was never
+ * seeded" rather than a bare status code.
+ */
+@Serializable
+data class WireErrorDetail(
+    val reason: String,
+    val message: String = "",
+)
+
+@Serializable
+data class WireErrorBody(val detail: WireErrorDetail? = null)
+
 @Serializable
 data class WireRejectedOp(val opId: String? = null, val reason: String)
 

@@ -251,6 +251,55 @@ class SyncClientTest {
     }
 
     @Test
+    fun `a refused registration reports the server's reason, not the status code`() = runBlocking {
+        val store = store()
+        seedOps(store, 2)
+        var registrationAttempts = 0
+        val client = client(
+            store,
+            registrationHandler = {
+                registrationAttempts++
+                respond(
+                    """{"detail":{"reason":"project_not_found",
+                        "message":"The server has no active project to register this device
+                        against. Run scripts/seed_dev.py to create the development project."}}""",
+                    HttpStatusCode.Conflict,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) { jsonResponse(emptyPull()) }
+
+        val result = client.syncOnce()
+
+        assertEquals("project_not_found", result.registrationFailure)
+        val error = assertNotNull(result.error)
+        assertTrue(error.contains("project_not_found"), "reason is in the message: $error")
+        assertTrue(error.contains("seed_dev.py"), "server's advice survives: $error")
+        assertEquals(false, error.contains("409"), "not reported as a bare status: $error")
+        assertEquals(error, store.syncStatus().lastError)
+        // A refusal is a decision, not a hiccup — it must not be retried.
+        assertEquals(1, registrationAttempts)
+        assertEquals(2, store.pendingCount())
+    }
+
+    @Test
+    fun `a refusal with no structured body still reports something usable`() = runBlocking {
+        val store = store()
+        seedOps(store, 1)
+        val client = client(
+            store,
+            registrationHandler = { respond("<html>502 from a proxy</html>", HttpStatusCode.BadGateway) },
+        ) { jsonResponse(emptyPull()) }
+
+        val result = client.syncOnce()
+
+        assertNull(result.registrationFailure) // no machine-readable reason to report
+        val error = assertNotNull(result.error)
+        assertTrue(error.contains("502"), "falls back to the status: $error")
+        assertTrue(error.contains("proxy"), "keeps the raw body: $error")
+    }
+
+    @Test
     fun `failed registration pushes nothing and is retried next sync`() = runBlocking {
         val store = store()
         seedOps(store, 2)

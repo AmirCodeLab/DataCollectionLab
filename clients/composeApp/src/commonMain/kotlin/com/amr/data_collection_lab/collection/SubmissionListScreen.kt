@@ -124,6 +124,13 @@ private fun SyncBar(state: SubmissionListState, onAction: (SubmissionListAction)
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (state.registrationFailure != null) {
+                Text(
+                    text = "Device not registered: ${state.registrationFailure}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (state.rejectedSummary != null) {
                 Text(
                     text = state.rejectedSummary,

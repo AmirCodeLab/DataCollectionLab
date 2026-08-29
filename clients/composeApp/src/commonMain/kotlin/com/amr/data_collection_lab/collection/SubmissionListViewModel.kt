@@ -32,6 +32,12 @@ data class SubmissionListState(
     val lastSyncError: String? = null,
     /** e.g. "3 ops rejected: not_authorized" — the server refused these ops. */
     val rejectedSummary: String? = null,
+    /**
+     * The server refused to register this device (e.g. `project_not_found`).
+     * Held apart from [lastSyncError] because nothing will sync until someone
+     * fixes the server — retrying cannot help.
+     */
+    val registrationFailure: String? = null,
     val isSyncing: Boolean = false,
 )
 
@@ -121,8 +127,10 @@ class SubmissionListViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isSyncing = true) }
             try {
-                // outcome lands in sync_status, observed above
-                withContext(Dispatchers.Default) { syncClient.syncOnce() }
+                // The error text lands in sync_status and is observed above;
+                // only the registration verdict needs carrying by hand.
+                val result = withContext(Dispatchers.Default) { syncClient.syncOnce() }
+                _state.update { it.copy(registrationFailure = result.registrationFailure) }
             } finally {
                 _state.update { it.copy(isSyncing = false) }
             }

@@ -4,12 +4,15 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
@@ -38,9 +41,25 @@ data class SyncResult(
     val rejectedOps: Int,
     val pulledOps: Int,
     val error: String? = null,
+    /** Server's reason when registration was refused; null for other failures. */
+    val registrationFailure: String? = null,
 ) {
     val isSuccess: Boolean get() = error == null
 }
+
+/**
+ * The server refused to register this device. [reason] is its machine-readable
+ * code (project_not_found, project_ambiguous, project_mismatch,
+ * device_revoked) and is null only when the response carried no structured
+ * body — a proxy error page, say.
+ */
+class DeviceRegistrationException(
+    val reason: String?,
+    val statusCode: Int,
+    val detail: String,
+) : Exception(
+    "device registration refused: ${reason ?: "HTTP $statusCode"} — $detail",
+)
 
 /**
  * Talks to /api/v1/sync. Push drains the op outbox in bounded batches; an op
@@ -118,12 +137,25 @@ class SyncClient(
         } catch (e: Exception) {
             val message = e.message ?: "sync failed"
             store.recordSyncError(message)
-            SyncResult(pushed, rejected, pulled, error = message)
+            SyncResult(
+                pushed, rejected, pulled,
+                error = message,
+                registrationFailure = (e as? DeviceRegistrationException)?.reason,
+            )
         }
     }
 
-    private suspend fun registerDevice(): WireDeviceRegisterResponse =
-        http.post("$baseUrl/api/v1/devices") {
+    /**
+     * Introduces this device to the server. A refusal is reported with the
+     * server's own machine-readable reason and advice — "device registration
+     * refused: project_not_found — ... Run scripts/seed_dev.py ..." — because
+     * "invalid 409" tells a field engineer nothing about what to fix.
+     */
+    private suspend fun registerDevice(): WireDeviceRegisterResponse {
+        val response = http.post("$baseUrl/api/v1/devices") {
+            // expectSuccess would throw before the body could be read, and the
+            // body is the whole point of this call's error path.
+            expectSuccess = false
             contentType(ContentType.Application.Json)
             setBody(
                 WireDeviceRegisterRequest(
@@ -133,7 +165,20 @@ class SyncClient(
                     appVersion = deviceInfo.appVersion,
                 )
             )
-        }.body()
+        }
+        if (response.status.isSuccess()) return response.body()
+
+        val raw = runCatching { response.bodyAsText() }.getOrDefault("")
+        val detail = runCatching { SyncJson.decodeFromString<WireErrorBody>(raw).detail }
+            .getOrNull()
+        throw DeviceRegistrationException(
+            reason = detail?.reason,
+            statusCode = response.status.value,
+            detail = detail?.message?.takeIf { it.isNotBlank() }
+                ?: raw.takeIf { it.isNotBlank() }
+                ?: response.status.description,
+        )
+    }
 
     private suspend fun pushBatch(batch: List<SyncOp>): WirePushResponse =
         http.post("$baseUrl/api/v1/sync/push") {
@@ -154,6 +199,10 @@ class SyncClient(
             try {
                 return block()
             } catch (e: CancellationException) {
+                throw e
+            } catch (e: DeviceRegistrationException) {
+                // A refusal is a decision, not a hiccup: an unseeded database
+                // or a revoked device will still be that way in 30 seconds.
                 throw e
             } catch (e: Exception) {
                 attempt++
