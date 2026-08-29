@@ -14,11 +14,11 @@ A published form version is immutable; if the bundled JSON no longer matches
 the stored version, the script warns instead of updating — publish a new
 version deliberately.
 
-Run it after migrating, from backend/ so its venv and .env apply:
+Run it after migrating. Any working directory and any interpreter will do —
+the script finds the backend venv itself:
 
-    cd backend
-    alembic upgrade head
-    python ../scripts/seed_dev.py
+    alembic upgrade head   # from backend/
+    python scripts/seed_dev.py
 """
 
 from __future__ import annotations
@@ -26,12 +26,56 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "backend"))
+BACKEND_DIR = REPO_ROOT / "backend"
+
+# Settings resolve `.env` relative to the working directory, so run as if from
+# backend/ no matter where the developer invoked this. Without it, seeding from
+# the repo root would silently read a different .env — or none — and could
+# migrate one database while seeding another.
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+
+def _reexec_in_backend_venv() -> None:
+    """Re-run under backend/.venv when the current interpreter lacks the deps.
+
+    `python scripts/seed_dev.py` from the repo root would otherwise die on
+    ModuleNotFoundError, because the dependencies live in backend/.venv. An
+    interpreter that can already import them — an activated venv of the
+    developer's own — is left alone.
+    """
+    try:
+        import sqlalchemy  # noqa: F401
+    except ModuleNotFoundError:
+        pass
+    else:
+        return
+
+    venv_python = BACKEND_DIR / ".venv" / "bin" / "python"
+    already_tried = os.environ.get("DCP_SEED_REEXEC") == "1"
+    if already_tried or not venv_python.exists() or Path(sys.executable) == venv_python:
+        sys.exit(
+            "Cannot import sqlalchemy, and no usable backend/.venv to fall back on.\n"
+            "Install the backend dependencies first:\n"
+            "    cd backend && pip install -e '.[dev]'"
+        )
+    # execve replaces the process image without flushing Python's buffers, so
+    # this line is lost on a pipe unless it is flushed first.
+    print(f"Re-running under {venv_python.relative_to(REPO_ROOT)}", flush=True)
+    os.execve(  # noqa: S606 - fixed path, no shell
+        str(venv_python),
+        [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]],
+        {**os.environ, "DCP_SEED_REEXEC": "1"},
+    )
+
+
+_reexec_in_backend_venv()
 
 FORM_JSON = (
     REPO_ROOT / "clients/composeApp/src/commonMain/composeResources/files/household_survey.json"
