@@ -30,7 +30,11 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToJsonElement
 
 private const val DEVICE = "dev-crypto-test"
 private const val FORM = "clinic_intake"
@@ -45,6 +49,48 @@ private class TestRecipient(val keyId: String) {
 
     /** Raw 32 bytes: PKCS#8 for X25519 is a 16-byte header + the scalar. */
     val privateKey: ByteArray = pair.private.encoded.let { it.copyOfRange(it.size - 32, it.size) }
+}
+
+/**
+ * Fields that are opaque by construction: ciphertext, nonces and the ids that
+ * name them. Nothing readable is in here, so nothing in here is searched.
+ *
+ * A field added to any wire type is checked by DEFAULT — it has to be named
+ * here to be exempt, and the only things that earn an exemption are bytes no
+ * key on the server opens.
+ */
+private val OPAQUE_FIELDS = setOf(
+    "valueCiphertext",
+    "nonce",
+    "contentKeyId",
+    "ephemeralPublic",
+    "wrappedKey",
+)
+
+/**
+ * Every JSON leaf of a pushed object that the server can actually read.
+ *
+ * Walking the parsed object is the point. The obvious test — serialise the
+ * push and assert an answer is not a substring of it — is not a test at all
+ * for a short answer made of hex digits: "412" appears in a blob of random hex
+ * about half the time, so that assertion passed by luck and would have failed
+ * on some future run for no reason. Comparing whole leaves has no such
+ * accident in it: a leaked value is its own leaf, and metadata that merely
+ * contains the same digits (a wall clock ending .412Z, a ULID with 412 in it)
+ * is not a leak and no longer pretends to be one.
+ */
+private fun readableLeaves(
+    element: JsonElement,
+    out: MutableList<String> = mutableListOf(),
+): List<String> {
+    when (element) {
+        is JsonObject -> element.forEach { (name, child) ->
+            if (name !in OPAQUE_FIELDS) readableLeaves(child, out)
+        }
+        is JsonArray -> element.forEach { readableLeaves(it, out) }
+        is JsonPrimitive -> out.add(element.content)
+    }
+    return out
 }
 
 /** The mock server: remembers what was pushed so a test can inspect it. */
@@ -142,10 +188,13 @@ class EncryptedSyncTest {
         assertNull(finalize.valueCiphertext)
         assertNull(finalize.contentKeyId)
 
-        // No answer appears anywhere in what was sent, in any field.
-        val wire = SyncJson.encodeToString(WirePushRequest.serializer(), server.pushes.single())
+        // No answer appears as a value anywhere the server can read — in any
+        // field of any op or key, including fields nobody has added yet.
+        val readable = readableLeaves(
+            SyncJson.encodeToJsonElement(WirePushRequest.serializer(), server.pushes.single()),
+        )
         listOf("Amina Yusuf", "positive", "KLA-07", "412").forEach {
-            assertFalse(it in wire, "'$it' left the device in the clear")
+            assertFalse(it in readable, "'$it' left the device in the clear, among $readable")
         }
 
         // One content key for this submission, wrapped to both recipients.
