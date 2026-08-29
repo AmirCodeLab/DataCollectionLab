@@ -9,6 +9,17 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = True
 
+    # Log every endpoint hit: URL, headers, bodies, response. Defaults to on in
+    # development only — request bodies carry respondent data, so this is a
+    # privacy decision. `http_log_bodies=false` keeps the request line and drops
+    # the payloads. Sensitive headers are redacted either way.
+    http_log: bool | None = None
+    http_log_bodies: bool = True
+
+    @property
+    def http_log_enabled(self) -> bool:
+        return self.environment == "development" if self.http_log is None else self.http_log
+
     database_url: str = "postgresql+asyncpg://dcp:dcp@localhost:5432/dcp"
     redis_url: str = "redis://localhost:6379/0"
 
