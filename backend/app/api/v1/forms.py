@@ -1,16 +1,21 @@
-"""Form compilation and validation endpoints.
+"""Form listing, compilation and validation endpoints.
 
-Phase 0 scope: compile a Form IR document and report errors and warnings.
-CRUD, versioning and publishing arrive in Phase 1.
+Phase 0 scope: list the published forms, and compile a Form IR document
+reporting errors and warnings. CRUD, versioning and publishing arrive in
+Phase 1.
 """
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_db
 from app.modules.form_engine.expression import CompileError
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
+from app.modules.forms import service
+from app.modules.forms.schemas import FormListResponse
 
 router = APIRouter()
 
@@ -30,6 +35,16 @@ class CompileResponse(BaseModel):
 class EvaluateRequest(BaseModel):
     form: dict[str, Any]
     answers: dict[str, Any] = {}
+
+
+@router.get("", response_model=FormListResponse, response_model_by_alias=True)
+async def list_forms(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    include_archived: Annotated[bool, Query(alias="includeArchived")] = False,
+) -> FormListResponse:
+    """Every form and its version numbers — enough to name and filter by one."""
+    async with session.begin():
+        return await service.list_forms(session, include_archived=include_archived)
 
 
 @router.post("/compile", response_model=CompileResponse)
