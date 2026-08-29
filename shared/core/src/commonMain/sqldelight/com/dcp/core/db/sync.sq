@@ -30,6 +30,14 @@ CREATE TABLE op_outbox (
 
 CREATE INDEX op_outbox_submission ON op_outbox(submission_id, counter);
 
+-- (counter, deviceId) is the sync ordering key; a duplicate counter on one
+-- device would silently corrupt last-writer-wins folds. Enforced here so a
+-- broken counter allocation fails loudly at insert instead.
+CREATE UNIQUE INDEX op_outbox_device_counter ON op_outbox(device_id, counter);
+
+-- The push loop's working set: everything not yet accepted by the server.
+CREATE INDEX op_outbox_pending ON op_outbox(synced);
+
 -- Single-row table holding this device's identity and its logical counter.
 -- The counter is never reset (§2), so it lives in the database, not in memory.
 CREATE TABLE device_state (
