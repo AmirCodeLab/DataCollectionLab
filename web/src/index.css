@@ -5,5 +5,7 @@
 /* RTL support is a first-class requirement, not a retrofit.
    Use logical properties (margin-inline-start, not margin-left) throughout. */
 :root {
-  color-scheme: light dark;
+  /* Light only for now: the views paint explicit light colours, and a dark
+     browser chrome around them reads as a bug. Revisit with a real palette. */
+  color-scheme: light;
 }
