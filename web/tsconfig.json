@@ -13,7 +13,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"] },
+    // The console runs in a browser. Without this, `@types/node` — pulled in
+    // for the tests — puts `process`, `Buffer` and `require` in scope for
+    // application code too, and the first accidental use of one compiles
+    // cleanly and fails at runtime in front of someone.
+    "types": []
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/test", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

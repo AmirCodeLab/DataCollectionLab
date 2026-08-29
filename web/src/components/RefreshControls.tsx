@@ -1,19 +1,9 @@
 /** Auto-refresh toggle plus a manual refresh, shared by both views. */
 
 import { useEffect, useState } from "react";
-import { create } from "zustand";
 
+import { useAutoRefresh } from "@/lib/autoRefresh";
 import { formatAge } from "@/lib/format";
-
-/** Sticky across navigation: switching to a submission should not silently
- *  turn polling back on for someone who deliberately turned it off. */
-export const useAutoRefresh = create<{
-  enabled: boolean;
-  setEnabled: (enabled: boolean) => void;
-}>((set) => ({
-  enabled: true,
-  setEnabled: (enabled) => set({ enabled }),
-}));
 
 interface Props {
   isFetching: boolean;

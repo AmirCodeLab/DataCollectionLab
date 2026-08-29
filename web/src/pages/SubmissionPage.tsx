@@ -17,7 +17,8 @@ import {
 } from "@/api/queries";
 import type { SubmissionOpView } from "@/api/types";
 import { DecryptionPanel } from "@/components/DecryptionPanel";
-import { RefreshControls, useAutoRefresh } from "@/components/RefreshControls";
+import { RefreshControls } from "@/components/RefreshControls";
+import { useAutoRefresh } from "@/lib/autoRefresh";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp, formatValue } from "@/lib/format";
 import {
@@ -46,9 +47,15 @@ export function SubmissionPage() {
     name: string;
     bytes: Uint8Array;
   } | null>(null);
-  const [decryption, setDecryption] = useState<DecryptionResult | null>(null);
+  const [decrypted, setDecrypted] = useState<DecryptionResult | null>(null);
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const [decrypting, setDecrypting] = useState(false);
+
+  // Derived, not stored. Plaintext is readable only while a key is loaded, and
+  // making that a function of `privateKey` rather than a setState inside the
+  // effect means there is no render — not even one — in which a forgotten key
+  // still has its answers on screen.
+  const decryption = privateKey === null ? null : decrypted;
 
   const projectId = submission.data?.projectId;
   const encrypted = submission.data?.ops.some((op) => op.encrypted) ?? false;
@@ -71,25 +78,29 @@ export function SubmissionPage() {
   const projectKeysData = projectKeys.data;
 
   useEffect(() => {
-    if (privateKey === null || detail === undefined) {
-      setDecryption(null);
-      return;
-    }
+    if (privateKey === null || detail === undefined) return;
     if (keysData === undefined || projectKeysData === undefined) return;
 
     // A refetch replaces `detail`, so this re-runs and the decrypted view
     // follows new ops rather than going stale beside the log.
     let current = true;
+    // The rule is about cascading renders, and it is right about the general
+    // case — but "decryption started" is exactly the external-system state an
+    // effect exists to reflect, and the alternative (deriving busy-ness from a
+    // token built out of the key, the detail and the op list) means the
+    // crypto path's correctness now rides on a cache key being right. Not a
+    // trade worth making for one extra render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDecrypting(true);
     decryptSubmission(detail, keysData, projectKeysData.keys, privateKey.bytes)
       .then((result) => {
         if (!current) return;
-        setDecryption(result);
+        setDecrypted(result);
         setDecryptError(null);
       })
       .catch((cause: unknown) => {
         if (!current) return;
-        setDecryption(null);
+        setDecrypted(null);
         setDecryptError(String(cause));
       })
       .finally(() => {
@@ -121,7 +132,7 @@ export function SubmissionPage() {
     // may sit in the heap until the collector gets to it.
     privateKey?.bytes.fill(0);
     setPrivateKey(null);
-    setDecryption(null);
+    setDecrypted(null);
     setDecryptError(null);
   };
 

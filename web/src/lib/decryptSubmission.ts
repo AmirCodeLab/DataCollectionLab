@@ -98,7 +98,7 @@ const PKCS8_PREFIX = fromHex("302e020100300506032b656e04220420");
 /** Browsers disagree on the name; try both rather than sniff the user agent. */
 const ALGORITHMS: Array<AlgorithmIdentifier | EcKeyGenParams> = [
   { name: "X25519" },
-  { name: "ECDH", namedCurve: "X25519" } as EcKeyGenParams,
+  { name: "ECDH", namedCurve: "X25519" },
 ];
 
 interface ImportedKey {
@@ -160,7 +160,7 @@ async function unwrapContentKey(
     [],
   );
   const shared = await subtle.deriveBits(
-    { name, public: ephemeral } as EcdhKeyDeriveParams,
+    { name, public: ephemeral },
     imported.key,
     256,
   );

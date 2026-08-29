@@ -29,7 +29,12 @@ export function formatValue(value: unknown): string {
   try {
     return JSON.stringify(value) ?? "—";
   } catch {
-    return String(value);
+    // JSON.stringify throws on exactly two things: a cycle, and a BigInt. A
+    // BigInt is a value worth showing. A cycle is a structure, and rendering
+    // it via String() would put "[object Object]" in a cell where every other
+    // row holds an answer — say what it is instead of showing something that
+    // reads like data.
+    return typeof value === "bigint" ? `${value}n` : `(unrenderable ${typeof value})`;
   }
 }
 

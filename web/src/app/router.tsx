@@ -29,6 +29,10 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
+    // TanStack Router signals a redirect by throwing the object `redirect()`
+    // returns — the router catches it and navigates. It is control flow, not
+    // an error, so the rule is right in general and wrong exactly here.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw redirect({ to: "/submissions", search: {} });
   },
 });
@@ -77,7 +81,9 @@ const projectKeysRoute = createRoute({
   component: ProjectKeysPage,
 });
 
-const routeTree = rootRoute.addChildren([
+/** Exported for tests, which mount one route over a memory history rather than
+ *  the browser history this module's `router` is bound to. */
+export const routeTree = rootRoute.addChildren([
   indexRoute,
   submissionsRoute,
   submissionRoute,
