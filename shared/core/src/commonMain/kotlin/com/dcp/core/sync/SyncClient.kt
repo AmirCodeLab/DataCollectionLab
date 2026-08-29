@@ -1,5 +1,6 @@
 package com.dcp.core.sync
 
+import com.dcp.core.crypto.Hex
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
@@ -11,12 +12,12 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 
 data class SyncConfig(
@@ -78,11 +79,20 @@ class SyncClient(
     private val config: SyncConfig = SyncConfig(),
     private val deviceInfo: DeviceInfo = DeviceInfo(),
     httpClient: HttpClient? = null,
+    /**
+     * Which fields each form version marks `sensitive`, for `field_level` mode.
+     * The default knows no form, which makes the encryptor fail closed and
+     * encrypt every value rather than guess that a field is safe to send in the
+     * clear (see [FormSensitivity]).
+     */
+    formSensitivity: FormSensitivity = FormSensitivity { _, _ -> null },
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
         install(ContentNegotiation) { json(SyncJson) }
     }
+
+    private val crypto = SyncCrypto(store, formSensitivity)
 
     suspend fun syncOnce(): SyncResult {
         var pushed = 0
@@ -98,6 +108,12 @@ class SyncClient(
                 store.markDeviceRegistered()
             }
 
+            // Before anything is pushed, never after: an op that should have
+            // been encrypted cannot be recalled once it has left in the clear.
+            // Rotation (envelope §8) also adds recipients, so this is refreshed
+            // every sync rather than cached from registration.
+            withRetry { refreshCrypto() }
+
             // Give ops rejected on an earlier sync another chance — a
             // rejection can be transient (form published late, device
             // authorized after the fact).
@@ -106,7 +122,11 @@ class SyncClient(
             while (true) {
                 val batch = store.pendingOps(config.batchSize)
                 if (batch.isEmpty()) break
-                val response = withRetry { pushBatch(batch) }
+                // Encrypt here rather than in the retry block: the nonce is
+                // derived from (deviceId, counter), so re-encrypting produces
+                // identical bytes, but doing the work once is simply cheaper.
+                val prepared = crypto.prepare(batch)
+                val response = withRetry { pushBatch(prepared) }
 
                 val batchIds = batch.map { it.opId }.toSet()
                 val accepted = response.accepted.filter { it in batchIds }
@@ -114,6 +134,7 @@ class SyncClient(
                     .filter { it.opId != null && it.opId in batchIds }
                     .map { RejectedPush(it.opId!!, it.reason) }
                 store.markPushResult(accepted, rejectedOps)
+                markUploadedKeys(prepared, accepted.toSet())
                 pushed += accepted.size
                 rejected += rejectedOps.size
 
@@ -180,10 +201,73 @@ class SyncClient(
         )
     }
 
-    private suspend fun pushBatch(batch: List<SyncOp>): WirePushResponse =
+    /**
+     * Caches this project's security mode and recipient set (sync §4).
+     *
+     * A failure here falls back to the cached config, because offline-first is
+     * a constraint: a device may go two weeks without a server and must keep
+     * collecting and encrypting throughout. A device that has NEVER fetched one
+     * is the only case that cannot be resolved locally — it does not know
+     * whether this project encrypts — so it refuses to push rather than risk
+     * sending an answer in the clear that the mode says must not be.
+     */
+    private suspend fun refreshCrypto() {
+        val fetched = try {
+            fetchCrypto()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (store.projectCrypto() != null) return
+            throw e
+        }
+        if (fetched != null) store.putProjectCrypto(fetched)
+    }
+
+    /**
+     * Null when the server answers 404: either it predates encryption support,
+     * in which case it cannot store ciphertext and plaintext is the only
+     * possible behaviour, or it does not know this device, in which case the
+     * push that follows rejects every op `not_authorized` and nothing leaves.
+     * Neither case can leak an answer, and both are worth surviving — a
+     * self-hosted deployment runs whatever version it runs.
+     */
+    private suspend fun fetchCrypto(): ProjectCrypto? {
+        val response = http.get("$baseUrl/api/v1/devices/${store.deviceId}/crypto") {
+            expectSuccess = false
+        }
+        if (response.status == HttpStatusCode.NotFound) return null
+        if (!response.status.isSuccess()) {
+            error("crypto config refused: HTTP ${response.status.value}")
+        }
+        val body: WireDeviceCryptoResponse = response.body()
+        return ProjectCrypto(
+            securityMode = body.securityMode,
+            projectKeys = body.projectKeys.map {
+                ProjectKey(it.keyId, Hex.decode(it.publicKey), it.role, it.label)
+            },
+        )
+    }
+
+    /**
+     * A content key is marked uploaded only once an op encrypted under it was
+     * accepted. That acceptance is the proof: the server rejects an op naming a
+     * key it does not hold with `unknown_content_key`, so an accepted op cannot
+     * exist without its key having been stored.
+     */
+    private fun markUploadedKeys(prepared: PreparedBatch, accepted: Set<String>) {
+        if (prepared.keys.isEmpty()) return
+        val landed = prepared.ops
+            .filter { it.opId in accepted }
+            .mapNotNull { it.contentKeyId }
+            .toSet()
+        prepared.keys.filter { it.contentKeyId in landed }
+            .forEach { store.markContentKeyUploaded(it.contentKeyId) }
+    }
+
+    private suspend fun pushBatch(prepared: PreparedBatch): WirePushResponse =
         http.post("$baseUrl/api/v1/sync/push") {
             contentType(ContentType.Application.Json)
-            setBody(WirePushRequest(store.deviceId, batch.map { it.toWire() }))
+            setBody(WirePushRequest(store.deviceId, prepared.ops, prepared.keys))
         }.body()
 
     private suspend fun pullPage(cursor: Long): WirePullResponse =
@@ -213,20 +297,6 @@ class SyncClient(
         }
     }
 
-    private fun SyncOp.toWire() = WireOp(
-        opId = opId,
-        submissionId = submissionId,
-        formId = formId,
-        formVersion = formVersion,
-        kind = kind,
-        path = path,
-        value = valueJson?.let { Json.parseToJsonElement(it) },
-        deviceId = deviceId,
-        actorId = actorId,
-        counter = counter,
-        wallClock = wallClock,
-    )
-
     private fun WirePulledOp.toSyncOp() = SyncOp(
         opId = opId,
         submissionId = submissionId,
@@ -240,5 +310,11 @@ class SyncClient(
         counter = counter,
         wallClock = wallClock,
         synced = true,
+        // Kept as it arrived. This device cannot open it — only a project
+        // private key holder can (envelope §7) — but discarding it would lose
+        // an op the submission's history depends on.
+        valueCiphertext = valueCiphertext,
+        contentKeyId = contentKeyId,
+        nonce = nonce,
     )
 }

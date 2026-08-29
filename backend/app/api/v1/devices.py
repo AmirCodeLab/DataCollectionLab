@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.modules.projects import service
 from app.modules.projects.schemas import (
+    DeviceCryptoResponse,
     DeviceRegisterError,
     DeviceRegisterRequest,
     DeviceRegisterResponse,
@@ -48,3 +49,40 @@ async def register(
                     reason=error.reason, message=error.message
                 ).model_dump(),
             ) from error
+
+
+@router.get(
+    "/{device_id}/crypto",
+    response_model=DeviceCryptoResponse,
+    response_model_by_alias=True,
+)
+async def crypto_config(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    device_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> DeviceCryptoResponse:
+    """The security mode and public project keys this device wraps content keys to.
+
+    Clients call this on every sync, not once at registration: key rotation
+    (encryption envelope §8) adds recipients, and a submission wrapped to a
+    stale set is data whose intended recovery holder cannot open it.
+
+    Public keys only. Nothing here is secret — every byte is useless without a
+    private key the server has never held.
+
+    409 `test_only_key` when the project holds a recipient whose private half is
+    published (scripts/dev_project_key.py) outside a development environment.
+    The device then holds its data locally rather than encrypting it to a key
+    everyone has, which is the same choice it makes when a project has no keys
+    at all.
+    """
+    async with session.begin():
+        try:
+            config = await service.device_crypto(session, device_id)
+        except service.RecipientSetError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail={"reason": error.reason, "message": error.message},
+            ) from error
+    if config is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    return config

@@ -79,6 +79,13 @@ data class QuestionNode(
     @Serializable(ExprSerializer::class) val calculate: Expr? = null,
     @Serializable(ExprSerializer::class) val default: Expr? = null,
     @Serializable(ExprSerializer::class) val readOnly: Expr? = null,
+    /**
+     * Spec 2.1. Marks a field whose VALUE carries personal or health
+     * information; the input to field_level encryption (encryption envelope
+     * §5.2). Fixed in the IR, never an expression — sensitivity is a property
+     * of the field, not of the answer.
+     */
+    val sensitive: Boolean = false,
     val appearance: String? = null,
     val severity: String? = null,
     val choices: Choices? = null,

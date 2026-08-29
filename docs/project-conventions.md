@@ -180,10 +180,42 @@ Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
 constraints, local op log, RTL, tested on a real device with a 52-question form.
 
+Client-side encryption is wired into the sync path: a device fetches its
+project's security mode and recipient set from
+`GET /api/v1/devices/{id}/crypto`, generates a content key per submission,
+wraps it to every active project key, and encrypts op values per the mode —
+nothing in `field_level`, sensitive fields only, or everything. The server
+stores ciphertext it cannot read and refuses a repeated
+`(content_key_id, nonce)` with a stated reason. Sensitivity propagation is
+enforced at publish time in both engines against `conformance/sensitivity`.
+
+The data comes back out again (§7): `GET /api/v1/submissions/{id}` relays each
+encrypted op's ciphertext, nonce and content key id beside the wrapped keys from
+`GET /api/v1/submissions/{id}/keys`, and decryption happens where the private
+key is — in the browser (`web/src/lib/decryptSubmission.ts`, shown on the
+submission page with the key held in tab memory only) or in a terminal
+(`scripts/decrypt_submission.py`, TEST ONLY). Both handle a submission with
+content keys from several devices, and both say which content keys a given
+private key does not open rather than reporting no answers.
+
+A key whose private half is published — the fixed keypairs in
+`scripts/dev_project_key.py` — is refused outside a development environment,
+both when registering it as a recipient and when handing the recipient set to a
+device (`backend/app/modules/crypto/published_test_keys.py`).
+
 Plainly NOT done yet:
 
-- **Client-side encryption is not wired** — the envelope exists in
-  `shared/core` but the op log and submissions are stored in cleartext
-- **No network sync client** — server endpoints exist; the app is local-only
-- **Media** (capture, chunked upload) — not started
+- **Local storage is still cleartext** — encryption covers what leaves the
+  device. The op log on disk holds plaintext values (plus the cached
+  ciphertext); at-rest encryption of the local database is separate work
+- **Media** (capture, chunked upload) — not started, and it is the remaining
+  half of the envelope: §6 media keys and chunk nonces have no callers
+- **Key custody is half built** — the console generates a project keypair with
+  WebCrypto, downloads the private half and registers only the public one
+  (`web/src/pages/ProjectKeysPage.tsx`, `POST /api/v1/projects/{id}/keys`), and
+  `scripts/dev_project_key.py` installs a TEST ONLY fixed keypair for local
+  work. Decryption with a held private key works (above). There is still no
+  revocation or rotation *flow* (§8) — the console states plainly that a new key
+  opens nothing older, but nothing revokes a key or re-registers a holder — and
+  no import of a keypair generated elsewhere
 - **OpenAPI contract** — still skeleton (see item 4)

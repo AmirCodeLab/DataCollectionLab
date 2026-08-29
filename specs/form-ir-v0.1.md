@@ -53,12 +53,24 @@ Three node types: `question`, `group`, `repeat`.
   "calculate": <expr>,
   "default": <expr>,
   "readOnly": <expr|bool>,
+  "sensitive": false,
   "appearance": "string",
   "choices": <choices>
 }
 ```
 
 All of `required`, `relevant`, `constraint`, `calculate`, `default`, `readOnly` are optional.
+
+`sensitive` defaults to `false`. It marks a field whose **value** carries personal
+or health information, and it is the input to `field_level` encryption
+(Encryption Envelope §5.2): in a `field_level` project the values of sensitive
+fields are encrypted end-to-end and everything else stays plaintext and
+queryable. In `standard` and `project_e2e` projects the flag changes no runtime
+behaviour, but it is still checked at publish time (§10) so a form does not
+acquire a leak the day it is copied into a `field_level` project.
+
+Sensitivity is a property of the field, not of the answer: it is fixed in the IR
+and never depends on an expression.
 
 **Data types**
 
@@ -339,7 +351,15 @@ Automatically captured, addressable under `_metadata`:
 
 ## 10. Compile errors vs warnings
 
-**Errors** (block publish): unresolvable reference, dependency cycle, duplicate id, invalid id format, type mismatch, unknown function, wrong arity, unknown `irVersion`.
+**Errors** (block publish): unresolvable reference, dependency cycle, duplicate id, invalid id format, type mismatch, unknown function, wrong arity, unknown `irVersion`, **sensitivity leak**.
+
+A **sensitivity leak** is a field that is not `sensitive` but whose `calculate`,
+`relevant`, `constraint`, `required`, `readOnly` or `default` reads a field that
+is. The derived value discloses its input, so publishing it would defeat
+`field_level` encryption (Encryption Envelope §5.2). The fix is to mark the
+reading field sensitive too, never to unmark the source. This is checked over
+the same dependency graph §5.1 builds, so it is exact rather than heuristic, and
+it blocks publish in every security mode.
 
 **Warnings** (allow publish): missing translation, decimal equality comparison, unreachable relevance (statically false), repeat with no bound, unused calculate.
 

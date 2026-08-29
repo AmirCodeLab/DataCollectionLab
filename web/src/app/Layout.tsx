@@ -20,6 +20,13 @@ export function Layout() {
           >
             Submissions
           </Link>
+          <Link
+            to="/projects"
+            className="ms-4 hover:underline"
+            activeProps={{ className: "font-medium text-slate-900" }}
+          >
+            Projects
+          </Link>
         </nav>
         <span className="ms-auto text-xs text-slate-500">
           API:{" "}

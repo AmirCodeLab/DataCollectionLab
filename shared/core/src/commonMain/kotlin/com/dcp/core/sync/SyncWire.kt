@@ -20,14 +20,67 @@ data class WireOp(
     val kind: String,
     val path: String? = null,
     val value: JsonElement? = null,
+    // Encrypted ops (sync §2.1). Present together, and never beside `value` —
+    // the server rejects an op carrying both as malformed. Lowercase hex.
+    val valueCiphertext: String? = null,
+    val contentKeyId: String? = null,
+    val nonce: String? = null,
     val deviceId: String,
     val actorId: String? = null,
     val counter: Long,
     val wallClock: String,
 )
 
+/** One wrap of a content key to one recipient project key (envelope §4.3). */
 @Serializable
-data class WirePushRequest(val deviceId: String, val ops: List<WireOp>)
+data class WireWrappedKey(
+    val projectKeyId: String,
+    val ephemeralPublic: String,
+    val nonce: String,
+    val wrappedKey: String,
+)
+
+/**
+ * A content key, in the only form that ever leaves the device: wrapped copies.
+ *
+ * Rides the push rather than a separate call so a key and the first ops it
+ * encrypts commit in one transaction (sync §4) — uploading them separately
+ * would let a device die between the two and leave ops nobody can decrypt.
+ */
+@Serializable
+data class WireContentKey(
+    val contentKeyId: String,
+    val submissionId: String,
+    val deviceId: String,
+    val wraps: List<WireWrappedKey>,
+)
+
+@Serializable
+data class WirePushRequest(
+    val deviceId: String,
+    val ops: List<WireOp>,
+    val keys: List<WireContentKey> = emptyList(),
+)
+
+/**
+ * GET /api/v1/devices/{deviceId}/crypto (sync §4): the project's security mode
+ * and the public keys to wrap content keys to. Public keys only.
+ */
+@Serializable
+data class WireProjectKey(
+    val keyId: String,
+    val publicKey: String,
+    val role: String,
+    val label: String = "",
+)
+
+@Serializable
+data class WireDeviceCryptoResponse(
+    val deviceId: String,
+    val projectId: String,
+    val securityMode: String,
+    val projectKeys: List<WireProjectKey> = emptyList(),
+)
 
 /**
  * POST /api/v1/devices (sync §4). Idempotent: registering an id the server
@@ -81,6 +134,11 @@ data class WirePulledOp(
     val kind: String,
     val path: String? = null,
     val value: JsonElement? = null,
+    // Relayed byte-for-byte from whichever device pushed it; the server has no
+    // key for these and never had one.
+    val valueCiphertext: String? = null,
+    val contentKeyId: String? = null,
+    val nonce: String? = null,
     val deviceId: String,
     val actorId: String? = null,
     val counter: Long,

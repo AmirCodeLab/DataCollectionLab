@@ -47,9 +47,12 @@ rm -rf "$KT_DIR_PRE"
 KT_OUT=$(./gradlew :shared:form-engine:jvmTest --rerun-tasks 2>&1)
 KT_STATUS=$?
 # Match on the file pattern, not one hardcoded class name: renaming or moving
-# the test class must not make the script report a phantom failure.
+# the test class must not make the script report a phantom failure. Sensitivity
+# is a SEPARATE vector set with its own runner and its own count below —
+# counting it here would inflate the form-vector total and raise a phantom
+# "engines disagree" alarm.
 KT_DIR=shared/form-engine/build/test-results/jvmTest
-KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' 2>/dev/null)
+KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' ! -name '*Sensitivity*' 2>/dev/null)
 KT_RAN=0
 KT_FAILED=0
 if [ -n "$KT_XMLS" ]; then
@@ -103,13 +106,16 @@ if [ "$CRYPTO_VECTORS" -gt 0 ]; then
     rm -rf "$CKT_DIR"
     CKT_OUT=$(./gradlew :shared:core:jvmTest --rerun-tasks 2>&1)
     CKT_STATUS=$?
-    CKT_XMLS=$(find "$CKT_DIR" -name 'TEST-*.xml' 2>/dev/null)
+    # The crypto vector runner only. The rest of shared/core's suite is green
+    # or not on its own merits; counting it here would report a number that
+    # looks like vector coverage and is not.
+    CKT_XMLS=$(find "$CKT_DIR" -name 'TEST-*CryptoConformance*.xml' 2>/dev/null)
     CKT_RAN=0
     if [ -n "$CKT_XMLS" ]; then
         CKT_RAN=$(grep -ho 'tests="[0-9]*"' $CKT_XMLS | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
     fi
-    if [ "$CKT_STATUS" -eq 0 ] && [ "$CKT_RAN" -gt 0 ]; then
-        printf '  kotlin crypto:    PASS  (%s tests)\n' "$CKT_RAN"
+    if [ "$CKT_STATUS" -eq 0 ] && [ "$CKT_RAN" -eq "$CRYPTO_VECTORS" ]; then
+        printf '  kotlin crypto:    PASS  (%s/%s vectors)\n' "$CKT_RAN" "$CRYPTO_VECTORS"
     else
         printf '  kotlin crypto:    FAIL  (%s ran)\n' "$CKT_RAN"
         printf '%s\n' "$CKT_OUT" | grep -E 'FAILED|error:' | head -4 | sed 's/^/    | /'
@@ -126,6 +132,44 @@ if [ "$CRYPTO_VECTORS" -gt 0 ]; then
 else
     printf '\n  crypto vectors:   none found in conformance/crypto\n'
     CRYPTO_GREEN=false
+fi
+
+# --- sensitivity propagation -----------------------------------------------
+# The publish-time check from Form IR §10 / envelope §5.2, on both engines. A
+# form that publishes on one and is refused on the other is a release blocker:
+# a form author would meet a refusal their builder told them was not there.
+
+SENS_VECTORS=$(find conformance/sensitivity -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+SENSITIVITY_GREEN=true
+
+if [ "$SENS_VECTORS" -gt 0 ]; then
+    printf '\n  sensitivity:      %s vectors\n' "$SENS_VECTORS"
+
+    SPY_OUT=$(cd backend && "$PY" -m pytest tests/test_sensitivity_conformance.py -q 2>&1)
+    SPY_STATUS=$?
+    if [ "$SPY_STATUS" -eq 0 ]; then
+        printf '  python sensitivity: PASS\n'
+    else
+        printf '  python sensitivity: FAIL\n'
+        printf '%s\n' "$SPY_OUT" | tail -4 | sed 's/^/    | /'
+        SENSITIVITY_GREEN=false
+    fi
+
+    SKT_XML=shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.SensitivityConformanceTest.xml
+    SKT_RAN=0
+    if [ -f "$SKT_XML" ]; then
+        SKT_RAN=$(grep -ho 'tests="[0-9]*"' "$SKT_XML" | grep -o '[0-9]*' | head -1)
+        SKT_FAILED=$(grep -ho 'failures="[0-9]*"' "$SKT_XML" | grep -o '[0-9]*' | head -1)
+    fi
+    if [ "$SKT_RAN" -eq "$SENS_VECTORS" ] && [ "${SKT_FAILED:-1}" -eq 0 ]; then
+        printf '  kotlin sensitivity: PASS  (%s/%s vectors)\n' "$SKT_RAN" "$SENS_VECTORS"
+    else
+        printf '  kotlin sensitivity: FAIL  (%s/%s ran)\n' "$SKT_RAN" "$SENS_VECTORS"
+        SENSITIVITY_GREEN=false
+    fi
+else
+    printf '\n  sensitivity:      none found in conformance/sensitivity\n'
+    SENSITIVITY_GREEN=false
 fi
 
 CONFORMANCE_GREEN=false
@@ -183,8 +227,13 @@ ENC_SPEC=$(find specs \( -name '*encrypt*' -o -name '*envelope*' \) 2>/dev/null 
 ENC_CODE=$(find shared/core/src/commonMain backend/app/modules/crypto -type f \
     \( -name '*.py' -o -name '*.kt' \) -not -path '*/build/*' \
     -not -path '*/__pycache__/*' -not -name '__init__.py' 2>/dev/null | head -1)
-if [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ] && [ "$CRYPTO_GREEN" = true ]; then
-    item "Encryption envelope" "DONE" "$ENC_SPEC, both engines pass $CRYPTO_VECTORS vectors"
+if [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ] && [ "$CRYPTO_GREEN" = true ] && \
+   [ "$SENSITIVITY_GREEN" = true ]; then
+    item "Encryption envelope" "DONE" \
+        "$ENC_SPEC, both engines pass $CRYPTO_VECTORS crypto + $SENS_VECTORS sensitivity vectors"
+elif [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ] && [ "$CRYPTO_GREEN" = true ]; then
+    item "Encryption envelope" "PARTIAL" \
+        "crypto vectors green, but sensitivity propagation does not agree across engines"
 elif [ -n "$ENC_SPEC" ] && [ -n "$ENC_CODE" ]; then
     item "Encryption envelope" "PARTIAL" "spec + code, but crypto vectors are not green on both engines"
 elif [ -n "$ENC_SPEC" ] || [ -n "$ENC_CODE" ]; then

@@ -1,0 +1,42 @@
+-- v3 -> v4: client-side encryption envelope storage
+-- (specs/encryption-envelope-v0.1.md §4.2, §4.3; sync protocol §2.1).
+--
+-- Migrated rather than recreated because a device that has already collected
+-- data keeps its op log AND its logical counter. The counter especially must
+-- survive: operation nonces are derived from (deviceId, counter) (§4.5), so a
+-- device that reset its counter and later encrypted would reuse a nonce, which
+-- is the one failure AES-GCM does not tolerate.
+--
+-- Mirrors the matching CREATE statements in sync.sq; keep the two in step.
+
+CREATE TABLE content_key (
+    content_key_id TEXT NOT NULL PRIMARY KEY,
+    submission_id TEXT NOT NULL UNIQUE,
+    key_material BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    uploaded INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE wrapped_key (
+    content_key_id TEXT NOT NULL,
+    project_key_id TEXT NOT NULL,
+    ephemeral_public BLOB NOT NULL,
+    nonce BLOB NOT NULL,
+    wrapped_key BLOB NOT NULL,
+    PRIMARY KEY (content_key_id, project_key_id)
+);
+
+CREATE TABLE project_crypto (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    security_mode TEXT NOT NULL,
+    project_keys_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
+
+-- Ciphertext, on two kinds of row: an op pulled from another device in an
+-- encrypted project, which this device cannot read, and the cached ciphertext
+-- of this device's own outgoing op, which sits beside its plaintext so a retry
+-- sends identical bytes instead of encrypting twice under one (key, nonce).
+ALTER TABLE op_outbox ADD COLUMN value_ciphertext TEXT;
+ALTER TABLE op_outbox ADD COLUMN content_key_id TEXT;
+ALTER TABLE op_outbox ADD COLUMN nonce TEXT;

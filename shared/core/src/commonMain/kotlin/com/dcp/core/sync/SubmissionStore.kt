@@ -2,6 +2,7 @@ package com.dcp.core.sync
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
+import com.dcp.core.crypto.Hex
 import com.dcp.core.db.DcpDatabase
 import com.dcp.form.FormValue
 import com.dcp.form.formValueFromJson
@@ -14,6 +15,7 @@ import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /** Operation kinds, sync protocol §2. */
@@ -45,7 +47,19 @@ data class SyncOp(
     val synced: Boolean,
     /** Why the server refused this op, kept until it is accepted on a retry. */
     val rejectReason: String? = null,
-)
+    /**
+     * Set only on ops pulled from another device in an encrypted project
+     * (sync §2.1), lowercase hex. This device holds no private key, so these
+     * stay opaque here — [SubmissionDecryptor] opens them where a key holder
+     * is present. Ops this device wrote carry [valueJson] instead and are
+     * encrypted on the way out.
+     */
+    val valueCiphertext: String? = null,
+    val contentKeyId: String? = null,
+    val nonce: String? = null,
+) {
+    val isEncrypted: Boolean get() = valueCiphertext != null
+}
 
 /** The server's verdict on one rejected op from a push response. */
 data class RejectedPush(val opId: String, val reason: String)
@@ -68,6 +82,105 @@ data class SyncStatus(
     val lastSyncAt: String?,
     val lastError: String?,
 )
+
+/** One recipient a content key is wrapped to (encryption envelope §4.1). */
+data class ProjectKey(
+    val keyId: String,
+    /** X25519 public key, 32 bytes. Public — there is nothing secret here. */
+    val publicKey: ByteArray,
+    val role: String,
+    val label: String,
+) {
+    // ByteArray gives identity equality, which would make two equal key sets
+    // compare unequal and quietly re-wrap on every sync.
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            (other is ProjectKey &&
+                keyId == other.keyId &&
+                publicKey.contentEquals(other.publicKey) &&
+                role == other.role &&
+                label == other.label)
+
+    override fun hashCode(): Int =
+        ((keyId.hashCode() * 31 + publicKey.contentHashCode()) * 31 + role.hashCode()) * 31 +
+            label.hashCode()
+}
+
+/**
+ * The project's security mode and current recipient set (sync §4).
+ *
+ * [SecurityMode] decides what gets encrypted; the keys decide who can ever read
+ * it again. Both come from the server and are cached locally so a device keeps
+ * encrypting through however long it is offline.
+ */
+data class ProjectCrypto(val securityMode: String, val projectKeys: List<ProjectKey>)
+
+object SecurityMode {
+    const val STANDARD = "standard"
+    const val FIELD_LEVEL = "field_level"
+    const val PROJECT_E2E = "project_e2e"
+}
+
+/**
+ * This device's content key for one submission (envelope §4.2).
+ *
+ * [material] never leaves the device. [wraps] are the copies that do — one per
+ * active project key, openable only with a private key the server has never
+ * held.
+ */
+data class WrappedKeyRecord(
+    val projectKeyId: String,
+    val ephemeralPublic: ByteArray,
+    val nonce: ByteArray,
+    val wrappedKey: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            (other is WrappedKeyRecord &&
+                projectKeyId == other.projectKeyId &&
+                ephemeralPublic.contentEquals(other.ephemeralPublic) &&
+                nonce.contentEquals(other.nonce) &&
+                wrappedKey.contentEquals(other.wrappedKey))
+
+    override fun hashCode(): Int =
+        ((projectKeyId.hashCode() * 31 + ephemeralPublic.contentHashCode()) * 31 +
+            nonce.contentHashCode()) * 31 + wrappedKey.contentHashCode()
+}
+
+/** How a [ProjectKey] is held in the single-row cache. Hex, so it is legible. */
+@Serializable
+private data class StoredProjectKey(
+    val keyId: String,
+    val publicKey: String,
+    val role: String,
+    val label: String,
+) {
+    fun toProjectKey() = ProjectKey(keyId, Hex.decode(publicKey), role, label)
+
+    companion object {
+        fun from(key: ProjectKey) =
+            StoredProjectKey(key.keyId, Hex.encode(key.publicKey), key.role, key.label)
+    }
+}
+
+data class ContentKey(
+    val contentKeyId: String,
+    val submissionId: String,
+    val material: ByteArray,
+    val uploaded: Boolean,
+) {
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            (other is ContentKey &&
+                contentKeyId == other.contentKeyId &&
+                submissionId == other.submissionId &&
+                material.contentEquals(other.material) &&
+                uploaded == other.uploaded)
+
+    override fun hashCode(): Int =
+        ((contentKeyId.hashCode() * 31 + submissionId.hashCode()) * 31 +
+            material.contentHashCode()) * 31 + uploaded.hashCode()
+}
 
 /**
  * Local submission store and operation outbox.
@@ -159,6 +272,9 @@ class SubmissionStore(
         wallClock = it.wall_clock,
         synced = it.synced == 1L,
         rejectReason = it.reject_reason,
+        valueCiphertext = it.value_ciphertext,
+        contentKeyId = it.content_key_id,
+        nonce = it.nonce,
     )
 
     fun opsFor(submissionId: String): List<SyncOp> =
@@ -203,6 +319,79 @@ class SubmissionStore(
             rows.map { RejectedOpGroup(it.reject_reason, it.op_count) }
         }
 
+    // -- encryption envelope ------------------------------------------------
+
+    /** The cached recipient set and security mode, or null before the first sync. */
+    fun projectCrypto(): ProjectCrypto? =
+        queries.getProjectCrypto().executeAsOneOrNull()?.let { row ->
+            ProjectCrypto(
+                securityMode = row.security_mode,
+                projectKeys = Json.decodeFromString<List<StoredProjectKey>>(row.project_keys_json)
+                    .map { it.toProjectKey() },
+            )
+        }
+
+    fun putProjectCrypto(crypto: ProjectCrypto) = queries.putProjectCrypto(
+        crypto.securityMode,
+        Json.encodeToString(crypto.projectKeys.map(StoredProjectKey::from)),
+        now().toString(),
+    )
+
+    fun contentKeyFor(submissionId: String): ContentKey? =
+        queries.contentKeyForSubmission(submissionId).executeAsOneOrNull()?.let {
+            ContentKey(it.content_key_id, it.submission_id, it.key_material, it.uploaded == 1L)
+        }
+
+    /**
+     * Stores a content key and its wraps together. One transaction because a
+     * key without its wraps is data nobody can ever decrypt — including us,
+     * once the material is gone.
+     */
+    fun putContentKey(key: ContentKey, wraps: List<WrappedKeyRecord>): ContentKey =
+        queries.transactionWithResult {
+            queries.insertContentKey(
+                key.contentKeyId, key.submissionId, key.material, now().toString(),
+            )
+            for (wrap in wraps) {
+                queries.insertWrappedKey(
+                    key.contentKeyId, wrap.projectKeyId, wrap.ephemeralPublic,
+                    wrap.nonce, wrap.wrappedKey,
+                )
+            }
+            key
+        }
+
+    /**
+     * Keeps the ciphertext an op was encrypted to, so a retry sends the same
+     * bytes rather than encrypting again.
+     *
+     * Re-deriving would be correct in principle — the nonce comes from
+     * `(deviceId, counter)`, not from a random source, so the result is
+     * identical — but AES-GCM implementations refuse to encrypt twice under the
+     * same `(key, nonce)` and are right to: doing it by accident, with
+     * different plaintext, is the failure the whole scheme guards against.
+     * Storing the result means the question never arises.
+     */
+    fun recordOpCiphertext(
+        opId: String,
+        ciphertext: String,
+        contentKeyId: String,
+        nonce: String,
+    ) = queries.recordOpCiphertext(ciphertext, contentKeyId, nonce, opId)
+
+    fun wrapsFor(contentKeyId: String): List<WrappedKeyRecord> =
+        queries.wrapsForContentKey(contentKeyId).executeAsList().map {
+            WrappedKeyRecord(it.project_key_id, it.ephemeral_public, it.nonce, it.wrapped_key)
+        }
+
+    /**
+     * Marks a content key as landed. Called only once the server has accepted an
+     * op encrypted under it: an accepted op proves the key it references was
+     * stored, since the server rejects `unknown_content_key` otherwise.
+     */
+    fun markContentKeyUploaded(contentKeyId: String) =
+        queries.markContentKeyUploaded(contentKeyId)
+
     // -- device registration ----------------------------------------------
 
     fun isDeviceRegistered(): Boolean =
@@ -222,8 +411,8 @@ class SubmissionStore(
             )
             queries.insertRemoteOp(
                 op.opId, op.submissionId, op.formId, op.formVersion.toLong(), op.kind,
-                op.path, op.valueJson, op.deviceId, op.actorId, op.counter,
-                op.wallClock,
+                op.path, op.valueJson, op.valueCiphertext, op.contentKeyId, op.nonce,
+                op.deviceId, op.actorId, op.counter, op.wallClock,
             )
         }
         queries.setPullCursor(nextCursor)
@@ -254,9 +443,19 @@ class SubmissionStore(
         for (op in opsFor(submissionId)) {
             val path = op.path ?: continue
             when (op.kind) {
-                OpKind.SET -> values[path] =
-                    op.valueJson?.let { formValueFromJson(Json.parseToJsonElement(it)) }
-                        ?: FormValue.Null
+                OpKind.SET -> when {
+                    // Our own op: the plaintext is here even when the outgoing
+                    // ciphertext is cached beside it.
+                    op.valueJson != null ->
+                        values[path] = formValueFromJson(Json.parseToJsonElement(op.valueJson))
+                    // Another device's encrypted answer, and this device holds
+                    // no private key. Dropping the path says "no readable value
+                    // here"; folding it as Null would claim the field was
+                    // answered blank, which is a different and false statement
+                    // about someone's data.
+                    op.isEncrypted -> values.remove(path)
+                    else -> values[path] = FormValue.Null
+                }
                 OpKind.UNSET -> values.remove(path)
             }
         }

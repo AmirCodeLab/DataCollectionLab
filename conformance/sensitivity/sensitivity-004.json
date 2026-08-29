@@ -1,0 +1,70 @@
+{
+  "id": "sensitivity-004",
+  "type": "sensitivity",
+  "description": "A reference into a repeat resolves to the field it reads, not to the repeat: members[].income reads income",
+  "spec": "form-ir 4.2, form-ir 10, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_repeat",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": { "en": "Household members" },
+        "minInstances": 1,
+        "maxInstances": 20,
+        "children": [
+          {
+            "type": "question",
+            "id": "member_name",
+            "dataType": "text",
+            "label": { "en": "Name" },
+            "sensitive": true
+          },
+          {
+            "type": "question",
+            "id": "income",
+            "dataType": "decimal",
+            "label": { "en": "Income" },
+            "sensitive": true
+          },
+          {
+            "type": "question",
+            "id": "income_band",
+            "dataType": "integer",
+            "label": { "en": "Income band" },
+            "calculate": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "gt",
+                  "args": [{ "op": "ref", "path": "income" }, { "op": "lit", "value": 1000 }]
+                },
+                { "op": "lit", "value": 2 },
+                { "op": "lit", "value": 1 }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "total_income",
+        "dataType": "decimal",
+        "label": { "en": "Total household income" },
+        "calculate": {
+          "op": "call",
+          "fn": "sum",
+          "args": [{ "op": "ref", "path": "members[].income" }]
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'income_band' is not sensitive but depends on sensitive field 'income'",
+    "'total_income' is not sensitive but depends on sensitive field 'income'"
+  ]
+}

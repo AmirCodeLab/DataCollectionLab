@@ -1,0 +1,54 @@
+{
+  "id": "sensitivity-002",
+  "type": "sensitivity",
+  "description": "Marking the reader sensitive resolves the leak; sensitivity does not flow backwards from a reader to a plain input",
+  "spec": "form-ir 10, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "sensitive_calc",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "question",
+        "id": "monthly_income",
+        "dataType": "decimal",
+        "label": { "en": "Monthly income" },
+        "sensitive": true
+      },
+      {
+        "type": "question",
+        "id": "annual_income",
+        "dataType": "decimal",
+        "label": { "en": "Annual income" },
+        "sensitive": true,
+        "calculate": {
+          "op": "mul",
+          "args": [{ "op": "ref", "path": "monthly_income" }, { "op": "lit", "value": 12 }]
+        }
+      },
+      {
+        "type": "question",
+        "id": "household_size",
+        "dataType": "integer",
+        "label": { "en": "Household size" }
+      },
+      {
+        "type": "question",
+        "id": "income_per_head",
+        "dataType": "decimal",
+        "label": { "en": "Income per head" },
+        "sensitive": true,
+        "calculate": {
+          "op": "div",
+          "args": [
+            { "op": "ref", "path": "annual_income" },
+            { "op": "ref", "path": "household_size" }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedViolations": []
+}

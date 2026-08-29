@@ -1,0 +1,53 @@
+{
+  "id": "sensitivity-003",
+  "type": "sensitivity",
+  "description": "Inherited container relevance leaks too: whether a field is shown discloses the sensitive value that decides it",
+  "spec": "form-ir 10, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_relevance",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "question",
+        "id": "hiv_status",
+        "dataType": "select_one",
+        "label": { "en": "HIV status" },
+        "sensitive": true,
+        "choices": {
+          "kind": "inline",
+          "items": [{ "value": "positive" }, { "value": "negative" }]
+        }
+      },
+      {
+        "type": "group",
+        "id": "treatment",
+        "label": { "en": "Treatment" },
+        "relevant": {
+          "op": "eq",
+          "args": [{ "op": "ref", "path": "hiv_status" }, { "op": "lit", "value": "positive" }]
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "on_art",
+            "dataType": "boolean",
+            "label": { "en": "On antiretroviral therapy" }
+          },
+          {
+            "type": "question",
+            "id": "art_start_date",
+            "dataType": "date",
+            "label": { "en": "Therapy start date" },
+            "sensitive": true
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'on_art' is not sensitive but depends on sensitive field 'hiv_status'"
+  ]
+}

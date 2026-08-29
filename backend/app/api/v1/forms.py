@@ -1,8 +1,8 @@
-"""Form listing, compilation and validation endpoints.
+"""Form listing, compilation, validation and publishing endpoints.
 
-Phase 0 scope: list the published forms, and compile a Form IR document
-reporting errors and warnings. CRUD, versioning and publishing arrive in
-Phase 1.
+Compiling and publishing run the same gate (`service.check_publishable`), so
+what the builder is told about a form is what publishing will actually do with
+it. Deployment to environments is still to come.
 """
 
 from typing import Annotated, Any
@@ -15,7 +15,11 @@ from app.api.deps import get_db
 from app.modules.form_engine.expression import CompileError
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
 from app.modules.forms import service
-from app.modules.forms.schemas import FormListResponse
+from app.modules.forms.schemas import (
+    FormListResponse,
+    PublishVersionRequest,
+    PublishVersionResponse,
+)
 
 router = APIRouter()
 
@@ -49,10 +53,17 @@ async def list_forms(
 
 @router.post("/compile", response_model=CompileResponse)
 async def compile_form(request: CompileRequest) -> CompileResponse:
+    """Compile a Form IR document and report what would block publishing it.
+
+    Runs every Form IR §10 error check, sensitivity propagation included, so a
+    builder learns about a leak while editing rather than at publish time.
+    """
     try:
-        compiled = CompiledForm(request.form)
+        compiled = service.check_publishable(request.form)
     except CompileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except service.PublishRefused as exc:
+        raise HTTPException(status_code=422, detail=exc.violations) from exc
     return CompileResponse(
         formId=compiled.form_id,
         version=compiled.version,
@@ -80,3 +91,39 @@ async def evaluate_form(request: EvaluateRequest) -> dict[str, Any]:
         "fields": instance.snapshot(),
         "answers": instance.answers(),
     }
+
+
+@router.post(
+    "/versions",
+    response_model=PublishVersionResponse,
+    response_model_by_alias=True,
+    status_code=201,
+)
+async def publish_version(
+    request: PublishVersionRequest, session: Annotated[AsyncSession, Depends(get_db)]
+) -> PublishVersionResponse:
+    """Publish an immutable form version.
+
+    Refuses anything Form IR §10 calls an error, including a sensitivity leak —
+    a field that is not `sensitive` reading one that is, which would let a
+    derived value disclose an encrypted answer (encryption envelope §5.2). The
+    422 body lists every violation, so a form author fixes them in one pass.
+
+    Idempotent by content: re-publishing identical IR returns the existing row.
+    Re-publishing a version number with different content is refused, because a
+    device in the field has that exact IR compiled into submissions it has not
+    synced yet.
+    """
+    async with session.begin():
+        try:
+            return await service.publish_version(
+                session,
+                project_id=request.project_id,
+                ir=request.form,
+                title=request.title,
+                published_by=request.published_by,
+            )
+        except CompileError as exc:
+            raise HTTPException(status_code=422, detail=[str(exc)]) from exc
+        except service.PublishRefused as exc:
+            raise HTTPException(status_code=422, detail=exc.violations) from exc

@@ -11,6 +11,8 @@ import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/api/types";
 import { Layout } from "./Layout";
 import { SubmissionsPage } from "@/pages/SubmissionsPage";
 import { SubmissionPage } from "@/pages/SubmissionPage";
+import { ProjectsPage } from "@/pages/ProjectsPage";
+import { ProjectKeysPage } from "@/pages/ProjectKeysPage";
 
 export const PAGE_SIZE = 50;
 
@@ -63,10 +65,24 @@ const submissionRoute = createRoute({
   component: SubmissionPage,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects",
+  component: ProjectsPage,
+});
+
+const projectKeysRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/keys",
+  component: ProjectKeysPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   submissionsRoute,
   submissionRoute,
+  projectsRoute,
+  projectKeysRoute,
 ]);
 
 export const router = createRouter({ routeTree });

@@ -12,14 +12,23 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.forms.models import Form, FormVersion
-from app.modules.submissions.models import Submission, SubmissionOp, SubmissionState
+from app.modules.submissions.models import (
+    Submission,
+    SubmissionContentKey,
+    SubmissionOp,
+    SubmissionState,
+    SubmissionWrappedKey,
+)
 from app.modules.submissions.schemas import (
     MAX_DETAIL_OPS,
+    ContentKeyView,
     SubmissionDetail,
+    SubmissionKeysResponse,
     SubmissionListResponse,
     SubmissionOpView,
     SubmissionStateView,
     SubmissionSummary,
+    WrappedKeyView,
 )
 
 
@@ -183,9 +192,16 @@ async def get_submission(session: AsyncSession, submission_id: str) -> Submissio
                 id=op.id,
                 kind=op.op_kind,
                 path=op.path,
-                # Ciphertext stays server-side; the console holds no keys.
                 value=op.value,
                 encrypted=op.value_ciphertext is not None,
+                # Relayed exactly as pushed. The server cannot open these bytes
+                # and never could; withholding them would only mean the key
+                # holder cannot either (envelope §7).
+                value_ciphertext=(
+                    bytes(op.value_ciphertext).hex() if op.value_ciphertext is not None else None
+                ),
+                content_key_id=op.content_key_id,
+                nonce=bytes(op.nonce).hex() if op.nonce is not None else None,
                 device_id=op.device_id,
                 actor_id=op.actor_id,
                 counter=op.counter,
@@ -196,4 +212,70 @@ async def get_submission(session: AsyncSession, submission_id: str) -> Submissio
             for op in ops
         ],
         ops_truncated=op_count > len(ops),
+    )
+
+
+async def get_submission_keys(
+    session: AsyncSession, submission_id: str
+) -> SubmissionKeysResponse | None:
+    """Every wrapped content key for a submission (encryption envelope §4.3, §7).
+
+    Ordered by device so two calls hand back the same document. Returns an empty
+    key list for an unencrypted submission and None when there is no such
+    submission — "this submission has no keys" and "this submission does not
+    exist" are different answers and a client acts differently on each.
+    """
+    exists = (
+        await session.execute(select(Submission.id).where(Submission.id == submission_id))
+    ).scalar_one_or_none()
+    if exists is None:
+        return None
+
+    content_keys = (
+        (
+            await session.execute(
+                select(SubmissionContentKey)
+                .where(SubmissionContentKey.submission_id == submission_id)
+                .order_by(SubmissionContentKey.device_id, SubmissionContentKey.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    wraps: dict[str, list[SubmissionWrappedKey]] = {}
+    if content_keys:
+        rows = (
+            (
+                await session.execute(
+                    select(SubmissionWrappedKey)
+                    .where(
+                        SubmissionWrappedKey.content_key_id.in_([k.id for k in content_keys])
+                    )
+                    .order_by(SubmissionWrappedKey.project_key_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            wraps.setdefault(row.content_key_id, []).append(row)
+
+    return SubmissionKeysResponse(
+        submission_id=submission_id,
+        content_keys=[
+            ContentKeyView(
+                content_key_id=key.id,
+                device_id=key.device_id,
+                wraps=[
+                    WrappedKeyView(
+                        project_key_id=wrap.project_key_id,
+                        ephemeral_public=bytes(wrap.ephemeral_public).hex(),
+                        nonce=bytes(wrap.nonce).hex(),
+                        wrapped_key=bytes(wrap.wrapped_key).hex(),
+                    )
+                    for wrap in wraps.get(key.id, [])
+                ],
+            )
+            for key in content_keys
+        ],
     )

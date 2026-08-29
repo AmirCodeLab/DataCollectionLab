@@ -10,9 +10,12 @@ users.
 
 Idempotent: rows are matched by natural key (slug, environment kind, form key,
 version number) and only created when missing, so running it twice is safe.
-A published form version is immutable; if the bundled JSON no longer matches
-the stored version, the script warns instead of updating — publish a new
-version deliberately.
+
+The form goes through `forms.service.publish_version`, the same gate the API
+uses, so the seed cannot install a form the publish endpoint would refuse. A
+published version is immutable: if the bundled JSON no longer matches the
+stored version, the script stops rather than updating — publish a new version
+deliberately.
 
 Run it after migrating. Any working directory and any interpreter will do —
 the script finds the backend venv itself:
@@ -24,7 +27,6 @@ the script finds the backend venv itself:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import sys
@@ -90,30 +92,34 @@ FORM_ID = "01FORMHH"
 FORM_VERSION_ID = "01FORMHHV1"
 
 
-def _checksum(ir: dict[str, Any]) -> str:
-    canonical = json.dumps(ir, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
-
-
 def _report(created: bool, kind: str, name: str) -> None:
     print(f"  {'created' if created else 'exists '}  {kind}: {name}")
 
 
-async def seed() -> None:
+async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
-    from sqlalchemy import func, select
-
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
-    from app.infrastructure.database import create_engine, create_session_factory
+    from app.core.config import get_settings
+    from app.infrastructure.database import create_session_factory
     from app.modules.auth.models import PlatformOrganization
-    from app.modules.forms.models import Form, FormVersion
+    from app.modules.forms import service as forms_service
     from app.modules.projects.models import Environment, Project
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     ir: dict[str, Any] = json.loads(FORM_JSON.read_text())
     form_key, version = str(ir["formId"]), int(ir["version"])
-    checksum = _checksum(ir)
 
-    engine = create_engine()
+    # A project's security mode is fixed at creation (encryption envelope §1),
+    # so an encrypting project is a DIFFERENT project, not this one changed.
+    # Seeding it into its own database also keeps device self-registration
+    # unambiguous: a deployment with two active projects refuses to guess.
+    url = get_settings().database_url
+    if database is not None:
+        from urllib.parse import urlsplit, urlunsplit
+
+        url = urlunsplit(urlsplit(url)._replace(path=f"/{database}"))
+    engine = create_async_engine(url)
     try:
         async with create_session_factory(engine)() as session, session.begin():
             org = (
@@ -136,9 +142,23 @@ async def seed() -> None:
                 await session.execute(select(Project).where(Project.slug == PROJECT_SLUG))
             ).scalar_one_or_none()
             if project is None:
-                project = Project(id=PROJECT_ID, name="Dev Project", slug=PROJECT_SLUG)
+                project = Project(
+                    id=PROJECT_ID,
+                    name="Dev Project",
+                    slug=PROJECT_SLUG,
+                    security_mode=security_mode,
+                )
                 session.add(project)
-            _report(project in session.new, "project", PROJECT_SLUG)
+            _report(project in session.new, "project", f"{PROJECT_SLUG} ({project.security_mode})")
+            if project.security_mode != security_mode:
+                # Never silently "fix" it: the mode decides whether everything
+                # already collected is readable, and changing it would mean
+                # re-encrypting or decrypting all of it.
+                print(
+                    f"  WARNING: project {PROJECT_SLUG} exists in "
+                    f"{project.security_mode!r} mode, not {security_mode!r}. The mode is "
+                    "fixed at creation — seed a fresh database to change it."
+                )
             # The models carry no relationship()s, so flush between dependency
             # levels to control insert order.
             await session.flush()
@@ -155,53 +175,47 @@ async def seed() -> None:
                     session.add(Environment(id=env_id, project_id=project.id, kind=kind))
                 _report(kind not in existing_kinds, "environment", kind)
 
-            form = (
-                await session.execute(
-                    select(Form).where(Form.project_id == project.id, Form.form_key == form_key)
+            # Through the same gate the API uses, so the seed cannot install a
+            # form the publish endpoint would refuse — including one with a
+            # sensitivity leak (encryption envelope §5.2). A published version
+            # is immutable, so drifted content is reported, never overwritten.
+            try:
+                published = await forms_service.publish_version(
+                    session,
+                    project_id=project.id,
+                    ir=ir,
+                    form_id=FORM_ID,
+                    form_version_id=FORM_VERSION_ID,
                 )
-            ).scalar_one_or_none()
-            if form is None:
-                title = ir["title"].get(ir.get("defaultLanguage", "en"), form_key)
-                form = Form(id=FORM_ID, project_id=project.id, form_key=form_key, title=title)
-                session.add(form)
-            _report(form in session.new, "form", form_key)
-            await session.flush()
+            except forms_service.PublishRefused as refusal:
+                print(f"  REFUSED  form_version: {form_key} v{version}")
+                for violation in refusal.violations:
+                    print(f"    - {violation}")
+                raise SystemExit(
+                    "The bundled form cannot be published. Fix it, or publish a new version."
+                ) from refusal
 
-            form_version = (
-                await session.execute(
-                    select(FormVersion).where(
-                        FormVersion.form_id == form.id, FormVersion.version == version
-                    )
-                )
-            ).scalar_one_or_none()
-            if form_version is None:
-                session.add(
-                    FormVersion(
-                        id=FORM_VERSION_ID,
-                        form_id=form.id,
-                        version=version,
-                        ir=ir,
-                        ir_checksum=checksum,
-                        published_at=func.now(),
-                        published_by=None,
-                    )
-                )
-                _report(True, "form_version", f"{form_key} v{version}")
-            else:
-                _report(False, "form_version", f"{form_key} v{version}")
-                if form_version.ir_checksum != checksum:
-                    # Published versions are immutable (forms/models.py); the
-                    # bundle has drifted and needs a new version, not an edit.
-                    print(
-                        f"  WARNING: stored {form_key} v{version} does not match the bundled "
-                        f"JSON ({form_version.ir_checksum} != {checksum}). Publish a new "
-                        "version instead of editing v1."
-                    )
+            _report(published.created, "form_version", f"{form_key} v{version}")
+            for warning in published.warnings:
+                print(f"    warning: {warning}")
     finally:
         await engine.dispose()
 
 
 if __name__ == "__main__":
-    print(f"Seeding {FORM_JSON.relative_to(REPO_ROOT)} into the development database")
-    asyncio.run(seed())
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--security-mode",
+        default="standard",
+        choices=["standard", "field_level", "project_e2e"],
+        help="mode for the project when it is CREATED; fixed thereafter",
+    )
+    parser.add_argument("--database", help="override the database name from .env")
+    args = parser.parse_args()
+
+    target = args.database or "the development database"
+    print(f"Seeding {FORM_JSON.relative_to(REPO_ROOT)} into {target}")
+    asyncio.run(seed(args.security_mode, args.database))
     print("Done. Devices self-register on first sync; no further setup needed.")

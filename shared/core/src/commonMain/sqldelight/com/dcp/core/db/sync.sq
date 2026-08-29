@@ -21,6 +21,13 @@ CREATE TABLE op_outbox (
     kind TEXT NOT NULL,
     path TEXT,
     value_json TEXT,
+    -- An op pulled from another device in an encrypted project arrives as
+    -- ciphertext (sync §2.1). This device holds no private key, so it stores
+    -- the bytes and does not pretend to know the value. Our OWN ops keep their
+    -- plaintext here and are encrypted on the way out, never on the way in.
+    value_ciphertext TEXT,
+    content_key_id TEXT,
+    nonce TEXT,
     device_id TEXT NOT NULL,
     actor_id TEXT NOT NULL,
     counter INTEGER NOT NULL,
@@ -60,6 +67,48 @@ CREATE TABLE sync_status (
     pull_cursor INTEGER NOT NULL DEFAULT 0,
     last_sync_at TEXT,
     last_error TEXT
+);
+
+-- Encryption envelope §4.2: one content key per device per submission. The key
+-- material stays on this device — only wrapped copies (below) are ever
+-- uploaded, and the server can open none of them.
+--
+-- Held locally because every later op on the same submission must encrypt under
+-- the same key: losing it would mean a submission this device can no longer add
+-- to, and correction after finalisation is normal, not exceptional.
+CREATE TABLE content_key (
+    content_key_id TEXT NOT NULL PRIMARY KEY,
+    -- One per submission on this device, so the ops of a submission can never
+    -- end up split across two keys the server has to reconcile.
+    submission_id TEXT NOT NULL UNIQUE,
+    key_material BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    -- 1 once a push carrying this key was accepted. Until then it rides every
+    -- batch: a key that never lands is ciphertext nobody can ever open.
+    uploaded INTEGER NOT NULL DEFAULT 0
+);
+
+-- Envelope §4.3: the content key wrapped once per active project key. Stored
+-- rather than recomputed so a retried push sends the same bytes, and so a wrap
+-- survives the recipient set changing under us mid-sync.
+CREATE TABLE wrapped_key (
+    content_key_id TEXT NOT NULL,
+    project_key_id TEXT NOT NULL,
+    ephemeral_public BLOB NOT NULL,
+    nonce BLOB NOT NULL,
+    wrapped_key BLOB NOT NULL,
+    PRIMARY KEY (content_key_id, project_key_id)
+);
+
+-- Single-row cache of GET /api/v1/devices/{id}/crypto (sync §4): the project's
+-- security mode and the public keys to wrap to. Cached so a device that has
+-- synced once keeps encrypting through however long it is offline next.
+CREATE TABLE project_crypto (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    security_mode TEXT NOT NULL,
+    -- The recipient set, as the JSON the endpoint returned.
+    project_keys_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
 );
 
 getDeviceState:
@@ -107,6 +156,14 @@ INSERT INTO op_outbox(op_id, submission_id, form_id, form_version, kind, path,
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Replay order for materialising a draft: (counter, deviceId), sync §3.
+-- An op is encrypted exactly once, ever: the ciphertext is kept so a retry
+-- sends the identical bytes. Re-deriving them would be correct in principle —
+-- the nonce comes from (deviceId, counter), not from a random source — but
+-- AES-GCM implementations refuse to encrypt twice under the same (key, nonce),
+-- and rightly so.
+recordOpCiphertext:
+UPDATE op_outbox SET value_ciphertext = ?, content_key_id = ?, nonce = ? WHERE op_id = ?;
+
 opsForSubmission:
 SELECT * FROM op_outbox
 WHERE submission_id = ?
@@ -159,9 +216,41 @@ ORDER BY op_count DESC, reject_reason ASC;
 -- makes replaying our own ops (or any prior pull) a no-op via the op_id key.
 insertRemoteOp:
 INSERT OR IGNORE INTO op_outbox(op_id, submission_id, form_id, form_version, kind, path,
-                                value_json, device_id, actor_id, counter, wall_clock, synced)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+                                value_json, value_ciphertext, content_key_id, nonce,
+                                device_id, actor_id, counter, wall_clock, synced)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 
 insertSubmissionIfAbsent:
 INSERT OR IGNORE INTO submission(submission_id, form_id, form_version, status, created_at, updated_at)
 VALUES (?, ?, ?, 'draft', ?, ?);
+
+getProjectCrypto:
+SELECT security_mode, project_keys_json, fetched_at FROM project_crypto WHERE id = 1;
+
+putProjectCrypto:
+INSERT OR REPLACE INTO project_crypto(id, security_mode, project_keys_json, fetched_at)
+VALUES (1, ?, ?, ?);
+
+contentKeyForSubmission:
+SELECT content_key_id, submission_id, key_material, uploaded FROM content_key
+WHERE submission_id = ?;
+
+contentKeyById:
+SELECT content_key_id, submission_id, key_material, uploaded FROM content_key
+WHERE content_key_id = ?;
+
+insertContentKey:
+INSERT INTO content_key(content_key_id, submission_id, key_material, created_at)
+VALUES (?, ?, ?, ?);
+
+insertWrappedKey:
+INSERT OR REPLACE INTO wrapped_key(content_key_id, project_key_id, ephemeral_public,
+                                   nonce, wrapped_key)
+VALUES (?, ?, ?, ?, ?);
+
+wrapsForContentKey:
+SELECT project_key_id, ephemeral_public, nonce, wrapped_key FROM wrapped_key
+WHERE content_key_id = ? ORDER BY project_key_id;
+
+markContentKeyUploaded:
+UPDATE content_key SET uploaded = 1 WHERE content_key_id = ?;

@@ -3,9 +3,13 @@
 Read-only projections of the op log and its fold. The wire format is camelCase;
 models alias to the backend's snake_case, as everywhere else.
 
-Ciphertext never leaves the server through here: an encrypted op reports
-`encrypted: true` and a null value. Decryption is the client's job — the
-console is not a key holder (specs/encryption-envelope-v0.1.md §3).
+An encrypted op reports `encrypted: true`, a null `value`, and the ciphertext
+it actually holds — relayed byte for byte, exactly as /sync/pull relays it. The
+server is a courier for those bytes, never a reader
+(specs/encryption-envelope-v0.1.md §3): they are useless without a private key
+it has never held. Handing them back is what makes decryption possible at all
+(§7), and a submission whose ciphertext nobody can fetch is not encrypted data,
+it is destroyed data.
 """
 
 from datetime import datetime
@@ -62,6 +66,13 @@ class SubmissionOpView(BaseModel):
     path: str | None
     value: Any
     encrypted: bool
+    # Present exactly when `encrypted`. Lowercase hex, as everywhere binary
+    # travels in this API. A key holder needs all three — the ciphertext, the
+    # nonce it was sealed under, and which content key opens it — plus the op
+    # id, path and form version already on this row, which are the AAD (§5).
+    value_ciphertext: str | None = Field(default=None, serialization_alias="valueCiphertext")
+    content_key_id: str | None = Field(default=None, serialization_alias="contentKeyId")
+    nonce: str | None = None
     device_id: str = Field(serialization_alias="deviceId")
     actor_id: str | None = Field(serialization_alias="actorId")
     counter: int
@@ -79,6 +90,42 @@ class SubmissionStateView(BaseModel):
     data: dict[str, Any]
     op_high_water: int = Field(serialization_alias="opHighWater")
     computed_at: datetime = Field(serialization_alias="computedAt")
+
+
+class WrappedKeyView(BaseModel):
+    """One content key wrapped to one recipient project key (envelope §4.3)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_key_id: str = Field(serialization_alias="projectKeyId")
+    ephemeral_public: str = Field(serialization_alias="ephemeralPublic")
+    nonce: str
+    wrapped_key: str = Field(serialization_alias="wrappedKey")
+
+
+class ContentKeyView(BaseModel):
+    """A submission's content key, in the only form the server has it: wrapped."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    content_key_id: str = Field(serialization_alias="contentKeyId")
+    device_id: str = Field(serialization_alias="deviceId")
+    wraps: list[WrappedKeyView]
+
+
+class SubmissionKeysResponse(BaseModel):
+    """Every wrapped key needed to decrypt one submission (envelope §7).
+
+    A submission built by several devices has one content key per device, all
+    wrapped to the same recipients, so a single private key opens every one.
+    Handing these out costs nothing: the server has never held the private key
+    that opens them, and neither has whoever is asking, unless they own it.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    submission_id: str = Field(serialization_alias="submissionId")
+    content_keys: list[ContentKeyView] = Field(serialization_alias="contentKeys")
 
 
 class SubmissionDetail(BaseModel):

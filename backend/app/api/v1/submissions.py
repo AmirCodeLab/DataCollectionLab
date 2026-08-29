@@ -16,6 +16,7 @@ from app.modules.submissions.schemas import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     SubmissionDetail,
+    SubmissionKeysResponse,
     SubmissionListResponse,
     SubmissionStatus,
 )
@@ -54,3 +55,25 @@ async def get_submission(
     if detail is None:
         raise HTTPException(status_code=404, detail="submission not found")
     return detail
+
+
+@router.get(
+    "/{submission_id}/keys",
+    response_model=SubmissionKeysResponse,
+    response_model_by_alias=True,
+)
+async def get_submission_keys(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    submission_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> SubmissionKeysResponse:
+    """The wrapped content keys a key holder needs to decrypt this submission.
+
+    Wrapped copies only, exactly as they were uploaded. Decryption happens in
+    the browser or the desktop app with a private key the server has never held
+    (encryption envelope §7) — the console is not a key holder.
+    """
+    async with session.begin():
+        keys = await service.get_submission_keys(session, submission_id)
+    if keys is None:
+        raise HTTPException(status_code=404, detail="submission not found")
+    return keys

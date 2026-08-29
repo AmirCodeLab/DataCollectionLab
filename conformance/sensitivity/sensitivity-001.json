@@ -1,0 +1,35 @@
+{
+  "id": "sensitivity-001",
+  "type": "sensitivity",
+  "description": "A calculation reading a sensitive field must itself be sensitive",
+  "spec": "form-ir 10, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_calc",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "question",
+        "id": "monthly_income",
+        "dataType": "decimal",
+        "label": { "en": "Monthly income" },
+        "sensitive": true
+      },
+      {
+        "type": "question",
+        "id": "annual_income",
+        "dataType": "decimal",
+        "label": { "en": "Annual income" },
+        "calculate": {
+          "op": "mul",
+          "args": [{ "op": "ref", "path": "monthly_income" }, { "op": "lit", "value": 12 }]
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'annual_income' is not sensitive but depends on sensitive field 'monthly_income'"
+  ]
+}

@@ -51,8 +51,16 @@ class SyncClientTest {
     ): SyncClient {
         val http = HttpClient(
             MockEngine { request ->
-                if (request.url.encodedPath.endsWith("/devices")) registrationHandler(request)
-                else handler(request)
+                when {
+                    request.url.encodedPath.endsWith("/devices") -> registrationHandler(request)
+                    // Every sync asks for the project's security mode before it
+                    // pushes anything (sync §4). These tests are all `standard`.
+                    request.url.encodedPath.endsWith("/crypto") -> jsonResponse(
+                        """{"deviceId":"dev-test","projectId":"prj","securityMode":"standard",
+                            "projectKeys":[]}"""
+                    )
+                    else -> handler(request)
+                }
             }
         ) {
             expectSuccess = true

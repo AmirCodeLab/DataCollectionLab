@@ -42,6 +42,41 @@ audit trail comes for free.
 | `wallClock` | Diagnostic and audit only — **never** used for ordering |
 | `kind` | `set`, `unset`, `repeat_add`, `repeat_delete`, `finalize`, `reopen` |
 
+### 2.1 Encrypted operations
+
+When a value is encrypted (Encryption Envelope §5), `value` is **absent** and
+three fields take its place. Every other field stays plaintext — the server
+still routes, orders and deduplicates the op without reading it.
+
+```json
+{
+  "opId": "01J8Z...",
+  "path": "members[2].age",
+  "valueCiphertext": "9f2c...",
+  "contentKeyId": "01J8W...",
+  "nonce": "3a7f0c19d4e2b58a6c1f9d03",
+  ...
+}
+```
+
+| Field | Rule |
+|---|---|
+| `valueCiphertext` | AES-256-GCM ciphertext and tag, lowercase hex |
+| `contentKeyId` | The device's content key for this submission (envelope §4.2) |
+| `nonce` | 12 bytes, lowercase hex, derived per envelope §4.5 — **never random** |
+
+`value` and `valueCiphertext` are mutually exclusive, and `contentKeyId` and
+`nonce` are present exactly when `valueCiphertext` is. Anything else is
+`malformed`.
+
+Hex rather than base64 because these are small, they are read by humans far more
+often than they are transmitted, and every other place the envelope crosses a
+wire — its conformance vectors, its wrapped keys — is already hex.
+
+A server MUST reject an op whose `(contentKeyId, nonce)` pair it already holds
+(envelope §4.5). AES-GCM fails catastrophically on nonce reuse, and this is the
+last line of defence against a device with a broken counter.
+
 ## 3. Ordering
 
 Ordering is by `(counter, deviceId)`, never by wall clock. Device clocks are
@@ -58,7 +93,7 @@ wrong often enough in the field that clock-based ordering silently corrupts data
 
 ```
 POST /api/v1/sync/push
-{ "deviceId": "dev_a1b2", "ops": [ ... ] }
+{ "deviceId": "dev_a1b2", "ops": [ ... ], "keys": [ ... ] }
 
 200 { "accepted": ["opId", ...], "rejected": [ { "opId": ..., "reason": ... } ],
       "serverCursor": 90114 }
@@ -68,7 +103,50 @@ POST /api/v1/sync/push
 - Replaying an already-accepted `opId` is a no-op that returns success. Retry is
   always safe.
 - Rejection reasons: `unknown_form_version`, `not_authorized`, `submission_closed`,
-  `malformed`. A rejected op never blocks the rest of the batch.
+  `malformed`, `unknown_content_key`, `nonce_reused`. A rejected op never blocks
+  the rest of the batch.
+
+### Content keys
+
+`keys` carries the content keys the batch's encrypted ops reference, each already
+wrapped to every active project key (Encryption Envelope §4.3). It is omitted in
+`standard` mode and by any batch whose keys the server already holds.
+
+```json
+{ "contentKeyId": "01J8W...", "submissionId": "01J8Y...", "deviceId": "dev_a1b2",
+  "wraps": [ { "projectKeyId": "01J8V...", "ephemeralPublic": "hex(32)",
+               "nonce": "hex(12)", "wrappedKey": "hex(48)" } ] }
+```
+
+Keys ride the push rather than a separate endpoint so that a content key and the
+first ops it encrypts commit in **one transaction**. Uploading them separately
+would allow a batch of ops nobody can ever decrypt — or a submission that exists
+only as a key — whenever a device dies between the two calls.
+
+Content keys are immutable and idempotent: re-sending one the server already
+holds is a no-op, never an error. The server stores only wrapped copies and can
+open none of them.
+
+An op naming a `contentKeyId` the server neither holds nor received in this batch
+is rejected `unknown_content_key`; the client retries it on the next sync with
+the key attached.
+
+### Project keys
+
+```
+GET /api/v1/devices/{deviceId}/crypto
+
+200 { "deviceId": "dev_a1b2", "projectId": "prj_...",
+      "securityMode": "field_level",
+      "projectKeys": [ { "keyId": "01J8V...", "publicKey": "hex(32)",
+                         "role": "primary", "label": "Programme lead" } ] }
+```
+
+The device's project security mode and the **public** keys to wrap to. Fetched on
+every sync, not just at registration, because rotation (envelope §8) adds keys a
+device registered earlier would otherwise never wrap to. Revoked keys are not
+returned. A device that has never reached this endpoint must not encrypt: it has
+nothing to wrap to, and an unwrappable content key is unrecoverable data.
 
 Client obligations — an HTTP 200 is not an acknowledgement, the response body is:
 
@@ -107,6 +185,24 @@ GET /api/v1/sync/pull?cursor=90114&scope=assignments,forms,datasets
 
 Cursor-based, resumable. The client persists `nextCursor` only after the batch is
 durably written locally.
+
+Pulled ops carry `valueCiphertext`, `contentKeyId` and `nonce` exactly as they
+were pushed (§2.1) — the server relays what it cannot read. The wrapped keys that
+open them are fetched per submission:
+
+```
+GET /api/v1/submissions/{submissionId}/keys
+
+200 { "submissionId": "01J8Y...",
+      "contentKeys": [ { "contentKeyId": "01J8W...", "deviceId": "dev_a1b2",
+                         "wraps": [ { "projectKeyId": ..., "ephemeralPublic": ...,
+                                      "nonce": ..., "wrappedKey": ... } ] } ] }
+```
+
+A submission built by several devices has one content key per device (envelope
+§4.2), all wrapped to the same recipients, so one private key opens every one of
+them. The endpoint is public and unauthenticated by key material: every byte it
+returns is already useless without a private key the server has never held.
 
 ## 6. Conflicts
 

@@ -62,3 +62,22 @@ async function describeFailure(response: Response): Promise<string> {
   }
   return `${response.status} ${response.statusText}`;
 }
+
+/** POST JSON. The only write the console makes today is registering a key. */
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw new ApiError(0, `API unreachable (${String(cause)})`);
+  }
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await describeFailure(response));
+  }
+  return (await response.json()) as T;
+}

@@ -1,14 +1,31 @@
-/** One submission: the folded current state, and the log it was folded from. */
+/** One submission: the folded current state, and the log it was folded from.
+ *
+ * Encrypted values are decrypted here in the browser, with a private key the
+ * person at the keyboard loads from a file — never by the server, which has no
+ * key, and never by anything that outlives this tab (encryption envelope §7).
+ */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
-import { REFRESH_INTERVAL_MS, submissionQuery } from "@/api/queries";
+import {
+  REFRESH_INTERVAL_MS,
+  projectKeysQuery,
+  submissionKeysQuery,
+  submissionQuery,
+} from "@/api/queries";
 import type { SubmissionOpView } from "@/api/types";
+import { DecryptionPanel } from "@/components/DecryptionPanel";
 import { RefreshControls, useAutoRefresh } from "@/components/RefreshControls";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatTimestamp, formatValue } from "@/lib/format";
+import {
+  decryptSubmission,
+  parsePrivateKeyFile,
+  type DecryptionResult,
+  type OpDecryptionState,
+} from "@/lib/decryptSubmission";
 import { Td, Th } from "@/components/Table";
 
 const route = getRouteApi("/submissions/$submissionId");
@@ -22,9 +39,92 @@ export function SubmissionPage() {
     refetchInterval: autoRefresh ? REFRESH_INTERVAL_MS : false,
   });
 
-  if (submission.isPending) {
-    return <p className="text-slate-500">Loading…</p>;
-  }
+  // The private key lives in component state and nowhere else: not in
+  // react-query's cache, not in localStorage, not in the URL. Unmounting this
+  // page is what forgets it.
+  const [privateKey, setPrivateKey] = useState<{
+    name: string;
+    bytes: Uint8Array;
+  } | null>(null);
+  const [decryption, setDecryption] = useState<DecryptionResult | null>(null);
+  const [decryptError, setDecryptError] = useState<string | null>(null);
+  const [decrypting, setDecrypting] = useState(false);
+
+  const projectId = submission.data?.projectId;
+  const encrypted = submission.data?.ops.some((op) => op.encrypted) ?? false;
+
+  // Only fetched once there is something encrypted to open: an unencrypted
+  // submission has no wrapped keys and no reason to ask for any.
+  const submissionKeys = useQuery({
+    ...submissionKeysQuery(submissionId),
+    enabled: encrypted,
+  });
+  // Revoked keys included: a wrap made before revocation is still a wrap, and
+  // naming its holder is how someone finds the private key that opens it (§8).
+  const projectKeys = useQuery({
+    ...projectKeysQuery(projectId ?? "", true),
+    enabled: encrypted && projectId !== undefined,
+  });
+
+  const detail = submission.data;
+  const keysData = submissionKeys.data;
+  const projectKeysData = projectKeys.data;
+
+  useEffect(() => {
+    if (privateKey === null || detail === undefined) {
+      setDecryption(null);
+      return;
+    }
+    if (keysData === undefined || projectKeysData === undefined) return;
+
+    // A refetch replaces `detail`, so this re-runs and the decrypted view
+    // follows new ops rather than going stale beside the log.
+    let current = true;
+    setDecrypting(true);
+    decryptSubmission(detail, keysData, projectKeysData.keys, privateKey.bytes)
+      .then((result) => {
+        if (!current) return;
+        setDecryption(result);
+        setDecryptError(null);
+      })
+      .catch((cause: unknown) => {
+        if (!current) return;
+        setDecryption(null);
+        setDecryptError(String(cause));
+      })
+      .finally(() => {
+        if (current) setDecrypting(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [privateKey, detail, keysData, projectKeysData]);
+
+  const loadKeyFile = (file: File) => {
+    void file
+      .text()
+      .then((contents) => {
+        // Parse before storing: a file that is not a key should say so now,
+        // not as a wall of failed decryptions.
+        const bytes = parsePrivateKeyFile(contents);
+        setDecryptError(null);
+        setPrivateKey({ name: file.name, bytes });
+      })
+      .catch((cause: unknown) => {
+        setPrivateKey(null);
+        setDecryptError(`Could not read ${file.name}: ${String(cause)}`);
+      });
+  };
+
+  const forgetKey = () => {
+    // Overwrite the bytes rather than only dropping the reference: the array
+    // may sit in the heap until the collector gets to it.
+    privateKey?.bytes.fill(0);
+    setPrivateKey(null);
+    setDecryption(null);
+    setDecryptError(null);
+  };
+
   if (submission.isError) {
     return (
       <div>
@@ -35,11 +135,15 @@ export function SubmissionPage() {
       </div>
     );
   }
+  if (detail === undefined) {
+    return <p className="text-slate-500">Loading…</p>;
+  }
 
-  const detail = submission.data;
-  const stateEntries = Object.entries(detail.state?.data ?? {}).sort(
-    ([a], [b]) => a.localeCompare(b),
-  );
+  // With a key loaded this is the locally decrypted fold; without one it is the
+  // server's, which by design holds nothing encrypted.
+  const stateEntries = Object.entries(
+    decryption?.answers ?? detail.state?.data ?? {},
+  ).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <section>
@@ -81,10 +185,41 @@ export function SubmissionPage() {
         </Fact>
       </dl>
 
-      <h2 className="mt-8 text-lg font-semibold">Current state</h2>
+      {encrypted && (
+        <DecryptionPanel
+          encryptedOps={detail.ops.filter((op) => op.encrypted).length}
+          totalOps={detail.ops.length}
+          keyName={privateKey?.name ?? null}
+          busy={decrypting}
+          error={decryptError}
+          result={decryption}
+          onLoadFile={loadKeyFile}
+          onForget={forgetKey}
+        />
+      )}
+
+      <h2 className="mt-8 text-lg font-semibold">
+        Current state
+        {decryption !== null && (
+          <span className="ms-2 rounded bg-emerald-100 px-2 py-0.5 align-middle text-xs font-medium text-emerald-900">
+            decrypted in this browser
+          </span>
+        )}
+      </h2>
       <p className="text-sm text-slate-600">
-        The server&apos;s fold of the log below, last computed{" "}
-        {formatTimestamp(detail.state?.computedAt ?? null)}.
+        {decryption === null ? (
+          <>
+            The server&apos;s fold of the log below, last computed{" "}
+            {formatTimestamp(detail.state?.computedAt ?? null)}. Encrypted
+            answers are absent from it: the server cannot read them, so they have
+            no place in a queryable projection.
+          </>
+        ) : (
+          <>
+            Folded in this browser from the log below, with the private key you
+            loaded. Nothing here was computed on the server.
+          </>
+        )}
       </p>
       {stateEntries.length === 0 ? (
         <p className="mt-3 text-slate-500">No values yet.</p>
@@ -146,7 +281,7 @@ export function SubmissionPage() {
                 </Td>
                 <Td className="font-mono text-xs">{op.path ?? "—"}</Td>
                 <Td className="font-mono text-xs">
-                  <OpValue op={op} />
+                  <OpValue op={op} decrypted={decryption?.values[op.id]} />
                 </Td>
                 <Td className="whitespace-nowrap text-xs">
                   {formatTimestamp(op.wallClock)}
@@ -166,12 +301,31 @@ export function SubmissionPage() {
   );
 }
 
-function OpValue({ op }: { op: SubmissionOpView }) {
-  if (op.encrypted) {
-    // The console holds no keys, by design (encryption envelope §3).
+function OpValue({
+  op,
+  decrypted,
+}: {
+  op: SubmissionOpView;
+  decrypted?: { state: OpDecryptionState; value: unknown };
+}) {
+  if (!op.encrypted) {
+    return <>{formatValue(op.value)}</>;
+  }
+  // Without a loaded key the console holds nothing that opens this, by design
+  // (encryption envelope §3) — and neither does the server.
+  if (decrypted === undefined || decrypted.state === "no-key") {
     return <span className="text-slate-500">encrypted</span>;
   }
-  return <>{formatValue(op.value)}</>;
+  if (decrypted.state === "failed") {
+    // These bytes are not the ones sealed for this op at this path: corruption,
+    // or someone moved a ciphertext. Never shown as a value.
+    return <span className="text-red-700">failed to authenticate</span>;
+  }
+  return (
+    <span className="rounded bg-emerald-100 px-1 text-emerald-900" title="Decrypted in this browser">
+      {formatValue(decrypted.value)}
+    </span>
+  );
 }
 
 function BackLink() {

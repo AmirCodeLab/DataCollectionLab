@@ -1,0 +1,64 @@
+{
+  "id": "sensitivity-005",
+  "type": "sensitivity",
+  "description": "Every expression slot counts, and violations are reported in document order, one per (field, source) pair",
+  "spec": "form-ir 10, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_slots",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "question",
+        "id": "diagnosis",
+        "dataType": "text",
+        "label": { "en": "Diagnosis" },
+        "sensitive": true
+      },
+      {
+        "type": "question",
+        "id": "age",
+        "dataType": "integer",
+        "label": { "en": "Age" },
+        "sensitive": true
+      },
+      {
+        "type": "question",
+        "id": "referral_note",
+        "dataType": "text",
+        "label": { "en": "Referral note" },
+        "required": {
+          "op": "ne",
+          "args": [{ "op": "ref", "path": "diagnosis" }, { "op": "lit", "value": null }]
+        }
+      },
+      {
+        "type": "question",
+        "id": "guardian_name",
+        "dataType": "text",
+        "label": { "en": "Guardian name" },
+        "relevant": {
+          "op": "lt",
+          "args": [{ "op": "ref", "path": "age" }, { "op": "lit", "value": 18 }]
+        },
+        "constraint": {
+          "op": "ne",
+          "args": [{ "op": "ref", "path": "diagnosis" }, { "op": "lit", "value": "" }]
+        }
+      },
+      {
+        "type": "question",
+        "id": "clinic_code",
+        "dataType": "text",
+        "label": { "en": "Clinic code" }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'referral_note' is not sensitive but depends on sensitive field 'diagnosis'",
+    "'guardian_name' is not sensitive but depends on sensitive field 'age'",
+    "'guardian_name' is not sensitive but depends on sensitive field 'diagnosis'"
+  ]
+}

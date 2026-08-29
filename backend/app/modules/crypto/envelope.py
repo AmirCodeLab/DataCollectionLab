@@ -32,6 +32,7 @@ OP_NONCE_INFO = b"dcp/v1/op-nonce"
 MEDIA_NONCE_INFO = b"dcp/v1/media-nonce"
 
 CONTENT_KEY_BYTES = 32
+PUBLIC_KEY_BYTES = 32
 NONCE_BYTES = 12
 MEDIA_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -173,6 +174,27 @@ def wrap_to_recipients(
     ]
 
 
+def is_usable_recipient_key(public_key: bytes) -> bool:
+    """Whether X25519 with this public key produces a real shared secret.
+
+    The small-order points on Curve25519 drive every exchange to an all-zero
+    secret, so a content key "wrapped" to one is wrapped under a key anybody can
+    derive. Registering one as a recipient would look exactly like redundancy
+    and provide none.
+
+    Checked by attempting an exchange rather than by comparing against a list of
+    constants: the library already knows which points are degenerate, and a
+    hand-copied list is a transcription error waiting to be relied on.
+    """
+    if len(public_key) != PUBLIC_KEY_BYTES:
+        return False
+    try:
+        X25519PrivateKey.generate().exchange(X25519PublicKey.from_public_bytes(public_key))
+    except Exception:
+        return False
+    return True
+
+
 def unwrap_content_key(wrapped: WrappedKey, recipient_private_key: bytes) -> bytes:
     private = X25519PrivateKey.from_private_bytes(recipient_private_key)
     recipient_public = private.public_key().public_bytes_raw()
@@ -288,18 +310,37 @@ def ciphertext_hash(ciphertext_chunks: list[bytes]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def check_sensitivity_propagation(compiled_form: Any) -> list[str]:
-    """A calculated field reading a sensitive field must itself be sensitive.
+def referenced_field(dep: str) -> str:
+    """The field id a reference reads.
 
-    Otherwise the calculation leaks its input. Returns violation messages; an
-    empty list means the form is safe to publish in field_level mode.
+    `members[0].name` reads `name`; the repeat is a scope, not a field (Form IR
+    §4.2). Reading the leading segment instead would resolve to `members`, which
+    is not in `fields` at all, and would make the sensitivity check silently
+    blind to every reference that crosses into a repeat.
+    """
+    return dep.rsplit("].", 1)[-1] if "]." in dep else dep
+
+
+def check_sensitivity_propagation(compiled_form: Any) -> list[str]:
+    """A field reading a sensitive field must itself be sensitive.
+
+    Otherwise the derived value leaks its input: a `calculate` reproduces it
+    outright, and a `relevant` or `constraint` discloses it a bit at a time
+    through which fields turn out to be relevant or valid. Form IR §10 makes
+    this an error that blocks publish; the same check runs in the Kotlin engine
+    (shared/form-engine, Sensitivity.kt) and must agree with this one.
+
+    Returns violation messages, deterministically ordered so two runs — and two
+    implementations — produce the same list. Empty means safe to publish.
     """
     violations: list[str] = []
-    for field_id, field in compiled_form.fields.items():
+    for field_id in compiled_form.order:
+        field = compiled_form.fields[field_id]
         if field.node.get("sensitive") is True:
             continue
-        for dep in field.depends_on:
-            base = dep.split("[")[0].split(".")[-1] if "]." in dep else dep
+        # By field, not by reference: `members[0].age` and `members[].age` read
+        # the same field and are one violation, not two.
+        for base in sorted({referenced_field(dep) for dep in field.depends_on}):
             dep_field = compiled_form.fields.get(base)
             if dep_field is not None and dep_field.node.get("sensitive") is True:
                 violations.append(
