@@ -1,10 +1,11 @@
 /** Encryption keys for one project (encryption envelope §4.1, §4.3).
  *
  * The keypair is generated in this browser. The private half is downloaded and
- * never leaves the machine; only the public half is uploaded. The order below
- * is deliberate — the file is saved BEFORE the public key is registered, so a
- * failed upload costs nothing and a failed download cannot leave a project
- * wrapping submissions to a key nobody holds.
+ * never leaves the machine; only the public half is uploaded. The public key is
+ * registered BEFORE the file is written, so the file can carry the real
+ * `keyId` and be matched to its `project_key` row later; the keypair stays in
+ * state until a file has actually been handed over, so the download can be
+ * retried and the only copy of the private half is never lost.
  */
 
 import { useState } from "react";
@@ -20,6 +21,8 @@ import {
   generateProjectKeypair,
   privateKeyFileContents,
   privateKeyFilename,
+  publicKeyFingerprint,
+  type GeneratedKeypair,
 } from "@/lib/projectKey";
 
 const route = getRouteApi("/projects/$projectId/keys");
@@ -52,32 +55,65 @@ export function ProjectKeysPage() {
   const [saved, setSaved] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
+  // A keypair that has been (or is being) registered but whose private half is
+  // not yet on disk. Held so a failed download can be retried rather than
+  // losing the only copy — see the ordering note in the mutation below. It
+  // lives in component state and nowhere else, like every other private key in
+  // this console.
+  const [pendingKey, setPendingKey] = useState<{
+    keypair: GeneratedKeypair;
+    keyId: string;
+    role: KeyRole;
+    label: string;
+  } | null>(null);
+
+  const savePrivateKey = async (
+    keypair: GeneratedKeypair,
+    keyId: string,
+    keyRole: KeyRole,
+    keyLabel: string,
+  ) => {
+    const fingerprint = await publicKeyFingerprint(keypair.publicKey);
+    downloadPrivateKey(
+      privateKeyFileContents(keypair, {
+        projectId,
+        keyId,
+        role: keyRole,
+        label: keyLabel,
+      }),
+      privateKeyFilename(project?.slug ?? projectId, keyRole, fingerprint),
+    );
+  };
+
   const generate = useMutation({
     mutationFn: async () => {
       setStatus("Generating a keypair in this browser…");
       const keypair = await generateProjectKeypair();
 
-      // Save first. If the upload fails after this, the worst case is an
-      // unused private key on someone's disk. If the upload succeeded first
-      // and the download then failed, devices would start wrapping to a key
-      // nobody holds — and that data would never be readable again.
-      setStatus("Saving the private key…");
-      downloadPrivateKey(
-        privateKeyFileContents(keypair, {
-          projectId,
-          keyId: null,
-          role,
-          label,
-        }),
-        privateKeyFilename(project?.slug ?? projectId, role),
-      );
-
+      // Register first, then build the file. A file written before
+      // registration cannot carry the key id, and `keyId: null` is exactly
+      // what makes a downloaded file unmatchable to the `project_key` row the
+      // console names when it says which key opens a submission.
+      //
+      // Ordering it this way opens the failure the old order avoided: once the
+      // key is registered, devices wrap to it, and if the file never reaches
+      // the disk that data is unreadable forever. So the moment registration
+      // succeeds the keypair is parked in state, and it is cleared only after
+      // a file has been handed over — [pendingKey] renders a retry that keeps
+      // the private half reachable until then. A registration that fails
+      // leaves nothing to retry: no key, so nothing is wrapped to it.
       setStatus("Registering the public key…");
-      return addProjectKey(projectId, {
+      const created = await addProjectKey(projectId, {
         publicKey: keypair.publicKey,
         role,
         label,
       });
+      setPendingKey({ keypair, keyId: created.keyId, role, label });
+
+      setStatus("Saving the private key…");
+      await savePrivateKey(keypair, created.keyId, role, label);
+      setPendingKey(null);
+      return created;
     },
     onSuccess: async (created) => {
       setStatus(
@@ -117,6 +153,34 @@ export function ProjectKeysPage() {
           </>
         )}
       </p>
+
+      {pendingKey !== null && (
+        <div className="mt-4 rounded border-2 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-semibold">
+            Key {pendingKey.keyId} is registered, but its private half has not
+            been saved. Do not leave this page.
+          </p>
+          <p className="mt-2">
+            Devices will start wrapping submissions to this key. Without the
+            file below, nothing encrypted to it can ever be read — it exists
+            only in this tab.
+          </p>
+          <button
+            type="button"
+            className="mt-3 rounded bg-red-700 px-3 py-1.5 font-medium text-white hover:bg-red-800"
+            onClick={() => {
+              void savePrivateKey(
+                pendingKey.keypair,
+                pendingKey.keyId,
+                pendingKey.role,
+                pendingKey.label,
+              ).then(() => setPendingKey(null));
+            }}
+          >
+            Download the private key file
+          </button>
+        </div>
+      )}
 
       {keys.data?.securityMode !== "standard" && active.length === 0 && (
         <p className="mt-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">

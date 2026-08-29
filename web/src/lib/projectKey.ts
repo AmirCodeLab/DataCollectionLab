@@ -153,6 +153,24 @@ async function assertHalvesMatch(
   }
 }
 
+/** Short, stable identifier for a public key: the first 8 hex characters of its
+ *  SHA-256 (envelope §4.1 keys are raw 32-byte X25519).
+ *
+ * It goes in the filename so a file can be matched to a key by looking at it,
+ * without opening it and without the key id — which is what you need when you
+ * are holding several files and the console is telling you the id of the one
+ * that opens a submission. Truncated because a filename has to stay readable:
+ * this identifies a key among a project's handful, it is not a security claim,
+ * and nothing trusts it — `publicKey` inside the file is the authority.
+ */
+export async function publicKeyFingerprint(publicKeyHex: string): Promise<string> {
+  const bytes = Uint8Array.from(
+    publicKeyHex.match(/../g)!.map((byte) => parseInt(byte, 16)),
+  );
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return toHex(digest).slice(0, 8);
+}
+
 /** What the downloaded file contains. Self-describing so it is still usable
  *  in two years by someone who was not there when it was made. */
 export interface PrivateKeyFile {
@@ -160,7 +178,9 @@ export interface PrivateKeyFile {
   format: string;
   spec: string;
   projectId: string;
-  keyId: string | null;
+  /** The `project_key` row this file's public half was registered as. Always
+   *  set: the file is built after registration precisely so it can carry it. */
+  keyId: string;
   role: KeyRole;
   label: string;
   createdAt: string;
@@ -170,7 +190,7 @@ export interface PrivateKeyFile {
 
 export function privateKeyFileContents(
   keypair: GeneratedKeypair,
-  meta: { projectId: string; keyId: string | null; role: KeyRole; label: string },
+  meta: { projectId: string; keyId: string; role: KeyRole; label: string },
 ): PrivateKeyFile {
   return {
     warning:
@@ -207,7 +227,11 @@ export function downloadPrivateKey(file: PrivateKeyFile, filename: string): void
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-export function privateKeyFilename(projectSlug: string, role: KeyRole): string {
+export function privateKeyFilename(
+  projectSlug: string,
+  role: KeyRole,
+  fingerprint: string,
+): string {
   const stamp = new Date().toISOString().slice(0, 10);
-  return `dcp-${projectSlug}-${role}-private-key-${stamp}.json`;
+  return `dcp-${projectSlug}-${role}-private-key-${stamp}-${fingerprint}.json`;
 }
