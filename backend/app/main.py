@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 

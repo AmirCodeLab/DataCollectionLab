@@ -32,9 +32,29 @@ docker compose up -d postgres redis minio
 
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -v          # conformance suite
+alembic upgrade head          # create the schema
+python ../scripts/seed_dev.py # seed the minimum data (see below)
+pytest tests/ -v              # conformance suite
 uvicorn app.main:app --reload
 ```
+
+### Seeding
+
+`scripts/seed_dev.py` creates the minimum a fresh database needs to be usable:
+one organisation, one project with its development, staging and production
+environments, and the `household_survey` form at version 1, loaded from the
+same JSON the app bundles
+(`clients/composeApp/src/commonMain/composeResources/files/household_survey.json`).
+Nothing else — devices are not seeded, because a client registers itself on
+first sync (`POST /api/v1/devices`, sync protocol §4).
+
+It is idempotent: rows are matched by natural key, so running it twice is safe
+and changes nothing. A published form version is immutable, so if the bundled
+JSON drifts from the stored version the script warns rather than overwriting
+it — publish a new version deliberately instead.
+
+Without this step the server has no project to attach devices to, so device
+registration fails with `409 no_project` and every pushed op is rejected.
 
 Kotlin side (single Gradle build at the repo root):
 

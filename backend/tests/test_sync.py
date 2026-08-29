@@ -411,3 +411,44 @@ def test_tombstone_reaches_a_device_that_was_offline_during_the_delete(sync_api:
         assert tombstones[0]["serverSeq"] > offline_cursor
 
     _run_with_client(sync_api, scenario)
+
+
+@pytest.mark.db
+def test_a_brand_new_device_registers_and_pushes_in_one_flow(sync_api: Any) -> None:
+    async def scenario(client: Any) -> None:
+        # An unregistered device gets every op rejected — the exact failure
+        # registration exists to prevent.
+        unregistered = await _push(
+            client, "dev-unseen", [_op("01OPUNSEEN1", "01SUBUNSEEN", "dev-unseen", 1, value="x")]
+        )
+        assert unregistered["accepted"] == []
+        assert unregistered["rejected"] == [
+            {"opId": "01OPUNSEEN1", "reason": "not_authorized"}
+        ]
+
+        payload = {
+            "deviceId": "dev-unseen",
+            "platform": "android",
+            "osVersion": "Android 14 (API 34)",
+            "appVersion": "0.1.0",
+        }
+        first = await client.post("/api/v1/devices", json=payload)
+        assert first.status_code == 200, first.text
+        assert first.json()["status"] == "registered"
+        assert first.json()["deviceId"] == "dev-unseen"
+        assert first.json()["projectId"] == "01PROJECT"
+
+        # Re-registering (reinstall, lost local flag) is success, not an error.
+        again = await client.post("/api/v1/devices", json=payload)
+        assert again.status_code == 200, again.text
+        assert again.json()["status"] == "already_registered"
+
+        # The same op that was rejected now goes through and is stored.
+        pushed = await _push(
+            client, "dev-unseen", [_op("01OPUNSEEN1", "01SUBUNSEEN", "dev-unseen", 1, value="x")]
+        )
+        assert pushed["accepted"] == ["01OPUNSEEN1"]
+        assert pushed["rejected"] == []
+        assert await _state("01SUBUNSEEN") == {"name": "x"}
+
+    _run_with_client(sync_api, scenario)

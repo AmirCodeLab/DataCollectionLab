@@ -47,6 +47,13 @@ audit trail comes for free.
 Ordering is by `(counter, deviceId)`, never by wall clock. Device clocks are
 wrong often enough in the field that clock-based ordering silently corrupts data.
 
+> **Note:** `counter` is a per-device sequence number, not a Lamport clock — a
+> device never advances its counter on ops it receives from elsewhere. Ordering
+> by `(counter, deviceId)` is therefore deterministic — every replica converges
+> on the same result — but it is **not causal**: a device that has made many
+> edits will win against one that has made few, regardless of which edit
+> actually happened later.
+
 ## 4. Push
 
 ```
@@ -62,6 +69,33 @@ POST /api/v1/sync/push
   always safe.
 - Rejection reasons: `unknown_form_version`, `not_authorized`, `submission_closed`,
   `malformed`. A rejected op never blocks the rest of the batch.
+
+Client obligations — an HTTP 200 is not an acknowledgement, the response body is:
+
+- An op is marked synced ONLY when its `opId` appears in `accepted`.
+- A rejected op stays in the client outbox with its `reason` recorded, is
+  surfaced to the user, and is retried on a later sync (rejections can be
+  transient, e.g. a form version published after the fact). The server's
+  idempotency makes a rejected-then-accepted op count exactly once.
+- A non-2xx response acknowledges nothing: every op in the batch stays pending.
+
+### Device registration
+
+```
+POST /api/v1/devices
+{ "deviceId": "dev_a1b2", "platform": "android",
+  "osVersion": "Android 14 (API 34)", "appVersion": "0.1.0" }
+
+200 { "deviceId": "dev_a1b2", "projectId": "prj_...",
+      "status": "registered" | "already_registered" }
+```
+
+The server rejects every op from a device it has never seen (`not_authorized`),
+so a client registers before its first push. Registration is idempotent:
+`already_registered` is success and clients may re-register freely. A revoked
+device gets 403 and cannot register its way back in. Until enrollment tokens
+exist (see §11), the device attaches to the deployment's single active project
+— a deployment with several projects answers 409 `project_ambiguous`.
 
 ## 5. Pull
 
@@ -118,6 +152,8 @@ pull. No separate reconciliation logic.
 
 ## 11. Open questions for v0.2
 
+- Lamport-style counter merge, especially for peer-to-peer where devices
+  exchange ops directly
 - Compaction policy for long-lived cases with thousands of ops
 - Whether `finalize` should be a hard barrier or a soft state
 - Conflict UI semantics for repeat reordering

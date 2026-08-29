@@ -44,7 +44,7 @@ fun App(driverFactory: DatabaseDriverFactory) {
             when (val current = route) {
                 Route.Submissions -> SubmissionListRoot(
                     viewModel = viewModel {
-                        SubmissionListViewModel(graph.store, graph.formCatalog)
+                        SubmissionListViewModel(graph.store, graph.formCatalog, graph.syncClient)
                     },
                     onNavigateToCollection = { route = Route.Collection(it) },
                 )

@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -66,6 +69,8 @@ fun SubmissionListScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
             )
+            SyncBar(state = state, onAction = onAction)
+            HorizontalDivider()
             when {
                 state.isLoading -> Box(
                     modifier = Modifier.fillMaxSize(),
@@ -97,6 +102,55 @@ fun SubmissionListScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncBar(state: SubmissionListState, onAction: (SubmissionListAction) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (state.pendingTotal == 0L) "All changes synced"
+                else "${state.pendingTotal} ops waiting to sync",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = state.lastSyncAt?.let { "Last sync $it" } ?: "Never synced",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.rejectedSummary != null) {
+                Text(
+                    text = state.rejectedSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (state.lastSyncError != null) {
+                Text(
+                    text = state.lastSyncError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Button(
+            onClick = { onAction(SubmissionListAction.OnSyncClick) },
+            enabled = !state.isSyncing,
+        ) {
+            if (state.isSyncing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Text("Sync")
             }
         }
     }
@@ -144,6 +198,8 @@ private fun SubmissionListScreenPreview() {
         SubmissionListScreen(
             state = SubmissionListState(
                 isLoading = false,
+                pendingTotal = 75,
+                lastSyncAt = "2026-08-29 12:40",
                 submissions = listOf(
                     SubmissionUi("01A", "Household Survey", "2026-08-29 10:12", false, 14),
                     SubmissionUi("01B", "Household Survey", "2026-08-28 16:40", true, 61),

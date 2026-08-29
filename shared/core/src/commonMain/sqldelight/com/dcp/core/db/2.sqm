@@ -1,0 +1,6 @@
+-- v2 -> v3: record the server's verdict per op. A rejected op keeps its
+-- reason and stays in the outbox (retried next sync) instead of being dropped
+-- as if it had synced; the device also records whether it has registered
+-- itself with the server (POST /api/v1/devices).
+ALTER TABLE op_outbox ADD COLUMN reject_reason TEXT;
+ALTER TABLE device_state ADD COLUMN registered INTEGER NOT NULL DEFAULT 0;
