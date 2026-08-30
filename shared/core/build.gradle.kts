@@ -59,6 +59,15 @@ kotlin {
 
             implementation(libs.sqldelight.android.driver)
             implementation(libs.sqlcipher.android)
+
+            // Still capture (encryption envelope §6). The capture pipeline
+            // only — `camera-view`, which is where PreviewView lives, is a
+            // :clients:composeApp dependency, because the viewfinder is UI and
+            // UI does not belong in this module. CameraCapture hands the UI a
+            // Preview.SurfaceProvider sink and constructs no View itself.
+            implementation(libs.androidx.camera.core)
+            implementation(libs.androidx.camera.camera2)
+            implementation(libs.androidx.camera.lifecycle)
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)

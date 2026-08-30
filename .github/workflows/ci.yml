@@ -55,6 +55,16 @@ jobs:
         working-directory: backend
         run: mypy app
 
+      # The API contract. specs/openapi.json and web/src/api/types.ts are both
+      # generated from the FastAPI app; this fails if either is not what the
+      # app generates right now. An API change without a contract change is a
+      # red build, which is the only way a committed snapshot stays honest —
+      # a stale one is worse than none, because it is wrong and looks
+      # authoritative. The fix is always the same: run the command it names
+      # and commit the result alongside the change that caused it.
+      - name: contract (openapi.json and console types)
+        run: python scripts/generate_api_contract.py --check
+
       # Everything that does not need a database, including the conformance
       # vectors — the Python half of the cross-engine contract.
       - name: pytest

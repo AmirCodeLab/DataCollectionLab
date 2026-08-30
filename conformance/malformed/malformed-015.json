@@ -1,0 +1,41 @@
+{
+  "id": "malformed-015",
+  "type": "malformed",
+  "description": "a malformed node nested inside a group",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "missing_field",
+  "where": "children[0].children[1].id",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "group",
+        "id": "g",
+        "children": [
+          {
+            "type": "question",
+            "id": "a",
+            "dataType": "integer",
+            "label": {
+              "en": "A"
+            }
+          },
+          {
+            "type": "question",
+            "dataType": "text"
+          }
+        ]
+      }
+    ]
+  }
+}

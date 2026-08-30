@@ -76,9 +76,12 @@ does not need a Node runtime beside Python.
    disagree, the spec wins — or the spec changes deliberately, in its own commit.
 
 2. **Conformance vectors are the contract.** Every engine — Python reference and
-   Kotlin — must pass every vector in `conformance/vectors` identically. A vector
-   passing on one and failing on the other is a release blocker, never a platform
-   difference.
+   Kotlin — must pass every vector identically. A vector passing on one and
+   failing on the other is a release blocker, never a platform difference.
+   Four sets, because one format cannot express all four questions:
+   `conformance/vectors` (evaluation), `crypto` (envelope bytes),
+   `sensitivity` (which forms publish refuses, §10.2), `malformed` (which
+   documents are refused before compilation, §10.1).
 
 3. **Never "fix" a failing vector by editing the expectation.** Change the
    expectation only alongside a spec change explaining why.
@@ -105,6 +108,70 @@ does not need a Node runtime beside Python.
 
 9. **The console uses the public API.** No private endpoints.
 
+10. **The API contract is generated. Never hand-write it, never hand-edit it.**
+    `specs/openapi.json` and `web/src/api/types.ts` are both produced by
+    `scripts/generate_api_contract.py` from the FastAPI app, and CI fails when
+    either is not what the app generates right now. See below.
+
+## The API contract
+
+The app is the source of truth. Everything downstream is generated from it:
+
+```
+backend/app/main.py  ──►  specs/openapi.json  ──►  web/src/api/types.ts
+     (the truth)          (committed snapshot)      (console wire types)
+```
+
+`specs/openapi.json` is committed so an API change shows up as a change to a
+reviewable file. `web/src/api/types.ts` is generated so the console's types
+cannot drift from it — that file used to hand-mirror `SUBMISSION_STATUSES` from
+a database CHECK constraint and needed a test of its own to catch the copy going
+stale.
+
+**Never edit either file.** An edit survives until the next run of the generator
+and until then it says something untrue about the server. Change the Pydantic
+model, then:
+
+```bash
+python scripts/generate_api_contract.py          # rewrite both files
+python scripts/generate_api_contract.py --check  # what CI runs
+```
+
+Commit the regenerated files **in the same commit as the API change**. An API
+change without a contract change is a red build, deliberately.
+
+What that requires of a route:
+
+- **Every route has a `response_model`.** Without one FastAPI infers the body
+  from the return annotation, and `dict[str, Any]` infers to an object with no
+  fields — `Record<string, unknown>` in the console, which type-checks
+  everywhere and describes nothing. `test_openapi_contract` fails the build for
+  an inline 2xx schema and names the route.
+- **Every request body is a Pydantic model.** Same rule, same reason.
+- **Every closed value set is a named `type` alias**, not a plain assignment:
+
+  ```python
+  type SubmissionStatus = Literal["draft", ...]   # one named schema
+  SubmissionStatus = Literal["draft", ...]        # inlined at every use site
+  ```
+
+  Pydantic gives the PEP 695 alias its own entry in the document, so the
+  console gets `SubmissionStatus` **and** a `SUBMISSION_STATUSES` array to
+  render a dropdown from. A plain assignment gets neither.
+- **A declared error model is the `{"detail": ...}` envelope**, not the payload
+  inside it — that is what FastAPI actually sends.
+- **422 belongs to the framework.** It means "the request did not match the
+  schema". Three endpoints also return 422 for a domain refusal with a
+  different body (`POST /forms/compile`, `POST /forms/versions`,
+  `POST /projects/{id}/keys`); only one shape can be declared under one status,
+  so those refusals are documented in the route's description and not in its
+  schema. Anything new gets its own status code.
+
+The remaining hand-copied link is the one no generator can see: a database
+CHECK constraint and the Python `Literal` that mirrors it are written in
+different languages by different hands. `backend/tests/test_wire_enum_mirrors.py`
+is what holds those together.
+
 ## Form engine
 
 Two implementations that must agree:
@@ -115,6 +182,13 @@ Two implementations that must agree:
   potentially the server.
 
 Key design points:
+- Refusal is two-stage (§10). **Document errors** (§10.1) are checked first over
+  the raw document — is this a Form IR document at all — and only then the
+  semantic errors of §10.2. Python does this in `document.py`/`Document.kt`
+  rather than leaving it to the deserialiser, because a statically typed engine
+  gets that gate free and a dynamically typed one gets nothing: before it
+  existed, Kotlin refused nine document shapes and Python raised `KeyError`,
+  reaching the API as a 500.
 - Expressions are a **typed AST**, never strings. No XPath at runtime.
 - `null` is a first-class value. It propagates through arithmetic and comparison
   and only becomes boolean at the relevance/constraint/required boundary.
@@ -133,9 +207,15 @@ uvicorn app.main:app --reload
 pytest tests/ -v
 ruff check . && mypy app
 
-# Conformance
-python conformance/generate_vectors.py     # regenerate vectors
+# API contract (run from the repo root; never edit the generated files)
+python scripts/generate_api_contract.py            # openapi.json + console types
+python scripts/generate_api_contract.py --check    # what CI runs
+
+# Conformance — four sets, all of them on both engines
+python conformance/generate_vectors.py     # regenerate the evaluation vectors
 cd backend && pytest tests/test_conformance.py -v
+cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, §10.1
+./gradlew :shared:form-engine:jvmTest      # the Kotlin half of all of them
 
 # Kotlin engine (from the repo root — one build)
 ./gradlew :shared:form-engine:jvmTest
@@ -158,9 +238,9 @@ docker compose up
 ## CI
 
 `.github/workflows/ci.yml` — four jobs, all of them blocking: **backend**
-(ruff, mypy, pytest without `db`), **db** (pytest `-m db` against a PostGIS
-service), **kotlin** (`:shared:form-engine:jvmTest`, `:shared:core:jvmTest`),
-**web** (typecheck, lint, test, build).
+(ruff, mypy, the API contract check, pytest without `db`), **db** (pytest
+`-m db` against a PostGIS service), **kotlin** (`:shared:form-engine:jvmTest`,
+`:shared:core:jvmTest`), **web** (typecheck, lint, test, build).
 
 These are the same commands listed above. Run them locally before pushing —
 but the point of the workflow is that nobody has to remember to.
@@ -177,26 +257,59 @@ but the point of the workflow is that nobody has to remember to.
 
 ## Current phase
 
-**Phase 0 — architecture proof: complete except the OpenAPI contract.**
+**Phase 0 — architecture proof: complete.**
 **Phase 1 — clients: in progress (Android collection app).**
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
-1. Form IR specification — done incl. screen flow (§11); 29 conformance
+1. Form IR specification — done incl. screen flow (§11); 34 conformance
    vectors pass identically on the Python and Kotlin engines
 2. Sync protocol specification — done; server push/pull implemented
    (`backend/app/modules/sync/`, commit e9f30d7) and the client op log +
    outbox live in `shared/core` (`SubmissionStore`, 5 JVM tests)
 3. ERD / database schema — done; Alembic migration 0001 in
    `backend/migrations/versions/`, migration tests green against Postgres
-4. OpenAPI contract — **still skeleton**: 4 routes exist, no contract file
-   in `specs/`
+4. OpenAPI contract — done; `specs/openapi.json`, generated from the app by
+   `scripts/generate_api_contract.py` and never hand-written. 16 operations,
+   every one with a `response_model` and a typed request body. The console's
+   wire types are generated from it too, so the last hand-mirrored copy —
+   `SUBMISSION_STATUSES` in `web/src/api/types.ts` — is gone along with the
+   test that watched it. CI regenerates both and fails on any difference
 5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
 6. iOS Compose spike — done: builds and runs on the iPhone 17 Pro simulator;
    the submission list renders with the SQLDelight native driver and the
    bundled form compiling on-device (the app supplies SQLite at link time —
    now SQLCipher rather than `-lsqlite3`, see §14 below and
    `clients/iosApp/Configuration/Config.xcconfig`)
+
+Media capture is built for image, signature and GPS point (§6, sync §9).
+Capture goes camera buffer → compress in memory → encrypt in memory → write
+chunks, so the plaintext photograph never reaches the filesystem; the per-file
+media key lives in the SQLCipher database, which is what makes a staged file
+encrypted at rest without a second key hierarchy (§6.1). The staged chunks ARE
+the upload — encrypted once, sent byte for byte — so a resumed upload provably
+sends the same bytes as the first attempt. CameraX behind expect/actual on
+Android, AVFoundation on iOS, desktop refusing rather than pretending; the
+viewfinder is `clients/composeApp` and `shared/core` constructs no View.
+
+Upload is resumable per §6: 4 MiB chunks, each under its own derived nonce,
+content hash over CIPHERTEXT. `POST /media/upload-sessions` is idempotent and
+returns the chunks the server already holds — that is the whole of resumption,
+and there is deliberately no second endpoint that answers the same question. An
+op referencing a file that has not arrived is accepted and marked pending, and
+the pair resolves in either order; there is no foreign key between them, because
+one is routinely first. Image compression and the GPS accuracy threshold are per
+project (`GET /devices/{id}/media-policy`), and a fix worse than the threshold is
+refused and shown with its accuracy rather than stored — a phone indoors reports
+a two-kilometre fix with exactly the authority of a good one.
+
+Extending the engine was the price of this: `FormValue` in Kotlin could not
+represent a media reference or a geopoint's accuracy, both of which are in Form
+IR §2.1. `FormValue.MediaRef` and `GeoPoint.alt/accuracy` close that, with five
+new conformance vectors (`media-00*`, `geopoint-00*`) passing identically on both
+engines. The Python reference needed no change — it holds values as plain Python
+and always read both shapes, which is exactly the kind of divergence a typed
+engine hides until something tries to use it.
 
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
@@ -255,8 +368,21 @@ Plainly NOT done yet:
   that already holds data needs a re-key of the database, and that is not
   written. A settings toggle without it would silently destroy every answer on
   the device
-- **Media** (capture, chunked upload) — not started, and it is the remaining
-  half of the envelope: §6 media keys and chunk nonces have no callers
+- **Media beyond image, signature and geopoint.** Audio, video and file upload
+  are not built. They are in the IR and deliberately NOT in the collection
+  screen's supported types: rendering a widget that cannot answer a question is
+  worse than skipping it, because the enumerator thinks they have answered.
+  `geotrace` and `geoshape` likewise
+- **No thumbnail of a captured photograph.** The image question shows the file
+  name and its upload state, not the picture. Decoding a staged chunk back for
+  display is one call (`MediaStaging.readChunk`); what is missing is the
+  platform bitmap plumbing to draw it
+- **Media has been exercised in tests and on the JVM, not on real hardware.**
+  The Android APK builds and all three targets compile, but no photograph has
+  been taken on a device or a simulator through this path. Everything a test can
+  hold is held — staging, encryption, chunking, resumption, the accuracy
+  threshold, the server's three endpoints — and the CameraX and AVFoundation
+  actuals are the part that only a device can prove
 - **Key custody is half built** — the console generates a project keypair with
   WebCrypto, downloads the private half and registers only the public one
   (`web/src/pages/ProjectKeysPage.tsx`, `POST /api/v1/projects/{id}/keys`), and
@@ -269,4 +395,10 @@ Plainly NOT done yet:
   collection in the field silently. What is still missing is the rest of the §8
   *flow*: no rotation (register-new-then-revoke-old is manual and unguided), no
   re-registration of a holder, and no import of a keypair generated elsewhere
-- **OpenAPI contract** — still skeleton (see item 4)
+- **One gap the contract work found and did not close.** Three endpoints
+  return 422 for a domain refusal, colliding with FastAPI's own
+  request-validation 422, so only one of the two bodies can be declared.
+  Moving those refusals to their own status code would fix it, and that is an
+  API change rather than a patch. (The other gap that work found — a 500 from
+  `POST /forms/compile` on a malformed document — is closed: §10.1, both
+  engines, 22 vectors in `conformance/malformed`)

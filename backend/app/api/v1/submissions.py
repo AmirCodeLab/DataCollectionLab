@@ -11,6 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.schemas import MessageError
+from app.modules.media import service as media_service
+from app.modules.media.schemas import SubmissionMediaResponse
 from app.modules.submissions import service
 from app.modules.submissions.schemas import (
     DEFAULT_PAGE_LIMIT,
@@ -44,7 +47,12 @@ async def list_submissions(
         )
 
 
-@router.get("/{submission_id}", response_model=SubmissionDetail, response_model_by_alias=True)
+@router.get(
+    "/{submission_id}",
+    response_model=SubmissionDetail,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
 async def get_submission(
     session: Annotated[AsyncSession, Depends(get_db)],
     submission_id: Annotated[str, Path(min_length=1, max_length=64)],
@@ -61,6 +69,7 @@ async def get_submission(
     "/{submission_id}/keys",
     response_model=SubmissionKeysResponse,
     response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
 )
 async def get_submission_keys(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -77,3 +86,34 @@ async def get_submission_keys(
     if keys is None:
         raise HTTPException(status_code=404, detail="submission not found")
     return keys
+
+
+@router.get(
+    "/{submission_id}/media",
+    response_model=SubmissionMediaResponse,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
+async def get_submission_media(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    submission_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> SubmissionMediaResponse:
+    """Every file this submission references, and whether each has paired up.
+
+    Media never travels inside the op stream (sync §9): the op carries a
+    `mediaId` and the file arrives separately, in either order. So a submission
+    can be complete in every answer and still be waiting for three photographs,
+    and this is where that shows. `resolved` is true only when both halves are
+    here — the file is `complete` and an op referencing it has arrived — and
+    `pendingCount` is how many are not, so the console can say "still uploading"
+    instead of rendering a submission that looks finished and is not.
+
+    For an encrypted file the wrapped media keys come back too, exactly as they
+    were uploaded. The server has never held a private key that opens one, and
+    handing them out is what makes decryption possible at all (envelope §7).
+    """
+    async with session.begin():
+        found = await media_service.submission_media(session, submission_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="submission not found")
+    return found

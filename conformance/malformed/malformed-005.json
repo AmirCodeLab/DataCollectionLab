@@ -1,0 +1,10 @@
+{
+  "id": "malformed-005",
+  "type": "malformed",
+  "description": "an empty object — irVersion is the first thing missing",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "missing_field",
+  "where": "irVersion",
+  "form": {}
+}

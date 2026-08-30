@@ -45,6 +45,14 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
+
+            // The viewfinder. PreviewView is the only UI class in the CameraX
+            // family, so it belongs here rather than in :shared:core, which
+            // owns the capture pipeline and hands out a SurfaceProvider sink.
+            implementation(libs.androidx.camera.view)
+            // rememberLauncherForActivityResult, for the camera permission and
+            // the system photo picker.
+            implementation(libs.androidx.activity.compose)
         }
         commonMain.dependencies {
             // Shared, platform-independent engine and core. Core is api() so the

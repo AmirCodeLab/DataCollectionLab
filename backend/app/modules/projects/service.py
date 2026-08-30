@@ -27,6 +27,7 @@ from app.modules.projects.schemas import (
     DeviceCryptoResponse,
     DeviceRegisterRequest,
     DeviceRegisterResponse,
+    KeyRegistrationFailure,
     KeyRole,
     ProjectKeyCreate,
     ProjectKeyDetail,
@@ -34,6 +35,7 @@ from app.modules.projects.schemas import (
     ProjectKeyOut,
     ProjectListResponse,
     ProjectSummary,
+    RecipientSetFailure,
     RegisterFailure,
     SecurityMode,
 )
@@ -134,10 +136,10 @@ async def register_device(
 class RecipientSetError(Exception):
     """The project's recipient set is unusable, so no device may wrap to it."""
 
-    def __init__(self, status_code: int, reason: str, message: str) -> None:
+    def __init__(self, status_code: int, reason: RecipientSetFailure, message: str) -> None:
         super().__init__(f"{reason}: {message}")
         self.status_code = status_code
-        self.reason = reason
+        self.reason: RecipientSetFailure = reason
         self.message = message
 
 
@@ -213,10 +215,12 @@ async def device_crypto(session: AsyncSession, device_id: str) -> DeviceCryptoRe
 class KeyRegistrationError(Exception):
     """A refusal a console can show verbatim. `reason` is the contract."""
 
-    def __init__(self, status_code: int, reason: str, message: str) -> None:
+    def __init__(
+        self, status_code: int, reason: KeyRegistrationFailure, message: str
+    ) -> None:
         super().__init__(f"{reason}: {message}")
         self.status_code = status_code
-        self.reason = reason
+        self.reason: KeyRegistrationFailure = reason
         self.message = message
 
 

@@ -48,11 +48,13 @@ KT_OUT=$(./gradlew :shared:form-engine:jvmTest --rerun-tasks 2>&1)
 KT_STATUS=$?
 # Match on the file pattern, not one hardcoded class name: renaming or moving
 # the test class must not make the script report a phantom failure. Sensitivity
-# is a SEPARATE vector set with its own runner and its own count below —
-# counting it here would inflate the form-vector total and raise a phantom
-# "engines disagree" alarm.
+# and document shape are SEPARATE vector sets with their own runners and their
+# own counts below — counting them here would inflate the form-vector total and
+# raise a phantom "engines disagree" alarm. Every new *ConformanceTest over a
+# separate set has to be excluded here too.
 KT_DIR=shared/form-engine/build/test-results/jvmTest
-KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' ! -name '*Sensitivity*' 2>/dev/null)
+KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' \
+    ! -name '*Sensitivity*' ! -name '*Malformed*' 2>/dev/null)
 KT_RAN=0
 KT_FAILED=0
 if [ -n "$KT_XMLS" ]; then
@@ -172,6 +174,47 @@ else
     SENSITIVITY_GREEN=false
 fi
 
+# --- document shape --------------------------------------------------------
+# Form IR §10.1, on both engines. This is the set conformance/vectors cannot
+# express: every vector there assumes a form that compiled, so "this document
+# must be refused" had nowhere to live and the divergence went unseen — Kotlin
+# refusing nine document shapes at parse while Python crashed on them.
+# Both engines must agree on the reason and the location, not just the outcome.
+
+DOC_VECTORS=$(find conformance/malformed -name 'malformed-*.json' 2>/dev/null | wc -l | tr -d ' ')
+DOCUMENT_GREEN=true
+
+if [ "$DOC_VECTORS" -gt 0 ]; then
+    printf '\n  document shape:   %s vectors\n' "$DOC_VECTORS"
+
+    DPY_OUT=$(cd backend && "$PY" -m pytest tests/test_malformed_conformance.py -q 2>&1)
+    if [ $? -eq 0 ]; then
+        printf '  python documents: PASS\n'
+    else
+        printf '  python documents: FAIL\n'
+        printf '%s\n' "$DPY_OUT" | tail -4 | sed 's/^/    | /'
+        DOCUMENT_GREEN=false
+    fi
+
+    DKT_XML=shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.MalformedConformanceTest.xml
+    DKT_RAN=0
+    if [ -f "$DKT_XML" ]; then
+        # Two assertions per vector: the reason and location, and that the
+        # refusal is still a CompileException to every caller.
+        DKT_RAN=$(grep -ho 'tests="[0-9]*"' "$DKT_XML" | grep -o '[0-9]*' | head -1)
+        DKT_FAILED=$(grep -ho 'failures="[0-9]*"' "$DKT_XML" | grep -o '[0-9]*' | head -1)
+    fi
+    if [ "$DKT_RAN" -eq $((DOC_VECTORS * 2)) ] && [ "${DKT_FAILED:-1}" -eq 0 ]; then
+        printf '  kotlin documents: PASS  (%s/%s vectors)\n' "$((DKT_RAN / 2))" "$DOC_VECTORS"
+    else
+        printf '  kotlin documents: FAIL  (%s of %s assertions ran)\n' "$DKT_RAN" "$((DOC_VECTORS * 2))"
+        DOCUMENT_GREEN=false
+    fi
+else
+    printf '\n  document shape:   none found in conformance/malformed\n'
+    DOCUMENT_GREEN=false
+fi
+
 CONFORMANCE_GREEN=false
 [ "$PY_STATUS" -eq 0 ] && [ "$KT_STATUS" -eq 0 ] && \
     [ "$PY_RAN" -eq "$VECTORS" ] && [ "$KT_RAN" -eq "$VECTORS" ] && CONFORMANCE_GREEN=true
@@ -180,8 +223,9 @@ CONFORMANCE_GREEN=false
 hr "2. Phase 0 deliverables"
 
 # Form IR spec: spec file present and both engines green on every vector.
-if [ -f specs/form-ir-v0.1.md ] && [ "$CONFORMANCE_GREEN" = true ]; then
-    item "Form IR spec" "DONE" "specs/form-ir-v0.1.md, both engines pass $VECTORS/$VECTORS"
+if [ -f specs/form-ir-v0.1.md ] && [ "$CONFORMANCE_GREEN" = true ] && [ "$DOCUMENT_GREEN" = true ]; then
+    item "Form IR spec" "DONE" \
+        "specs/form-ir-v0.1.md, both engines pass $VECTORS/$VECTORS + $DOC_VECTORS document"
 elif [ -f specs/form-ir-v0.1.md ]; then
     item "Form IR spec" "PARTIAL" "spec exists but conformance is not green"
 else
@@ -210,11 +254,19 @@ else
     item "ERD / DB schema" "NOT STARTED" "no migrations, no ERD spec"
 fi
 
-# OpenAPI contract: a contract file in specs/ and route handlers in the app.
+# OpenAPI contract. The file existing is not the deliverable — the file being
+# what the app generates is, and a committed snapshot that has fallen behind the
+# server is worse than none. So this runs the same --check CI runs rather than
+# asking `find` whether a file is there.
 ROUTES=$(grep -rE '@router\.(get|post|put|patch|delete)' backend/app/api 2>/dev/null | wc -l | tr -d ' ')
 OPENAPI_SPEC=$(find specs -name '*openapi*' 2>/dev/null | head -1)
 if [ -n "$OPENAPI_SPEC" ] && [ "$ROUTES" -gt 0 ]; then
-    item "OpenAPI contract" "DONE" "$OPENAPI_SPEC + $ROUTES routes"
+    if "$PY" scripts/generate_api_contract.py --check >/dev/null 2>&1; then
+        item "OpenAPI contract" "DONE" "$OPENAPI_SPEC, in step with $ROUTES routes"
+    else
+        item "OpenAPI contract" "STALE" "$OPENAPI_SPEC is not what the app generates"
+        printf '                           run: python scripts/generate_api_contract.py\n'
+    fi
 elif [ "$ROUTES" -gt 0 ] || [ -n "$OPENAPI_SPEC" ]; then
     item "OpenAPI contract" "PARTIAL" "spec: ${OPENAPI_SPEC:-none}, routes in backend/app/api: $ROUTES"
 else

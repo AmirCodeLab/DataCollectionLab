@@ -54,6 +54,14 @@ class CompiledForm(val ir: FormIr) {
     val screens: List<FormScreen> by lazy { buildScreenPlan(ir) }
 
     init {
+        // Spec §10.1, before anything semantic — and here rather than in
+        // FormIr.parse so it fires however the document arrived, including a
+        // FormIr built in code. This is the Python engine's placement too
+        // (CompiledForm.__init__ calls check_document); the rest of §10.1 is
+        // the deserialiser's job on this side, which is why only this one
+        // check is spelled out.
+        checkIrVersion(ir.irVersion)
+
         compile()
         checkReferences()
         topoOrder = topologicalOrder()

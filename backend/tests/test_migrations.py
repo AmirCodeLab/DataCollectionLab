@@ -1,14 +1,20 @@
-"""Migration 0001 must produce exactly the schema in migrations/schema/001_initial.sql.
+"""The migrations must produce exactly the schema in migrations/schema/*.sql.
 
-The SQL file is normative. Two enforcement layers:
+The SQL files are normative, and there is one per migration: 001_initial.sql
+alongside 0001, 002_media.sql alongside 0002. A later revision gets a new file
+rather than an edit to an earlier one — 001 is DDL that self-hosted
+installations have already run, and rewriting it would make the normative
+schema disagree with every database in the field.
+
+Two enforcement layers:
 
 1. Without a database: every table the DDL creates has a matching
-   op.create_table and op.drop_table in the migration.
+   op.create_table and op.drop_table across the migrations.
 2. Against a real Postgres (docker compose up -d postgres, tests marked
-   ``db``): `alembic upgrade head` and executing the SQL file directly yield
-   identical schemas — same tables, columns, types, defaults, constraints and
-   indexes — and downgrade → upgrade round-trips cleanly. Self-hosted users
-   depend on reversible migrations.
+   ``db``): `alembic upgrade head` and executing the SQL files in name order
+   yield identical schemas — same tables, columns, types, defaults,
+   constraints and indexes — and downgrade → upgrade round-trips cleanly.
+   Self-hosted users depend on reversible migrations.
 
 Tests marked ``db`` SKIP when Postgres is unreachable, and are deselectable
 with `pytest -m "not db"`, so the rest of the suite does not need docker.
@@ -25,8 +31,9 @@ from urllib.parse import urlsplit, urlunsplit
 import pytest
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
-DDL_FILE = BACKEND_DIR / "migrations" / "schema" / "001_initial.sql"
-MIGRATION_FILE = BACKEND_DIR / "migrations" / "versions" / "0001_initial_schema.py"
+# Name order is apply order, which is why the files are numbered.
+DDL_FILES = sorted((BACKEND_DIR / "migrations" / "schema").glob("*.sql"))
+MIGRATION_FILES = sorted((BACKEND_DIR / "migrations" / "versions").glob("[0-9]*.py"))
 
 ALEMBIC_DB = "dcp_test_migration_alembic"
 REFERENCE_DB = "dcp_test_migration_ref"
@@ -35,21 +42,31 @@ REFERENCE_DB = "dcp_test_migration_ref"
 _EXCLUDED_TABLES = ("alembic_version", "spatial_ref_sys")
 
 
+def _normative_ddl() -> str:
+    return "\n".join(path.read_text() for path in DDL_FILES)
+
+
 def test_migration_creates_and_drops_every_table() -> None:
-    """Every table in the normative DDL has an op.create_table in upgrade()
-    and an op.drop_table in downgrade(). Runs without a database, so gross
-    drift is caught even where docker is absent; the ``db`` test does the
-    full column/constraint/index comparison.
+    """Every table in the normative DDL has an op.create_table in some
+    upgrade() and an op.drop_table in some downgrade(). Runs without a
+    database, so gross drift is caught even where docker is absent; the ``db``
+    test does the full column/constraint/index comparison.
     """
-    source = MIGRATION_FILE.read_text()
-    tables = set(re.findall(r"^CREATE TABLE (\w+)", DDL_FILE.read_text(), re.M))
-    upgrade_body, downgrade_body = source.split("def downgrade")
-    # Insensitive to quote style and line wrapping. A formatter that rewrites
-    # '' to "" or breaks the call across lines changes nothing about which
-    # tables the migration creates, and this test must not fail for it — it
-    # exists to catch drift between the DDL and the migration, nothing else.
-    created = set(re.findall(r"""op\.create_table\(\s*['"](\w+)['"]""", upgrade_body))
-    dropped = set(re.findall(r"""op\.drop_table\(\s*['"](\w+)['"]""", downgrade_body))
+    assert DDL_FILES and MIGRATION_FILES, "no schema files or migrations found"
+    tables = set(re.findall(r"^CREATE TABLE (\w+)", _normative_ddl(), re.M))
+
+    created: set[str] = set()
+    dropped: set[str] = set()
+    for path in MIGRATION_FILES:
+        upgrade_body, downgrade_body = path.read_text().split("def downgrade")
+        # Insensitive to quote style and line wrapping. A formatter that
+        # rewrites '' to "" or breaks the call across lines changes nothing
+        # about which tables the migration creates, and this test must not fail
+        # for it — it exists to catch drift between the DDL and the migrations,
+        # nothing else.
+        created |= set(re.findall(r"""op\.create_table\(\s*['"](\w+)['"]""", upgrade_body))
+        dropped |= set(re.findall(r"""op\.drop_table\(\s*['"](\w+)['"]""", downgrade_body))
+
     assert created == tables, f"missing: {tables - created}, extra: {created - tables}"
     assert dropped == tables, f"missing drops: {tables - dropped}, extra: {dropped - tables}"
 
@@ -224,11 +241,12 @@ def postgres() -> Any:
 def test_migration_up_down_up_matches_normative_schema(postgres: Any) -> None:
     from alembic import command
 
-    ddl = DDL_FILE.read_text()
     cfg = _alembic_config(ALEMBIC_DB)
 
-    # Reference: the normative file executed directly.
-    _run(_execute_sql(REFERENCE_DB, ddl))
+    # Reference: the normative files executed directly, in name order. Each is
+    # executed separately so a failure names the file it came from.
+    for path in DDL_FILES:
+        _run(_execute_sql(REFERENCE_DB, path.read_text()))
     reference = _run(_snapshot(REFERENCE_DB))
     assert reference["tables"], "reference DDL created no tables?"
 

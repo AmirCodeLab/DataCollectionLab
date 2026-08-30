@@ -1,0 +1,24 @@
+{
+  "id": "malformed-009",
+  "type": "malformed",
+  "description": "children present but not an array",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "wrong_type",
+  "where": "children",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": {
+      "a": 1
+    }
+  }
+}

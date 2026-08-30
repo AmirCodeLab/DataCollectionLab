@@ -9,7 +9,9 @@ package com.dcp.form
  */
 
 class EvaluationException(message: String) : Exception(message)
-class CompileException(message: String) : Exception(message)
+
+/** Open so [DocumentException] can be one — see Document.kt. */
+open class CompileException(message: String) : Exception(message)
 
 /**
  * A form value. [Null] is a first-class value, not an absence, because the
@@ -23,7 +25,41 @@ sealed interface FormValue {
     data class Bool(val value: Boolean) : FormValue
     data class DateValue(val iso: String) : FormValue
     data class Sequence(val items: List<FormValue>) : FormValue
-    data class GeoPoint(val lat: Double, val lon: Double) : FormValue
+
+    /**
+     * A point, per the spec's `{lat, lon, alt?, accuracy?}` (§2.1).
+     *
+     * [accuracy] is metres of horizontal uncertainty as the device reported it,
+     * and it is carried rather than checked-and-discarded on purpose: a project
+     * can tighten its threshold later, and a point collected under the old one
+     * has to keep saying how good it actually was. A point with no accuracy is
+     * a point from a source that did not say — a manual entry, an import — not
+     * a perfect one.
+     */
+    data class GeoPoint(
+        val lat: Double,
+        val lon: Double,
+        val alt: Double? = null,
+        val accuracy: Double? = null,
+    ) : FormValue
+
+    /**
+     * A media reference, per the spec's `{id, filename, hash, size}` (§2.1) —
+     * the value of an `image`, `audio`, `video`, `file`, `signature` or
+     * `drawing` question.
+     *
+     * The file itself never travels in the operation stream (sync §9): this is
+     * the whole of what an answer holds, and the bytes arrive separately.
+     * [hash] addresses the CIPHERTEXT (encryption envelope §6) while [size] is
+     * the plaintext size — they describe different things, and conflating them
+     * would either break content addressing or tell a reader the wrong size.
+     */
+    data class MediaRef(
+        val id: String,
+        val filename: String,
+        val hash: String,
+        val size: Long,
+    ) : FormValue
 }
 
 val FormValue.isNull: Boolean get() = this is FormValue.Null
@@ -268,6 +304,23 @@ object Evaluator {
 
         if (a is FormValue.Text != b is FormValue.Text) {
             throw EvaluationException("cannot compare text with non-text")
+        }
+
+        // Structured values compare by identity of content and nothing else.
+        // `photo != null` is the common idiom and is handled by the null check
+        // above; `photo = other_photo` asks whether two answers name the same
+        // file, which is a real question. Ordering them is not — there is no
+        // sense in which one photograph is less than another. The Python engine
+        // gets both from dict equality, so this is what keeps the two agreeing.
+        if (a is FormValue.MediaRef || b is FormValue.MediaRef ||
+            a is FormValue.GeoPoint || b is FormValue.GeoPoint ||
+            a is FormValue.Sequence || b is FormValue.Sequence
+        ) {
+            return when (op) {
+                "eq" -> FormValue.Bool(a == b)
+                "ne" -> FormValue.Bool(a != b)
+                else -> throw EvaluationException("cannot order structured values")
+            }
         }
 
         val x = asDouble(a) ?: throw EvaluationException("non-comparable operand")

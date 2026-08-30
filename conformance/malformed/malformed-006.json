@@ -1,0 +1,31 @@
+{
+  "id": "malformed-006",
+  "type": "malformed",
+  "description": "version as a string spelling the number",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "wrong_type",
+  "where": "version",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": "one",
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

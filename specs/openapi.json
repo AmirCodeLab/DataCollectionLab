@@ -1,0 +1,3760 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Data Collection Platform API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/devices": {
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "Register",
+        "description": "Register this device so its pushed ops are authorized.\n\nIdempotent: an already-known device gets 200 `already_registered`, so a\nclient may re-register freely. A revoked device gets 403 and stays out.\n\nFailures carry a machine-readable `reason` (`project_not_found`,\n`project_ambiguous`, `project_mismatch`, `device_revoked`) beside a message\nsaying what to do about it, so a client can report something better than\nthe status code.",
+        "operationId": "register_api_v1_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegisterResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegisterErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegisterErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/devices/{device_id}/crypto": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "Crypto Config",
+        "description": "The security mode and public project keys this device wraps content keys to.\n\nClients call this on every sync, not once at registration: key rotation\n(encryption envelope §8) adds recipients, and a submission wrapped to a\nstale set is data whose intended recovery holder cannot open it.\n\nPublic keys only. Nothing here is secret — every byte is useless without a\nprivate key the server has never held.\n\n409 `test_only_key` when the project holds a recipient whose private half is\npublished (scripts/dev_project_key.py) outside a development environment.\nThe device then holds its data locally rather than encrypting it to a key\neveryone has, which is the same choice it makes when a project has no keys\nat all.",
+        "operationId": "crypto_config_api_v1_devices__device_id__crypto_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCryptoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCryptoErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/devices/{device_id}/media-policy": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "Media Policy",
+        "description": "The capture settings this device must apply, and the chunk size.\n\nFetched every sync and cached locally, for the same reason as the crypto\nconfig: a device may go two weeks without a server and has to keep capturing\nto the project's settings throughout.\n\nTwo of the three are compression, which trades evidentiary quality against\nbandwidth — only the study knows which side it is on. The third,\n`gpsMaxAccuracyM`, is a refusal threshold rather than a preference: a phone\nindoors will report a two-kilometre \"fix\" with exactly the authority of a\ngood one, and nothing downstream can tell them apart afterwards. The client\nrefuses a worse fix rather than storing it quietly.\n\n404 when the device is unknown or revoked — a device the server will not\naccept data from has no business learning a project's settings either.",
+        "operationId": "media_policy_api_v1_devices__device_id__media_policy_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms": {
+      "get": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "List Forms",
+        "description": "Every form and its version numbers — enough to name and filter by one.",
+        "operationId": "list_forms_api_v1_forms_get",
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includearchived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/compile": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Compile Form",
+        "description": "Compile a Form IR document and report what would block publishing it.\n\nRuns every Form IR §10 error check, sensitivity propagation included, so a\nbuilder learns about a leak while editing rather than at publish time.\n\nA form that does not compile, or that §10 refuses, is a 422 whose `detail`\nlists the violations — a different body from the 422 FastAPI returns when\nthe request itself does not match the schema. Only the second is described\nbelow; see the note in `app/api/schemas.py` about why.",
+        "operationId": "compile_form_api_v1_forms_compile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/evaluate": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Evaluate Form",
+        "description": "Server-side evaluation of a form state.\n\nNOTE: this is the reference implementation. Decision O-2 (JVM engine\nsidecar vs Python port) determines whether this stays the production path.",
+        "operationId": "evaluate_form_api_v1_forms_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/versions": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Publish Version",
+        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.",
+        "operationId": "publish_version_api_v1_forms_versions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishVersionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Open Upload Session",
+        "description": "Open, or resume, the upload of one file.\n\nIdempotent on `mediaId`. `receivedChunks` is the whole of resumption: the\nclient skips those indexes and sends the rest, so an upload interrupted at\n90% costs 10% to finish rather than starting over — which on a 2G link is\nthe difference between a photograph that arrives and one that never does.\n\nAn encrypted file must arrive with its media key wrapped to at least one\nactive project key (envelope §6). Refused otherwise: ciphertext nobody can\nopen looks exactly like ciphertext somebody can, and this is the last moment\nthe mistake is recoverable.\n\nAlso 422 for a domain refusal (`unwrapped_media_key`, `unknown_recipient`)\nwith a `{\"detail\": {\"reason\", \"message\"}}` body — the same collision with\nFastAPI's request-validation 422 that `POST /forms/compile` has, and\ndocumented here rather than declared for the same reason: only one body\nshape can be declared under one status.",
+        "operationId": "open_upload_session_api_v1_media_upload_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaUploadSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadSessionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions/{upload_id}/chunks/{chunk_index}": {
+      "put": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Put Chunk",
+        "description": "Store one 4 MiB chunk of ciphertext.\n\nEvery chunk but the last is exactly 4 MiB, and that is fixed rather than\nnegotiated (envelope §6): the nonce for chunk *n* is derived from\n`(mediaId, n)`, so two clients that disagreed about where the boundaries\nfall would encrypt different plaintext under the same nonce — the one\nfailure AES-GCM does not survive.\n\nIdempotent. Re-sending a stored chunk succeeds: a client that lost the\nresponse cannot tell \"stored\" from \"lost in transit\", and making the retry\nsafe is cheaper than making the client careful.\n\nAlso 422 (`chunk_out_of_range`, `chunk_size_mismatch`) with the\n`{\"detail\": {\"reason\", \"message\"}}` body — see the note on\n`POST /upload-sessions`.",
+        "operationId": "put_chunk_api_v1_media_upload_sessions__upload_id__chunks__chunk_index__put",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Upload Id"
+            }
+          },
+          {
+            "name": "chunk_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Chunk Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream",
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaChunkResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Complete Upload",
+        "description": "Seal the upload: every chunk present, and the hash is what we stored.\n\n`hash` in the response is the server's own SHA-256 over the stored bytes,\nnot an echo of the request — echoing would make the check a formality. Those\nbytes are CIPHERTEXT for an encrypted file, and the server has no key for\nthem; hashing plaintext would let it confirm that two submissions contain\nthe same photograph, which is the inference the mode exists to prevent\n(envelope §6).\n\nAlso 422 (`hash_mismatch`) with the `{\"detail\": {\"reason\", \"message\"}}`\nbody — see the note on `POST /upload-sessions`.",
+        "operationId": "complete_upload_api_v1_media_upload_sessions__upload_id__complete_post",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Upload Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaCompleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaCompleteResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "description": "Every project, its security mode, and how many recipient keys it has.\n\nThe key count is the operational fact: a project in an encrypting mode with\nzero active keys cannot receive data at all, because its devices refuse to\npush rather than send answers in the clear.",
+        "operationId": "list_projects_api_v1_projects_get",
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includearchived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/keys": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Project Keys",
+        "description": "The project's recipient keys — public halves only.\n\nNothing here is secret. Every byte is useless without a private key the\nserver has never held, which is what makes the mode worth having.",
+        "operationId": "list_project_keys_api_v1_projects__project_id__keys_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includerevoked"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Add Project Key",
+        "description": "Register a public key as a recipient for this project's submissions.\n\nAccepts a raw 32-byte X25519 public key, a role and a label, and nothing\nelse: the request model forbids unknown fields, so a client that sends a\nprivate key under any name gets a 422 naming the field rather than a 201 and\na secret sitting in a request log.\n\nRefuses a small-order point, which would make every wrap openable by anyone\nwhile looking like redundancy, and refuses a public key the project already\nholds, because a second copy of one key is not a second recipient (§4.3).",
+        "operationId": "add_project_key_api_v1_projects__project_id__keys_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectKeyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/keys/{key_id}/revoke": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Revoke Project Key",
+        "description": "Retire a recipient key (encryption envelope §8).\n\nA POST rather than a DELETE, because nothing is deleted. The row stays and\nthe wraps that name it stay: submissions collected while this key was active\nare still encrypted to it and always will be, and the console needs the row\nto say whose private key opens them. What changes is the future — no new\nsubmission is wrapped to it, and devices stop being offered it.\n\nRefuses to retire the last active recipient of an encrypting project, which\nwould stop collection in the field without telling anyone. Idempotent: a\nsecond revoke returns the first one's timestamp rather than moving it.",
+        "operationId": "revoke_project_key_api_v1_projects__project_id__keys__key_id__revoke_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Key Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectKeyErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/media-policy": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Media Policy",
+        "description": "This project's capture settings. Devices read them from\n`GET /devices/{deviceId}/media-policy`; this is the console's view of the\nsame three numbers.",
+        "operationId": "get_media_policy_api_v1_projects__project_id__media_policy_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Set Media Policy",
+        "description": "Change the capture settings. Omitted fields are left alone.\n\nTakes effect on each device at its next sync, and is not retroactive — nor\nmeant to be. A photograph already captured at 1600px is the evidence that\nexists; re-compressing history would be inventing a different one.\n\nLowering `gpsMaxAccuracyM` tightens what devices will accept from then on.\nPoints already collected under the old threshold keep the accuracy they were\nrecorded with, which is why the reading is stored beside every point rather\nthan being checked and discarded.",
+        "operationId": "set_media_policy_api_v1_projects__project_id__media_policy_patch",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaPolicyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "List Submissions",
+        "description": "One page of submissions, newest arrival first.\n\n`formId` is the wire form key an op carries, not the form row id, so the\nsame value filters here and identifies a form in a pushed op. An unknown\n`status` is a 422 rather than an empty page — a typo should say so.",
+        "operationId": "list_submissions_api_v1_submissions_get",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Formid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SubmissionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Get Submission",
+        "description": "Folded current state plus the raw op log in (counter, deviceId) order.",
+        "operationId": "get_submission_api_v1_submissions__submission_id__get",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/keys": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Get Submission Keys",
+        "description": "The wrapped content keys a key holder needs to decrypt this submission.\n\nWrapped copies only, exactly as they were uploaded. Decryption happens in\nthe browser or the desktop app with a private key the server has never held\n(encryption envelope §7) — the console is not a key holder.",
+        "operationId": "get_submission_keys_api_v1_submissions__submission_id__keys_get",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionKeysResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/media": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Get Submission Media",
+        "description": "Every file this submission references, and whether each has paired up.\n\nMedia never travels inside the op stream (sync §9): the op carries a\n`mediaId` and the file arrives separately, in either order. So a submission\ncan be complete in every answer and still be waiting for three photographs,\nand this is where that shows. `resolved` is true only when both halves are\nhere — the file is `complete` and an op referencing it has arrived — and\n`pendingCount` is how many are not, so the console can say \"still uploading\"\ninstead of rendering a submission that looks finished and is not.\n\nFor an encrypted file the wrapped media keys come back too, exactly as they\nwere uploaded. The server has never held a private key that opens one, and\nhanding them out is what makes decryption possible at all (envelope §7).",
+        "operationId": "get_submission_media_api_v1_submissions__submission_id__media_get",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionMediaResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sync/push": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Push",
+        "description": "Accept a batch of operations, and the content keys they are encrypted to.\n\nEverything — content keys, op inserts, tombstones, state folds, outbox\nevents — commits in one transaction, so a key and the first ops it encrypts\narrive together or not at all. Replay is idempotent: an op the server\nalready has is reported accepted without being written again.",
+        "operationId": "push_api_v1_sync_push_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sync/pull": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Pull",
+        "description": "Resume the op and tombstone streams from a cursor.\n\n`scope` (spec §5: assignments, forms, datasets) selects additional\nresource streams; only the submission stream exists yet, so it is\naccepted and currently ignored.",
+        "operationId": "pull_api_v1_sync_pull_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Health",
+        "description": "Liveness, and which deployment this is.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CompileRequest": {
+        "properties": {
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          }
+        },
+        "type": "object",
+        "required": [
+          "form"
+        ],
+        "title": "CompileRequest",
+        "description": "A Form IR document to compile. Its own formId and version are authoritative."
+      },
+      "CompileResponse": {
+        "properties": {
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "fieldCount": {
+            "type": "integer",
+            "title": "Fieldcount"
+          },
+          "evaluationOrder": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evaluationorder"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formId",
+          "version",
+          "fieldCount",
+          "evaluationOrder",
+          "warnings"
+        ],
+        "title": "CompileResponse"
+      },
+      "ContentKeyIn": {
+        "properties": {
+          "contentKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Contentkeyid"
+          },
+          "submissionId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Submissionid"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Deviceid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/WrappedKeyIn"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "contentKeyId",
+          "submissionId",
+          "deviceId",
+          "wraps"
+        ],
+        "title": "ContentKeyIn",
+        "description": "A device's content key for one submission, wrapped to every recipient.\n\nThe key material itself is never here — only copies the server cannot open."
+      },
+      "ContentKeyView": {
+        "properties": {
+          "contentKeyId": {
+            "type": "string",
+            "title": "Contentkeyid"
+          },
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/WrappedKeyView"
+            },
+            "type": "array",
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "contentKeyId",
+          "deviceId",
+          "wraps"
+        ],
+        "title": "ContentKeyView",
+        "description": "A submission's content key, in the only form the server has it: wrapped."
+      },
+      "DeviceCryptoError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/RecipientSetFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "DeviceCryptoError"
+      },
+      "DeviceCryptoErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DeviceCryptoError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "DeviceCryptoErrorResponse",
+        "description": "409 from GET /devices/{id}/crypto."
+      },
+      "DeviceCryptoResponse": {
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "securityMode": {
+            "$ref": "#/components/schemas/SecurityMode"
+          },
+          "projectKeys": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectKeyOut"
+            },
+            "type": "array",
+            "title": "Projectkeys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deviceId",
+          "projectId",
+          "securityMode",
+          "projectKeys"
+        ],
+        "title": "DeviceCryptoResponse",
+        "description": "What a device needs before it can encrypt anything (sync §4).\n\nFetched every sync rather than once at registration: rotation (envelope §8)\nadds keys that a device registered last month would otherwise never wrap\nto, and a submission wrapped to a stale recipient set is data its intended\nrecovery holder cannot open."
+      },
+      "DevicePlatform": {
+        "type": "string",
+        "enum": [
+          "android",
+          "ios",
+          "desktop",
+          "web"
+        ]
+      },
+      "DeviceRegisterError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/RegisterFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "DeviceRegisterError",
+        "description": "Body of a failed registration, under the usual `detail` key."
+      },
+      "DeviceRegisterErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DeviceRegisterError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "DeviceRegisterErrorResponse",
+        "description": "403 and 409 from POST /devices."
+      },
+      "DeviceRegisterRequest": {
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Deviceid"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/DevicePlatform"
+          },
+          "osVersion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Osversion"
+          },
+          "appVersion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appversion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deviceId",
+          "platform"
+        ],
+        "title": "DeviceRegisterRequest"
+      },
+      "DeviceRegisterResponse": {
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RegisterStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deviceId",
+          "projectId",
+          "status"
+        ],
+        "title": "DeviceRegisterResponse"
+      },
+      "EvaluateRequest": {
+        "properties": {
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          },
+          "answers": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Answers",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "form"
+        ],
+        "title": "EvaluateRequest"
+      },
+      "EvaluateResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldSnapshot"
+            },
+            "type": "object",
+            "title": "Fields"
+          },
+          "answers": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "fields",
+          "answers"
+        ],
+        "title": "EvaluateResponse"
+      },
+      "FieldSnapshot": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "relevant": {
+            "type": "boolean",
+            "title": "Relevant"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "readOnly": {
+            "type": "boolean",
+            "title": "Readonly"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "relevant",
+          "required",
+          "readOnly",
+          "value",
+          "valid",
+          "errors"
+        ],
+        "title": "FieldSnapshot",
+        "description": "One field after recalculation — `FieldState.to_dict()` in the engine.\n\nWritten out rather than left as a free-form object because this is the\nshape a form builder renders: `relevant` and `valid` decide whether a\nquestion is on screen and whether it is in error, and a client that has to\nguess at them is reimplementing the engine to read its output."
+      },
+      "FormListResponse": {
+        "properties": {
+          "forms": {
+            "items": {
+              "$ref": "#/components/schemas/FormSummary"
+            },
+            "type": "array",
+            "title": "Forms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "forms"
+        ],
+        "title": "FormListResponse"
+      },
+      "FormSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "versions": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Versions"
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "formId",
+          "title",
+          "versions",
+          "archivedAt"
+        ],
+        "title": "FormSummary"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "environment"
+        ],
+        "title": "Health",
+        "description": "The liveness probe.\n\nThe console polls this to tell \"the API is down\" apart from \"the API is up\nand there is no data\", which are the same empty screen otherwise."
+      },
+      "KeyRegistrationFailure": {
+        "type": "string",
+        "enum": [
+          "project_not_found",
+          "project_archived",
+          "degenerate_public_key",
+          "duplicate_public_key",
+          "test_only_key",
+          "key_not_found",
+          "last_active_key"
+        ]
+      },
+      "KeyRole": {
+        "type": "string",
+        "enum": [
+          "primary",
+          "backup",
+          "recovery"
+        ]
+      },
+      "MediaChunkResponse": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "chunkIndex": {
+            "type": "integer",
+            "title": "Chunkindex"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "receivedChunks": {
+            "type": "integer",
+            "title": "Receivedchunks"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "chunkIndex",
+          "sizeBytes",
+          "receivedChunks",
+          "chunkCount"
+        ],
+        "title": "MediaChunkResponse",
+        "description": "One chunk stored. Re-sending a chunk already held is a success, not an\nerror: a client that lost the response has no way to tell the difference,\nand making it retry-safe is cheaper than making it careful."
+      },
+      "MediaCompleteRequest": {
+        "properties": {
+          "ciphertextHash": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Ciphertexthash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ciphertextHash"
+        ],
+        "title": "MediaCompleteRequest"
+      },
+      "MediaCompleteResponse": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "hash",
+          "sizeBytes",
+          "chunkCount",
+          "status"
+        ],
+        "title": "MediaCompleteResponse"
+      },
+      "MediaKeysView": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/MediaWrappedKeyView"
+            },
+            "type": "array",
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "contentKeyId",
+          "wraps"
+        ],
+        "title": "MediaKeysView",
+        "description": "The wrapped media keys for one file (envelope §6, §7)."
+      },
+      "MediaPolicy": {
+        "properties": {
+          "imageMaxDimension": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 320.0,
+            "title": "Imagemaxdimension"
+          },
+          "imageQuality": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Imagequality"
+          },
+          "gpsMaxAccuracyM": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Gpsmaxaccuracym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "imageMaxDimension",
+          "imageQuality",
+          "gpsMaxAccuracyM"
+        ],
+        "title": "MediaPolicy",
+        "description": "Per-project capture settings (see project.media_* in 002_media.sql)."
+      },
+      "MediaPolicyResponse": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "chunkSize": {
+            "type": "integer",
+            "title": "Chunksize"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MediaPolicy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "chunkSize",
+          "policy"
+        ],
+        "title": "MediaPolicyResponse"
+      },
+      "MediaPolicyUpdate": {
+        "properties": {
+          "imageMaxDimension": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 8192.0,
+                "minimum": 320.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagemaxdimension"
+          },
+          "imageQuality": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagequality"
+          },
+          "gpsMaxAccuracyM": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpsmaxaccuracym"
+          }
+        },
+        "type": "object",
+        "title": "MediaPolicyUpdate",
+        "description": "Change one or more settings. Omitted fields are left alone."
+      },
+      "MediaStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "uploading",
+          "complete",
+          "failed"
+        ]
+      },
+      "MediaUploadError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/MediaUploadFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "MediaUploadError",
+        "description": "A refusal a client can branch on, not just a status code."
+      },
+      "MediaUploadErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/MediaUploadError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "MediaUploadErrorResponse",
+        "description": "FastAPI sends `{\"detail\": ...}`; this is that envelope, not the payload\ninside it."
+      },
+      "MediaUploadFailure": {
+        "type": "string",
+        "enum": [
+          "submission_not_found",
+          "device_not_authorized",
+          "media_conflict",
+          "session_not_found",
+          "session_expired",
+          "chunk_out_of_range",
+          "chunk_size_mismatch",
+          "chunks_missing",
+          "hash_mismatch",
+          "unknown_recipient",
+          "unwrapped_media_key"
+        ]
+      },
+      "MediaUploadSessionRequest": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Mediaid"
+          },
+          "submissionId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Submissionid"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Deviceid"
+          },
+          "opId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opid"
+          },
+          "fieldPath": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fieldpath"
+          },
+          "mimeType": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Mimetype"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "maximum": 536870912.0,
+            "minimum": 1.0,
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Chunkcount"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/MediaWrappedKeyIn"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "submissionId",
+          "deviceId",
+          "mimeType",
+          "sizeBytes",
+          "chunkCount",
+          "encrypted"
+        ],
+        "title": "MediaUploadSessionRequest",
+        "description": "Open — or reopen — an upload for one file.\n\nIdempotent on `mediaId`. Calling it again for a file already part-uploaded\nis exactly how resumption starts: the response says which chunks the server\nalready holds, and the client sends the rest. That is why there is no\nseparate \"session status\" endpoint — a resuming client has to make this call\nanyway, and a second way to ask the same question is a second thing that can\ndisagree."
+      },
+      "MediaUploadSessionResponse": {
+        "properties": {
+          "uploadId": {
+            "type": "string",
+            "title": "Uploadid"
+          },
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "chunkSize": {
+            "type": "integer",
+            "title": "Chunksize"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "receivedChunks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Receivedchunks"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expiresat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploadId",
+          "mediaId",
+          "chunkSize",
+          "chunkCount",
+          "receivedChunks",
+          "status",
+          "expiresAt"
+        ],
+        "title": "MediaUploadSessionResponse",
+        "description": "Where to send the chunks, and which ones are already here."
+      },
+      "MediaView": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "opId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opid"
+          },
+          "fieldPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fieldpath"
+          },
+          "deviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceid"
+          },
+          "mimeType": {
+            "type": "string",
+            "title": "Mimetype"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "receivedChunks": {
+            "type": "integer",
+            "title": "Receivedchunks"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted"
+          },
+          "ciphertextHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ciphertexthash"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "resolved": {
+            "type": "boolean",
+            "title": "Resolved"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "uploadedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploadedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "submissionId",
+          "opId",
+          "fieldPath",
+          "deviceId",
+          "mimeType",
+          "sizeBytes",
+          "chunkCount",
+          "receivedChunks",
+          "status",
+          "encrypted",
+          "ciphertextHash",
+          "contentKeyId",
+          "resolved",
+          "createdAt",
+          "uploadedAt"
+        ],
+        "title": "MediaView",
+        "description": "One file as the console sees it."
+      },
+      "MediaWrappedKeyIn": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "MediaWrappedKeyIn",
+        "description": "The media key wrapped to one recipient project key (envelope §6, §4.4)."
+      },
+      "MediaWrappedKeyView": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "MediaWrappedKeyView"
+      },
+      "MessageError": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "MessageError",
+        "description": "The body of a refusal that carries prose and nothing to branch on.\n\n`{\"detail\": \"submission not found\"}`. Used where there is exactly one way\nto fail and the status code already says which: a 404 on a read endpoint.\nAnything a client must branch on gets a `reason` field instead — see\n`DeviceRegisterError` and `ProjectKeyError` in `modules/projects/schemas.py`."
+      },
+      "OpKind": {
+        "type": "string",
+        "enum": [
+          "set",
+          "unset",
+          "repeat_add",
+          "repeat_delete",
+          "finalize",
+          "reopen"
+        ]
+      },
+      "ProjectKeyCreate": {
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "title": "Publickey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/KeyRole"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "publicKey",
+          "role",
+          "label"
+        ],
+        "title": "ProjectKeyCreate",
+        "description": "A public key being registered as a recipient (envelope §4.1).\n\n`extra=\"forbid\"`, deliberately. The private key is generated in the browser\nand downloaded by the user; it must never reach the server. A client that\nsends one — under any field name — gets a 422 naming the field rather than\na 201 and a silently ignored secret sitting in a request log.\n\nAn X25519 private key is 32 bytes and so is a public key, so no server can\ntell one from the other by looking. That is exactly why the guarantee has to\nbe structural: the server never asks for a private key, accepts no field\nthat could carry one, and refuses anything shaped like a key container."
+      },
+      "ProjectKeyDetail": {
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "title": "Keyid"
+          },
+          "publicKey": {
+            "type": "string",
+            "title": "Publickey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/KeyRole"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keyId",
+          "publicKey",
+          "role",
+          "label",
+          "projectId",
+          "createdAt",
+          "revokedAt"
+        ],
+        "title": "ProjectKeyDetail",
+        "description": "A stored recipient key, as the console lists it."
+      },
+      "ProjectKeyError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/KeyRegistrationFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "ProjectKeyError"
+      },
+      "ProjectKeyErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ProjectKeyError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ProjectKeyErrorResponse",
+        "description": "404, 409 and 422 from the project key endpoints."
+      },
+      "ProjectKeyListResponse": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "securityMode": {
+            "$ref": "#/components/schemas/SecurityMode"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectKeyDetail"
+            },
+            "type": "array",
+            "title": "Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "securityMode",
+          "keys"
+        ],
+        "title": "ProjectKeyListResponse"
+      },
+      "ProjectKeyOut": {
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "title": "Keyid"
+          },
+          "publicKey": {
+            "type": "string",
+            "title": "Publickey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/KeyRole"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keyId",
+          "publicKey",
+          "role",
+          "label"
+        ],
+        "title": "ProjectKeyOut",
+        "description": "One recipient a content key must be wrapped to (envelope §4.1).\n\nPublic keys only. The private half is generated in the browser at project\ncreation, downloaded by the user, and never transmitted to the server —\nso there is nothing secret to leak here."
+      },
+      "ProjectListResponse": {
+        "properties": {
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            },
+            "type": "array",
+            "title": "Projects"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "title": "ProjectListResponse"
+      },
+      "ProjectSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "securityMode": {
+            "$ref": "#/components/schemas/SecurityMode"
+          },
+          "activeKeyCount": {
+            "type": "integer",
+            "title": "Activekeycount"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "securityMode",
+          "activeKeyCount",
+          "createdAt",
+          "archivedAt"
+        ],
+        "title": "ProjectSummary",
+        "description": "One project, enough for the console to name it and route to it."
+      },
+      "PublishVersionRequest": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Projectid"
+          },
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "publishedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "form"
+        ],
+        "title": "PublishVersionRequest"
+      },
+      "PublishVersionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "irChecksum": {
+            "type": "string",
+            "title": "Irchecksum"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "formId",
+          "version",
+          "irChecksum",
+          "publishedAt",
+          "created",
+          "warnings"
+        ],
+        "title": "PublishVersionResponse"
+      },
+      "PullResponse": {
+        "properties": {
+          "ops": {
+            "items": {
+              "$ref": "#/components/schemas/PulledOp"
+            },
+            "type": "array",
+            "title": "Ops"
+          },
+          "tombstones": {
+            "items": {
+              "$ref": "#/components/schemas/PulledTombstone"
+            },
+            "type": "array",
+            "title": "Tombstones"
+          },
+          "nextCursor": {
+            "type": "integer",
+            "title": "Nextcursor"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ops",
+          "tombstones",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "PullResponse"
+      },
+      "PulledOp": {
+        "properties": {
+          "opId": {
+            "type": "string",
+            "title": "Opid"
+          },
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "formVersion": {
+            "type": "integer",
+            "title": "Formversion"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OpKind"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "valueCiphertext": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valueciphertext"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "nonce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nonce"
+          },
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "actorId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actorid"
+          },
+          "counter": {
+            "type": "integer",
+            "title": "Counter"
+          },
+          "wallClock": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Wallclock"
+          },
+          "serverSeq": {
+            "type": "integer",
+            "title": "Serverseq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "opId",
+          "submissionId",
+          "formId",
+          "formVersion",
+          "kind",
+          "path",
+          "value",
+          "valueCiphertext",
+          "contentKeyId",
+          "nonce",
+          "deviceId",
+          "actorId",
+          "counter",
+          "wallClock",
+          "serverSeq"
+        ],
+        "title": "PulledOp"
+      },
+      "PulledTombstone": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "subjectType": {
+            "$ref": "#/components/schemas/TombstoneSubject"
+          },
+          "subjectId": {
+            "type": "string",
+            "title": "Subjectid"
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submissionid"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "deviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceid"
+          },
+          "counter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "serverSeq": {
+            "type": "integer",
+            "title": "Serverseq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subjectType",
+          "subjectId",
+          "submissionId",
+          "path",
+          "deviceId",
+          "counter",
+          "createdAt",
+          "expiresAt",
+          "serverSeq"
+        ],
+        "title": "PulledTombstone"
+      },
+      "PushRequest": {
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Deviceid"
+          },
+          "ops": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Ops"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ContentKeyIn"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deviceId",
+          "ops"
+        ],
+        "title": "PushRequest"
+      },
+      "PushResponse": {
+        "properties": {
+          "accepted": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Accepted"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedOp"
+            },
+            "type": "array",
+            "title": "Rejected"
+          },
+          "serverCursor": {
+            "type": "integer",
+            "title": "Servercursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "rejected",
+          "serverCursor"
+        ],
+        "title": "PushResponse"
+      },
+      "RecipientSetFailure": {
+        "type": "string",
+        "const": "test_only_key"
+      },
+      "RegisterFailure": {
+        "type": "string",
+        "enum": [
+          "project_not_found",
+          "project_ambiguous",
+          "project_mismatch",
+          "device_revoked"
+        ]
+      },
+      "RegisterStatus": {
+        "type": "string",
+        "enum": [
+          "registered",
+          "already_registered"
+        ]
+      },
+      "RejectReason": {
+        "type": "string",
+        "enum": [
+          "unknown_form_version",
+          "not_authorized",
+          "submission_closed",
+          "malformed",
+          "unknown_content_key",
+          "nonce_reused"
+        ]
+      },
+      "RejectedOp": {
+        "properties": {
+          "opId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/RejectReason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "opId",
+          "reason"
+        ],
+        "title": "RejectedOp"
+      },
+      "SecurityMode": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "field_level",
+          "project_e2e"
+        ]
+      },
+      "SubmissionDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "formTitle": {
+            "type": "string",
+            "title": "Formtitle"
+          },
+          "formVersion": {
+            "type": "integer",
+            "title": "Formversion"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubmissionStatus"
+          },
+          "originDeviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origindeviceid"
+          },
+          "createdBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdby"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "finalizedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalizedat"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Receivedat"
+          },
+          "opCount": {
+            "type": "integer",
+            "title": "Opcount"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionStateView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ops": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionOpView"
+            },
+            "type": "array",
+            "title": "Ops"
+          },
+          "opsTruncated": {
+            "type": "boolean",
+            "title": "Opstruncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "formId",
+          "formTitle",
+          "formVersion",
+          "status",
+          "originDeviceId",
+          "createdBy",
+          "startedAt",
+          "finalizedAt",
+          "receivedAt",
+          "opCount",
+          "state",
+          "ops",
+          "opsTruncated"
+        ],
+        "title": "SubmissionDetail"
+      },
+      "SubmissionKeysResponse": {
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "contentKeys": {
+            "items": {
+              "$ref": "#/components/schemas/ContentKeyView"
+            },
+            "type": "array",
+            "title": "Contentkeys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submissionId",
+          "contentKeys"
+        ],
+        "title": "SubmissionKeysResponse",
+        "description": "Every wrapped key needed to decrypt one submission (envelope §7).\n\nA submission built by several devices has one content key per device, all\nwrapped to the same recipients, so a single private key opens every one.\nHanding these out costs nothing: the server has never held the private key\nthat opens them, and neither has whoever is asking, unless they own it."
+      },
+      "SubmissionListResponse": {
+        "properties": {
+          "submissions": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionSummary"
+            },
+            "type": "array",
+            "title": "Submissions"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submissions",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "SubmissionListResponse"
+      },
+      "SubmissionMediaResponse": {
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/MediaView"
+            },
+            "type": "array",
+            "title": "Media"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/MediaKeysView"
+            },
+            "type": "array",
+            "title": "Keys"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "title": "Pendingcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submissionId",
+          "media",
+          "keys",
+          "pendingCount"
+        ],
+        "title": "SubmissionMediaResponse",
+        "description": "Every file belonging to one submission, resolved or not."
+      },
+      "SubmissionOpView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OpKind"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted"
+          },
+          "valueCiphertext": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valueciphertext"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "nonce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nonce"
+          },
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "actorId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actorid"
+          },
+          "counter": {
+            "type": "integer",
+            "title": "Counter"
+          },
+          "wallClock": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Wallclock"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Receivedat"
+          },
+          "serverSeq": {
+            "type": "integer",
+            "title": "Serverseq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "path",
+          "value",
+          "encrypted",
+          "valueCiphertext",
+          "contentKeyId",
+          "nonce",
+          "deviceId",
+          "actorId",
+          "counter",
+          "wallClock",
+          "receivedAt",
+          "serverSeq"
+        ],
+        "title": "SubmissionOpView",
+        "description": "One row of the raw op log."
+      },
+      "SubmissionStateView": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          },
+          "opHighWater": {
+            "type": "integer",
+            "title": "Ophighwater"
+          },
+          "computedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "opHighWater",
+          "computedAt"
+        ],
+        "title": "SubmissionStateView",
+        "description": "The materialised fold: current value per field path."
+      },
+      "SubmissionStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "finalized",
+          "in_review",
+          "approved",
+          "rejected",
+          "correction_required"
+        ]
+      },
+      "SubmissionSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "formTitle": {
+            "type": "string",
+            "title": "Formtitle"
+          },
+          "formVersion": {
+            "type": "integer",
+            "title": "Formversion"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubmissionStatus"
+          },
+          "originDeviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origindeviceid"
+          },
+          "opCount": {
+            "type": "integer",
+            "title": "Opcount"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Receivedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "formId",
+          "formTitle",
+          "formVersion",
+          "status",
+          "originDeviceId",
+          "opCount",
+          "receivedAt"
+        ],
+        "title": "SubmissionSummary",
+        "description": "One row of the submission list."
+      },
+      "TombstoneSubject": {
+        "type": "string",
+        "enum": [
+          "submission",
+          "repeat_instance",
+          "case",
+          "entity",
+          "media"
+        ]
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WrappedKeyIn": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "WrappedKeyIn",
+        "description": "One content key wrapped to one recipient project key (envelope §4.3)."
+      },
+      "WrappedKeyView": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "WrappedKeyView",
+        "description": "One content key wrapped to one recipient project key (envelope §4.3)."
+      }
+    }
+  }
+}

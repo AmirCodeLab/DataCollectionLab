@@ -678,6 +678,117 @@ vector(
 )
 
 
+# --------------------------------------------------------------------------
+# Media references and geopoints (spec 2.1) — the value shapes an `image`,
+# `signature` or `geopoint` question holds.
+#
+# The Python reference keeps values as plain Python, so it reads any object at
+# all and always has; the Kotlin engine is statically typed and had no case for
+# either shape, which meant a media answer could not be represented on a
+# client. These vectors are what stops the two drifting again.
+# --------------------------------------------------------------------------
+
+PHOTO = {"id": "01MEDIAROOF", "filename": "roof.jpg",
+         "hash": "a" * 64, "size": 148213}
+OTHER_PHOTO = {"id": "01MEDIAWALL", "filename": "wall.jpg",
+               "hash": "b" * 64, "size": 91002}
+
+vector(
+    "media-001",
+    "A media reference survives a round trip through the engine unchanged",
+    "2.1",
+    form("media1", [
+        q("roof_photo", "image"),
+    ]),
+    [
+        {"expect": {"values": {"roof_photo": None}}},
+        {"set": {"roof_photo": PHOTO}, "expect": {"values": {"roof_photo": PHOTO}}},
+    ],
+)
+
+vector(
+    "media-002",
+    "Relevance can branch on whether a media question has been answered",
+    "2.1, 4.4.3",
+    form("media2", [
+        q("has_roof_damage", "boolean"),
+        q("roof_photo", "image", relevant=ref("has_roof_damage")),
+        # The idiom a form author actually writes: ask for a description only
+        # once a photograph exists.
+        q("damage_note", "text", relevant=op("ne", ref("roof_photo"), lit(None))),
+    ]),
+    [
+        # roof_photo is null -> `ne` yields null -> relevance coerces to true
+        {"expect": {"relevant": {"damage_note": True}}},
+        {"set": {"has_roof_damage": True, "roof_photo": PHOTO},
+         "expect": {"relevant": {"roof_photo": True, "damage_note": True}}},
+        {"set": {"has_roof_damage": False},
+         "expect": {"relevant": {"roof_photo": False}}},
+    ],
+)
+
+vector(
+    "media-003",
+    "Two media references are equal when they name the same file",
+    "2.1, 4.4.3",
+    form("media3", [
+        q("before_photo", "image"),
+        q("after_photo", "image"),
+        q("same_file", "boolean",
+          calculate=op("eq", ref("before_photo"), ref("after_photo"))),
+    ]),
+    [
+        # Both null: comparison with a null operand yields null, not false.
+        {"expect": {"values": {"same_file": None}}},
+        {"set": {"before_photo": PHOTO, "after_photo": OTHER_PHOTO},
+         "expect": {"values": {"same_file": False}}},
+        {"set": {"after_photo": PHOTO}, "expect": {"values": {"same_file": True}}},
+    ],
+)
+
+vector(
+    "geopoint-001",
+    "A geopoint keeps its altitude and accuracy",
+    "2.1",
+    form("geo1", [
+        q("dwelling", "geopoint"),
+    ]),
+    [
+        {"set": {"dwelling": {"lat": -1.286389, "lon": 36.817223,
+                              "alt": 1795.0, "accuracy": 8.0}},
+         "expect": {"values": {"dwelling": {"lat": -1.286389, "lon": 36.817223,
+                                            "alt": 1795.0, "accuracy": 8.0}}}},
+        # A point from a source that did not report accuracy is not a perfect
+        # point; the members are simply absent, and stay absent.
+        {"set": {"dwelling": {"lat": 0.0, "lon": 0.0}},
+         "expect": {"values": {"dwelling": {"lat": 0.0, "lon": 0.0}}}},
+    ],
+)
+
+vector(
+    "geopoint-002",
+    "Two geopoints are equal when they are the same point, accuracy included",
+    "2.1, 4.4.3",
+    form("geo2", [
+        q("first_reading", "geopoint"),
+        q("second_reading", "geopoint"),
+        q("unmoved", "boolean",
+          calculate=op("eq", ref("first_reading"), ref("second_reading"))),
+    ]),
+    [
+        {"expect": {"values": {"unmoved": None}}},
+        # Same coordinates, different accuracy: NOT the same reading. Two fixes
+        # of the same doorway, one to 8 m and one to 400 m, are different facts
+        # about where the enumerator was standing.
+        {"set": {"first_reading": {"lat": -1.28, "lon": 36.81, "accuracy": 8.0},
+                 "second_reading": {"lat": -1.28, "lon": 36.81, "accuracy": 400.0}},
+         "expect": {"values": {"unmoved": False}}},
+        {"set": {"second_reading": {"lat": -1.28, "lon": 36.81, "accuracy": 8.0}},
+         "expect": {"values": {"unmoved": True}}},
+    ],
+)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):

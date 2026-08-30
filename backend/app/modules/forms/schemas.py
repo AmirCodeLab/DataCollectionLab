@@ -1,8 +1,12 @@
-"""Wire types for the forms read API, plus version publishing.
+"""Wire types for the forms read API, compilation, evaluation and publishing.
 
 Enough for a console to name a form and populate a filter, and to publish a new
 immutable version through the same gate every other caller uses. The rest of
 form authoring — CRUD, deployment — still lands later with its own schemas.
+
+The compile and evaluate models live here rather than beside the routes so that
+every wire type in the backend is in a `schemas.py` and the OpenAPI document
+has one place it can be traced back to.
 """
 
 from datetime import datetime
@@ -27,6 +31,68 @@ class FormListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     forms: list[FormSummary]
+
+
+class CompileRequest(BaseModel):
+    """A Form IR document to compile. Its own formId and version are authoritative."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    form: dict[str, Any]
+
+
+class CompileResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    form_id: str = Field(serialization_alias="formId")
+    version: int
+    field_count: int = Field(serialization_alias="fieldCount")
+    # Topological, ties broken by document order — the order recalculation runs
+    # in, and the reason two engines agree on the result (Form IR §7).
+    evaluation_order: list[str] = Field(serialization_alias="evaluationOrder")
+    # Warnings do not block a publish (Form IR §10).
+    warnings: list[str]
+
+
+class EvaluateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    form: dict[str, Any]
+    answers: dict[str, Any] = {}
+
+
+class FieldSnapshot(BaseModel):
+    """One field after recalculation — `FieldState.to_dict()` in the engine.
+
+    Written out rather than left as a free-form object because this is the
+    shape a form builder renders: `relevant` and `valid` decide whether a
+    question is on screen and whether it is in error, and a client that has to
+    guess at them is reimplementing the engine to read its output.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    path: str
+    # Null coerces to true here and false for `required`/`readOnly` — the
+    # boundary rule in Form IR §4.4. By this point the coercion has happened,
+    # so all four are plain booleans.
+    relevant: bool
+    required: bool
+    read_only: bool = Field(serialization_alias="readOnly")
+    # A non-relevant field retains its value; export is what drops it (§4.4).
+    value: Any
+    valid: bool
+    errors: list[str]
+
+
+class EvaluateResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    valid: bool
+    # Every field, keyed by path — including the non-relevant ones.
+    fields: dict[str, FieldSnapshot]
+    # Relevant fields only: this is the export projection (Form IR §4.4).
+    answers: dict[str, Any]
 
 
 class PublishVersionRequest(BaseModel):

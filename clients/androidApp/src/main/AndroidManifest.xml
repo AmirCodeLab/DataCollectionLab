@@ -3,6 +3,22 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Media capture (encryption envelope §6). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Deliberately NOT requested: READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE.
+         Choosing an existing photograph goes through PickVisualMedia, which
+         needs no permission at all and shows the person exactly which image
+         they are handing over. The alternative asks an enumerator to grant an
+         app access to their entire camera roll to attach one picture. -->
+
+    <!-- required="false": a tablet with no camera still collects everything
+         else, and a hard requirement would hide the app from it in the store. -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
     <!-- Dev builds sync over plain http to the workstation backend; TLS comes
          with real deployments. -->
     <application

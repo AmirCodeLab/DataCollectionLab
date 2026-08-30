@@ -1,0 +1,30 @@
+{
+  "id": "malformed-021",
+  "type": "malformed",
+  "description": "a patch release of the implemented version",
+  "spec": "10.1",
+  "refused": false,
+  "note": "Spec §9 keys acceptance on major and minor. A patch number is ignored, not refused.",
+  "form": {
+    "irVersion": "0.1.7",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

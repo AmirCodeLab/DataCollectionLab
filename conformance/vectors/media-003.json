@@ -1,0 +1,104 @@
+{
+  "id": "media-003",
+  "description": "Two media references are equal when they name the same file",
+  "spec": "2.1, 4.4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "media3",
+    "version": 1,
+    "title": {
+      "en": "media3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "before_photo",
+        "dataType": "image",
+        "label": {
+          "en": "Before Photo"
+        }
+      },
+      {
+        "type": "question",
+        "id": "after_photo",
+        "dataType": "image",
+        "label": {
+          "en": "After Photo"
+        }
+      },
+      {
+        "type": "question",
+        "id": "same_file",
+        "dataType": "boolean",
+        "label": {
+          "en": "Same File"
+        },
+        "calculate": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "before_photo"
+            },
+            {
+              "op": "ref",
+              "path": "after_photo"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "same_file": null
+        }
+      }
+    },
+    {
+      "set": {
+        "before_photo": {
+          "id": "01MEDIAROOF",
+          "filename": "roof.jpg",
+          "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 148213
+        },
+        "after_photo": {
+          "id": "01MEDIAWALL",
+          "filename": "wall.jpg",
+          "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "size": 91002
+        }
+      },
+      "expect": {
+        "values": {
+          "same_file": false
+        }
+      }
+    },
+    {
+      "set": {
+        "after_photo": {
+          "id": "01MEDIAROOF",
+          "filename": "roof.jpg",
+          "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 148213
+        }
+      },
+      "expect": {
+        "values": {
+          "same_file": true
+        }
+      }
+    }
+  ]
+}

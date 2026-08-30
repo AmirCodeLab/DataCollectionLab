@@ -33,6 +33,7 @@ from app.core.ulid import new_ulid
 from app.modules.audit.models import OutboxEvent
 from app.modules.crypto.models import ProjectKey
 from app.modules.forms.models import Form, FormVersion
+from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
 from app.modules.submissions.models import (
     Submission,
@@ -337,6 +338,27 @@ async def push(
 
     session.add_all([t for op_id, t in tombstones.items() if op_id not in refused])
     await session.flush()
+
+    # Media the accepted ops referenced. The op is accepted whether or not the
+    # file has arrived — it usually has not, since a device finishes a
+    # questionnaire in minutes and a 3 MB photograph when it next sees a tower
+    # (sync §9) — so the reference is recorded as `pending` and the two halves
+    # pair up whenever the second one lands.
+    #
+    # Plaintext ops only. In an encrypting project the reference is inside a
+    # ciphertext the server has no key for, and the pairing is made from the
+    # other end instead: the client names `opId` when it opens the upload
+    # session. Nothing here tries to guess at a value it cannot read.
+    await media_service.register_pending_references(
+        session,
+        [
+            (media_id, row.submission_id, row.id, row.path or "")
+            for row in to_insert
+            if row.op_kind == "set" and row.value_ciphertext is None
+            for media_id in (media_service.media_reference_id(row.value),)
+            if media_id is not None
+        ],
+    )
 
     for submission_id, op_ids in touched.items():
         await _fold_submission(session, submissions[submission_id])

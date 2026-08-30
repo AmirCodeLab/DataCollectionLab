@@ -1,0 +1,99 @@
+{
+  "id": "media-002",
+  "description": "Relevance can branch on whether a media question has been answered",
+  "spec": "2.1, 4.4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "media2",
+    "version": 1,
+    "title": {
+      "en": "media2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "has_roof_damage",
+        "dataType": "boolean",
+        "label": {
+          "en": "Has Roof Damage"
+        }
+      },
+      {
+        "type": "question",
+        "id": "roof_photo",
+        "dataType": "image",
+        "label": {
+          "en": "Roof Photo"
+        },
+        "relevant": {
+          "op": "ref",
+          "path": "has_roof_damage"
+        }
+      },
+      {
+        "type": "question",
+        "id": "damage_note",
+        "dataType": "text",
+        "label": {
+          "en": "Damage Note"
+        },
+        "relevant": {
+          "op": "ne",
+          "args": [
+            {
+              "op": "ref",
+              "path": "roof_photo"
+            },
+            {
+              "op": "lit",
+              "value": null
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "relevant": {
+          "damage_note": true
+        }
+      }
+    },
+    {
+      "set": {
+        "has_roof_damage": true,
+        "roof_photo": {
+          "id": "01MEDIAROOF",
+          "filename": "roof.jpg",
+          "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 148213
+        }
+      },
+      "expect": {
+        "relevant": {
+          "roof_photo": true,
+          "damage_note": true
+        }
+      }
+    },
+    {
+      "set": {
+        "has_roof_damage": false
+      },
+      "expect": {
+        "relevant": {
+          "roof_photo": false
+        }
+      }
+    }
+  ]
+}

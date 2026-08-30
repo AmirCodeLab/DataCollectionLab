@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.schemas import Health
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 
@@ -25,6 +26,7 @@ if settings.http_log_enabled:
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.get("/health", tags=["system"])
-async def health() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.environment}
+@app.get("/health", tags=["system"], response_model=Health)
+async def health() -> Health:
+    """Liveness, and which deployment this is."""
+    return Health(status="ok", environment=settings.environment)

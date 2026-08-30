@@ -70,6 +70,19 @@ fun CollectionScreen(
     // language, and every arrangement below uses logical start/end only.
     val direction = if (isRtl(state.language)) LayoutDirection.Rtl else LayoutDirection.Ltr
     CompositionLocalProvider(LocalLayoutDirection provides direction) {
+        // The viewfinder replaces the question list rather than sitting inside
+        // it. A camera preview in a scrolling form is a viewfinder people
+        // cannot aim, and on cheap handsets it is also a surface the
+        // compositor struggles to keep smooth.
+        val cameraPath = state.cameraForPath
+        if (cameraPath != null) {
+            CameraCaptureScreen(
+                onCaptured = { onAction(CollectionAction.OnImageCaptured(cameraPath, it)) },
+                onCancel = { onAction(CollectionAction.OnCameraCancelled) },
+                onUnavailable = { onAction(CollectionAction.OnCameraUnavailable(it)) },
+            )
+            return@CompositionLocalProvider
+        }
         Scaffold(
             topBar = { CollectionTopBar(state, onAction) },
             bottomBar = { NavigationBar(state, onAction) },
@@ -94,6 +107,20 @@ fun CollectionScreen(
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(top = 16.dp),
+                        )
+                    }
+                }
+                if (state.captureMessage != null) {
+                    // A refusal worth explaining — a GPS fix too imprecise to
+                    // keep, a camera permission denied. Above the questions
+                    // rather than beside one, because it is usually about the
+                    // device and not about the answer.
+                    item(key = "capture_message") {
+                        Text(
+                            text = state.captureMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 12.dp),
                         )
                     }
                 }
@@ -209,6 +236,9 @@ private fun QuestionItem(
             "decimal" -> TextAnswer(question, enabled, KeyboardType.Decimal, onAction)
             "select_one" -> SelectOneAnswer(question, enabled, onAction)
             "date" -> DateAnswer(question, language, enabled, onAction)
+            "image" -> ImageAnswer(question, language, enabled, onAction)
+            "signature" -> SignatureAnswer(question, language, enabled, onAction)
+            "geopoint" -> GeoPointAnswer(question, language, enabled, onAction)
         }
         val supporting = question.error ?: question.hint
         if (supporting != null) {

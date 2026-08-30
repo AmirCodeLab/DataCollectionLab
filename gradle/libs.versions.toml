@@ -31,6 +31,12 @@ sqldelight = "2.1.0"
 # Ktor backs the sync client in :shared:core. CIO engine on every target.
 ktor = "3.0.3"
 
+# CameraX backs still capture on Android (:shared:core androidMain). The
+# capture machinery only — camera-core, camera2 and camera-lifecycle carry no
+# UI. PreviewView lives in camera-view and belongs to :clients:composeApp,
+# which is where the UI stays.
+androidx-camera = "1.4.1"
+
 # SQLCipher, encrypting the local database at rest (encryption envelope §14).
 # Two different products because no single one covers the three targets:
 #   sqlcipher-android  — Zetetic's own Android build, a SupportSQLite factory
@@ -92,6 +98,13 @@ sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", ver
 sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
 sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
 sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
+
+androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "androidx-camera" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "androidx-camera" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "androidx-camera" }
+# PreviewView: a UI class, so it is a :clients:composeApp dependency, not a
+# :shared:core one.
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "androidx-camera" }
 
 sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher-android" }
 # Substituted for org.xerial:sqlite-jdbc, which sqldelight-sqlite-driver pulls

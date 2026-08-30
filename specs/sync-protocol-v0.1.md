@@ -232,13 +232,49 @@ fresh device pulls the latest snapshot plus subsequent ops.
 Media never travels inside the op stream.
 
 ```
-POST /api/v1/media/upload-sessions   -> { uploadId, chunkSize }
+POST /api/v1/media/upload-sessions   -> { uploadId, chunkSize, receivedChunks }
 PUT  /api/v1/media/upload-sessions/{uploadId}/chunks/{n}
 POST /api/v1/media/upload-sessions/{uploadId}/complete  -> { mediaId, hash }
 ```
 
 Chunked, resumable, content-hash addressed. The op stream references `mediaId`.
 An op referencing media that has not yet arrived is accepted and marked pending.
+
+**The two halves arrive independently, in either order.** A device finishes a
+questionnaire in minutes and finishes a 3 MB photograph when it next sees a
+tower, so a submission can be complete in every answer and still be waiting for
+three files. Both orders resolve:
+
+- the op first — the server records the reference as `pending` media and pairs
+  it up when the file lands;
+- the file first — the client names `opId` on the session, and the pair
+  resolves when the op arrives.
+
+Because of that, there is **no foreign key from media to `submission_op`** in
+either direction. A constraint would make the ordinary case an error.
+
+**Resumption has no endpoint of its own.** `POST /upload-sessions` is
+idempotent on `mediaId`, and reopening a session for a part-uploaded file
+returns `receivedChunks` — the indexes the server already holds. The client
+skips exactly those and sends the rest. A separate "session status" call would
+be a second way to ask the same question, and a second thing that can disagree
+with the first.
+
+The server's list wins over the client's own record. It is the party that
+decides whether `complete` will succeed, and a client trusting its own record
+would skip a chunk the server never received.
+
+**Ordering within a sync: ops first, media last.** An op naming an unknown file
+is accepted anyway, so ops-first costs nothing and gets the answers — the
+small, cheap, irreplaceable part — off the device first. A media failure does
+not fail the sync: the answers are already safe, the file is still staged, and
+the next pass resumes from the chunk it reached.
+
+Media is encrypted on the device as well as in transit — see encryption
+envelope §6.1. Capture settings (image compression, the GPS accuracy threshold
+below which a fix is refused) are per project and reach a device through
+`GET /api/v1/devices/{deviceId}/media-policy`, cached like the crypto config so
+a device keeps capturing correctly through however long it is next offline.
 
 ## 10. Peer-to-peer
 

@@ -1,0 +1,31 @@
+{
+  "id": "malformed-019",
+  "type": "malformed",
+  "description": "an irVersion that is not a version number",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "unknown_ir_version",
+  "where": "irVersion",
+  "form": {
+    "irVersion": "draft",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

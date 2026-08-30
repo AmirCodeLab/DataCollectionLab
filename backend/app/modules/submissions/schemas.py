@@ -17,8 +17,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.modules.sync.schemas import OpKind
+
 # Mirrors submission_status_check in migrations/schema/001_initial.sql.
-SubmissionStatus = Literal[
+#
+# A PEP 695 `type` alias rather than a plain assignment, and that is a contract
+# decision rather than a style one: Pydantic gives a named alias its own entry
+# in the generated schema, so the OpenAPI document says `SubmissionStatus` once
+# and every field refs it. A plain `SubmissionStatus = Literal[...]` inlines the
+# same six strings at every use site, and a generated client then has six
+# anonymous unions where the API has one closed set.
+type SubmissionStatus = Literal[
     "draft", "finalized", "in_review", "approved", "rejected", "correction_required"
 ]
 
@@ -62,7 +71,9 @@ class SubmissionOpView(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
-    kind: str
+    # The op vocabulary is the sync protocol's, not this module's — one closed
+    # set, defined where ops are defined (spec §2).
+    kind: OpKind
     path: str | None
     value: Any
     encrypted: bool
@@ -70,9 +81,14 @@ class SubmissionOpView(BaseModel):
     # travels in this API. A key holder needs all three — the ciphertext, the
     # nonce it was sealed under, and which content key opens it — plus the op
     # id, path and form version already on this row, which are the AAD (§5).
-    value_ciphertext: str | None = Field(default=None, serialization_alias="valueCiphertext")
-    content_key_id: str | None = Field(default=None, serialization_alias="contentKeyId")
-    nonce: str | None = None
+    # No default. These are response fields and the server always sends
+    # all three — null when the op is not encrypted. A Pydantic default
+    # would make them OPTIONAL in the generated schema, and a generated
+    # client would then have to handle an absent key the API never sends:
+    # `string | null | undefined`, three cases for two.
+    value_ciphertext: str | None = Field(serialization_alias="valueCiphertext")
+    content_key_id: str | None = Field(serialization_alias="contentKeyId")
+    nonce: str | None
     device_id: str = Field(serialization_alias="deviceId")
     actor_id: str | None = Field(serialization_alias="actorId")
     counter: int

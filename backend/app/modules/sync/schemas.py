@@ -27,9 +27,18 @@ MAX_BATCH_KEYS = 500
 EPHEMERAL_PUBLIC_BYTES = 32
 WRAPPED_KEY_BYTES = 48
 
-OpKind = Literal["set", "unset", "repeat_add", "repeat_delete", "finalize", "reopen"]
+# Named `type` aliases, not plain assignments: Pydantic gives a named alias its
+# own entry in the generated schema, so the closed set is stated once in the
+# OpenAPI document and every field refs it (see submissions/schemas.py).
+type OpKind = Literal["set", "unset", "repeat_add", "repeat_delete", "finalize", "reopen"]
 
-RejectReason = Literal[
+# Mirrors tombstone_subject_check in migrations/schema/001_initial.sql. Only
+# 'submission' and 'repeat_instance' are produced today; the others exist
+# because a client pulling the stream has to be able to skip a kind it does not
+# handle yet rather than fail on it (spec §5).
+type TombstoneSubject = Literal["submission", "repeat_instance", "case", "entity", "media"]
+
+type RejectReason = Literal[
     "unknown_form_version",
     "not_authorized",
     "submission_closed",
@@ -195,14 +204,19 @@ class PulledOp(BaseModel):
     submission_id: str = Field(serialization_alias="submissionId")
     form_id: str = Field(serialization_alias="formId")
     form_version: int = Field(serialization_alias="formVersion")
-    kind: str
+    kind: OpKind
     path: str | None
     value: Any
     # Relayed byte-for-byte as pushed (spec §2.1). The server has no key and
     # never had one; it is a courier here, not a reader.
-    value_ciphertext: str | None = Field(default=None, serialization_alias="valueCiphertext")
-    content_key_id: str | None = Field(default=None, serialization_alias="contentKeyId")
-    nonce: str | None = None
+    # No default. These are response fields and the server always sends
+    # all three — null when the op is not encrypted. A Pydantic default
+    # would make them OPTIONAL in the generated schema, and a generated
+    # client would then have to handle an absent key the API never sends:
+    # `string | null | undefined`, three cases for two.
+    value_ciphertext: str | None = Field(serialization_alias="valueCiphertext")
+    content_key_id: str | None = Field(serialization_alias="contentKeyId")
+    nonce: str | None
     device_id: str = Field(serialization_alias="deviceId")
     actor_id: str | None = Field(serialization_alias="actorId")
     counter: int
@@ -214,7 +228,7 @@ class PulledTombstone(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
-    subject_type: str = Field(serialization_alias="subjectType")
+    subject_type: TombstoneSubject = Field(serialization_alias="subjectType")
     subject_id: str = Field(serialization_alias="subjectId")
     submission_id: str | None = Field(serialization_alias="submissionId")
     path: str | None

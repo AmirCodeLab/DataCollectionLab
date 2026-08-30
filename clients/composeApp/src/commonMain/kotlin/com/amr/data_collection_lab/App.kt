@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.amr.data_collection_lab.collection.AppGraph
 import com.amr.data_collection_lab.collection.CollectionRoot
 import com.amr.data_collection_lab.collection.CollectionViewModel
+import com.amr.data_collection_lab.collection.MediaPlatform
 import com.amr.data_collection_lab.collection.SubmissionListRoot
 import com.amr.data_collection_lab.collection.SubmissionListViewModel
 import com.dcp.core.security.DatabaseKeyStore
@@ -38,7 +39,17 @@ private sealed interface Route {
 }
 
 @Composable
-fun App(driverFactory: DatabaseDriverFactory, keyStore: DatabaseKeyStore) {
+fun App(
+    driverFactory: DatabaseDriverFactory,
+    keyStore: DatabaseKeyStore,
+    /**
+     * The device's camera, storage and GPS (encryption envelope §6). Null on a
+     * client with none — the desktop review app — where image, signature and
+     * geopoint questions render as unavailable rather than as widgets that
+     * cannot answer them.
+     */
+    mediaPlatform: MediaPlatform? = null,
+) {
     MaterialTheme(
         colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),
     ) {
@@ -47,7 +58,7 @@ fun App(driverFactory: DatabaseDriverFactory, keyStore: DatabaseKeyStore) {
         // key is not available there is no database, and the app has to say so
         // rather than start empty. Starting empty is the dangerous outcome —
         // the enumerator sees no submissions and concludes the work is gone.
-        val graph = remember { runCatching { AppGraph(driverFactory, keyStore) } }
+        val graph = remember { runCatching { AppGraph(driverFactory, keyStore, mediaPlatform) } }
 
         Box(
             modifier = Modifier
@@ -75,7 +86,9 @@ private fun Collection(graph: AppGraph) {
         )
         is Route.Collection -> CollectionRoot(
             viewModel = viewModel(key = "collection_${current.submissionId}") {
-                CollectionViewModel(graph.store, graph.formCatalog, current.submissionId)
+                CollectionViewModel(
+                    graph.store, graph.formCatalog, current.submissionId, graph.media,
+                )
             },
             onNavigateBack = { route = Route.Submissions },
         )
