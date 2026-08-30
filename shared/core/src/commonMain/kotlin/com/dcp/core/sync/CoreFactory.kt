@@ -17,6 +17,23 @@ fun createSubmissionStore(
     keyStore: DatabaseKeyStore,
     actorId: String = "usr_local",
 ): SubmissionStore {
+    return SubmissionStore(openDatabase(driverFactory, keyStore), actorId)
+}
+
+/**
+ * Opens the encrypted local database. **Call this once per process.**
+ *
+ * Every store the app holds — the op log, the media staging tables — is built
+ * over the one returned here. Opening it twice would mean two connections and
+ * two key reads, and the media keys in `media` are only protected because they
+ * sit inside the same SQLCipher file as everything else (encryption envelope
+ * §6, §14): a second database, or an unencrypted one, would leave staged
+ * photographs openable by whoever picked the phone up.
+ */
+fun openDatabase(
+    driverFactory: DatabaseDriverFactory,
+    keyStore: DatabaseKeyStore,
+): DcpDatabase {
     // An encrypted database and a keystore with no key in it is not a first
     // run — it is a lost key, and generating a replacement here would leave
     // every unsynced answer on the device permanently unreadable while the app
@@ -42,5 +59,5 @@ fun createSubmissionStore(
         // scope — so this narrows the window rather than closing it.
         key.destroy()
     }
-    return SubmissionStore(DcpDatabase(driver), actorId)
+    return DcpDatabase(driver)
 }

@@ -282,6 +282,35 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
    now SQLCipher rather than `-lsqlite3`, see §14 below and
    `clients/iosApp/Configuration/Config.xcconfig`)
 
+Media capture is built for image, signature and GPS point (§6, sync §9).
+Capture goes camera buffer → compress in memory → encrypt in memory → write
+chunks, so the plaintext photograph never reaches the filesystem; the per-file
+media key lives in the SQLCipher database, which is what makes a staged file
+encrypted at rest without a second key hierarchy (§6.1). The staged chunks ARE
+the upload — encrypted once, sent byte for byte — so a resumed upload provably
+sends the same bytes as the first attempt. CameraX behind expect/actual on
+Android, AVFoundation on iOS, desktop refusing rather than pretending; the
+viewfinder is `clients/composeApp` and `shared/core` constructs no View.
+
+Upload is resumable per §6: 4 MiB chunks, each under its own derived nonce,
+content hash over CIPHERTEXT. `POST /media/upload-sessions` is idempotent and
+returns the chunks the server already holds — that is the whole of resumption,
+and there is deliberately no second endpoint that answers the same question. An
+op referencing a file that has not arrived is accepted and marked pending, and
+the pair resolves in either order; there is no foreign key between them, because
+one is routinely first. Image compression and the GPS accuracy threshold are per
+project (`GET /devices/{id}/media-policy`), and a fix worse than the threshold is
+refused and shown with its accuracy rather than stored — a phone indoors reports
+a two-kilometre fix with exactly the authority of a good one.
+
+Extending the engine was the price of this: `FormValue` in Kotlin could not
+represent a media reference or a geopoint's accuracy, both of which are in Form
+IR §2.1. `FormValue.MediaRef` and `GeoPoint.alt/accuracy` close that, with five
+new conformance vectors (`media-00*`, `geopoint-00*`) passing identically on both
+engines. The Python reference needed no change — it holds values as plain Python
+and always read both shapes, which is exactly the kind of divergence a typed
+engine hides until something tries to use it.
+
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
 constraints, local op log, RTL, tested on a real device with a 52-question form.
@@ -339,8 +368,21 @@ Plainly NOT done yet:
   that already holds data needs a re-key of the database, and that is not
   written. A settings toggle without it would silently destroy every answer on
   the device
-- **Media** (capture, chunked upload) — not started, and it is the remaining
-  half of the envelope: §6 media keys and chunk nonces have no callers
+- **Media beyond image, signature and geopoint.** Audio, video and file upload
+  are not built. They are in the IR and deliberately NOT in the collection
+  screen's supported types: rendering a widget that cannot answer a question is
+  worse than skipping it, because the enumerator thinks they have answered.
+  `geotrace` and `geoshape` likewise
+- **No thumbnail of a captured photograph.** The image question shows the file
+  name and its upload state, not the picture. Decoding a staged chunk back for
+  display is one call (`MediaStaging.readChunk`); what is missing is the
+  platform bitmap plumbing to draw it
+- **Media has been exercised in tests and on the JVM, not on real hardware.**
+  The Android APK builds and all three targets compile, but no photograph has
+  been taken on a device or a simulator through this path. Everything a test can
+  hold is held — staging, encryption, chunking, resumption, the accuracy
+  threshold, the server's three endpoints — and the CameraX and AVFoundation
+  actuals are the part that only a device can prove
 - **Key custody is half built** — the console generates a project keypair with
   WebCrypto, downloads the private half and registers only the public one
   (`web/src/pages/ProjectKeysPage.tsx`, `POST /api/v1/projects/{id}/keys`), and

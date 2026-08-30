@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.schemas import MessageError
+from app.modules.media import service as media_service
+from app.modules.media.schemas import MediaPolicyResponse
 from app.modules.projects import service
 from app.modules.projects.schemas import (
     DeviceCryptoError,
@@ -98,3 +100,36 @@ async def crypto_config(
     if config is None:
         raise HTTPException(status_code=404, detail="device not found")
     return config
+
+
+@router.get(
+    "/{device_id}/media-policy",
+    response_model=MediaPolicyResponse,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
+async def media_policy(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    device_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> MediaPolicyResponse:
+    """The capture settings this device must apply, and the chunk size.
+
+    Fetched every sync and cached locally, for the same reason as the crypto
+    config: a device may go two weeks without a server and has to keep capturing
+    to the project's settings throughout.
+
+    Two of the three are compression, which trades evidentiary quality against
+    bandwidth — only the study knows which side it is on. The third,
+    `gpsMaxAccuracyM`, is a refusal threshold rather than a preference: a phone
+    indoors will report a two-kilometre "fix" with exactly the authority of a
+    good one, and nothing downstream can tell them apart afterwards. The client
+    refuses a worse fix rather than storing it quietly.
+
+    404 when the device is unknown or revoked — a device the server will not
+    accept data from has no business learning a project's settings either.
+    """
+    async with session.begin():
+        policy = await media_service.device_media_policy(session, device_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    return policy

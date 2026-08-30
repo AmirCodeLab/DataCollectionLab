@@ -44,6 +44,10 @@ data class SyncResult(
     val error: String? = null,
     /** Server's reason when registration was refused; null for other failures. */
     val registrationFailure: String? = null,
+    /** Media files the server sealed this pass (sync §9). */
+    val uploadedMedia: Int = 0,
+    /** Files still staged — still uploading, or refused and being retried. */
+    val pendingMedia: Long = 0,
 ) {
     val isSuccess: Boolean get() = error == null
 }
@@ -86,6 +90,11 @@ class SyncClient(
      * clear (see [FormSensitivity]).
      */
     formSensitivity: FormSensitivity = FormSensitivity { _, _ -> null },
+    /**
+     * Uploads staged media (sync §9). Null on a client with no media staging —
+     * the desktop review app — where the sync loop is ops only.
+     */
+    private val media: com.dcp.core.media.MediaUploader? = null,
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
@@ -98,6 +107,7 @@ class SyncClient(
         var pushed = 0
         var rejected = 0
         var pulled = 0
+        var uploadedMedia = 0
         return try {
             // The server rejects every op from a device it has never seen, so
             // an unregistered install must introduce itself before its first
@@ -151,8 +161,27 @@ class SyncClient(
                 pulled += page.ops.size
             } while (page.hasMore)
 
+            // Media last, and deliberately so. An op referencing a file the
+            // server has never seen is accepted and marked pending (sync §9),
+            // so ops-first costs nothing and gets the answers — the small,
+            // cheap, irreplaceable part — off the device first. A 3 MB
+            // photograph that takes four attempts across a week must never be
+            // what holds up a questionnaire.
+            //
+            // Media failures do not fail the sync, for the same reason: the
+            // answers are already safe, the file is still staged, and the next
+            // pass resumes it from the chunk it reached.
+            media?.let { uploader ->
+                uploader.refreshPolicy()
+                uploadedMedia = uploader.uploadPending().filesCompleted
+            }
+
             store.recordSyncSuccess()
-            SyncResult(pushed, rejected, pulled)
+            SyncResult(
+                pushed, rejected, pulled,
+                uploadedMedia = uploadedMedia,
+                pendingMedia = media?.let { it.pendingCount() } ?: 0,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -162,6 +191,8 @@ class SyncClient(
                 pushed, rejected, pulled,
                 error = message,
                 registrationFailure = (e as? DeviceRegistrationException)?.reason,
+                uploadedMedia = uploadedMedia,
+                pendingMedia = media?.let { it.pendingCount() } ?: 0,
             )
         }
     }

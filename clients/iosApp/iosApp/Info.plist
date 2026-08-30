@@ -4,5 +4,28 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+
+	<!--
+	  Media capture (encryption envelope §6). iOS terminates the app on the
+	  first use of any of these APIs if its usage string is missing, so an
+	  absent key here is not a warning — it is a crash the first time an
+	  enumerator taps the shutter.
+
+	  The wording says what the data is for and where it goes, because that is
+	  what the person granting it is deciding.
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>Photographs you take are attached to the submission you are filling in, encrypted on this device, and uploaded to your project's server.</string>
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lets you attach a photograph you have already taken to a submission. Only the picture you choose is read.</string>
+
+	<!--
+	  WhenInUse, never Always. A data collection app has no business knowing
+	  where an enumerator is between visits, and asking for background location
+	  would be asking for exactly that.
+	-->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Records the position of the place you are surveying, with its accuracy, as an answer on the submission.</string>
 </dict>
 </plist>

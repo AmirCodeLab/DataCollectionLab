@@ -127,12 +127,33 @@ def test_every_success_response_names_a_schema(schema):
 
 
 def test_every_request_body_names_a_schema(schema):
-    """Same rule for what goes in. A `dict[str, Any]` body documents nothing."""
+    """Same rule for what goes in. A `dict[str, Any]` body documents nothing.
+
+    One media type is exempt, and only one: `application/octet-stream`, which
+    is a stream of bytes and has no fields to name. `PUT .../chunks/{n}` takes
+    4 MiB of ciphertext that way rather than base64 inside a JSON envelope,
+    which would cost a third more on every chunk — on exactly the connections
+    resumable upload exists for. The exemption is narrow on purpose: a binary
+    body must SAY it is binary, so a route that quietly stopped declaring a
+    model still fails here.
+    """
     for method, path, operation in operations(schema):
         request = operation.get("requestBody")
         if request is None:
             continue
-        body = request["content"]["application/json"]["schema"]
+        content = request["content"]
+        binary = content.get("application/octet-stream")
+        if binary is not None:
+            assert set(content) == {"application/octet-stream"}, (
+                f"{method} {path} offers both a binary and a JSON body "
+                f"({sorted(content)}). One request, one shape."
+            )
+            assert binary["schema"].get("type") == "string", (
+                f"{method} {path} declares a binary body that is not a byte "
+                f"stream ({json.dumps(binary['schema'])[:120]})."
+            )
+            continue
+        body = content["application/json"]["schema"]
         assert "$ref" in body, (
             f"{method} {path} takes an inline request schema "
             f"({json.dumps(body)[:120]}). Declare a Pydantic model for it."

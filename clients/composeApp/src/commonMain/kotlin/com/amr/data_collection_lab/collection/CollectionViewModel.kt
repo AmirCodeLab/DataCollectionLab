@@ -4,6 +4,8 @@ import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.amr.data_collection_lab.todayIsoDate
+import com.dcp.core.media.GeoCaptureOutcome
+import com.dcp.core.media.MediaStore
 import com.dcp.core.sync.OpKind
 import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.SubmissionStore
@@ -24,13 +26,43 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** The question types this slice renders. Everything else is skipped. */
-private val SUPPORTED_TYPES = setOf("text", "integer", "decimal", "select_one", "date")
+private val SUPPORTED_TYPES = setOf(
+    "text", "integer", "decimal", "select_one", "date",
+    // Media (encryption envelope §6, sync §9). `audio`, `video` and `file` are
+    // in the IR and are deliberately NOT here: capture for those is not built,
+    // and rendering a widget that cannot answer the question would be worse
+    // than skipping it, because the enumerator would think they had.
+    "image", "signature", "geopoint",
+)
 
 /** How long typed input may sit before its op is committed. Keystrokes within
  * this window coalesce into one `set` op — ops record answers, not keystrokes. */
 private const val TYPING_COMMIT_DELAY_MS = 400L
 
 data class ChoiceUi(val value: String, val label: String)
+
+/** A staged file, as the answer widget shows it. */
+@Stable
+data class MediaUi(
+    val mediaId: String,
+    val filename: String,
+    /** "Saved on this device" / "Uploaded" / "Not uploaded yet: <reason>". */
+    val status: String,
+)
+
+/** A captured position, with the honest account of how good it is. */
+@Stable
+data class GeoUi(
+    val coordinates: String,
+    val accuracyText: String,
+    /**
+     * Whether it met the project's threshold. A rejected reading is still shown
+     * — with its accuracy — because "no location" and "a two-kilometre
+     * location" need different things from the enumerator, and only one of them
+     * is fixed by walking outside.
+     */
+    val accepted: Boolean,
+)
 
 @Stable
 data class QuestionUi(
@@ -45,6 +77,12 @@ data class QuestionUi(
     val choices: List<ChoiceUi>,
     val dateIso: String?,
     val error: String?,
+    /** Set for an answered image or signature question. */
+    val media: MediaUi? = null,
+    /** Set for an answered geopoint question. */
+    val geo: GeoUi? = null,
+    /** True while a position fix is being waited for. */
+    val capturing: Boolean = false,
 )
 
 @Stable
@@ -65,10 +103,34 @@ data class CollectionState(
     val isValid: Boolean = false,
     val invalidCount: Int = 0,
     val showErrors: Boolean = false,
+    /**
+     * The question whose viewfinder is open, or null. A full screen rather than
+     * an inline preview: a camera inside a scrolling form is a viewfinder people
+     * cannot aim.
+     */
+    val cameraForPath: String? = null,
+    /** A one-line message under the question, for a refusal worth explaining. */
+    val captureMessage: String? = null,
 )
 
 sealed interface CollectionAction {
     data class OnTextChange(val path: String, val text: String) : CollectionAction
+    /** Open the viewfinder for this question. */
+    data class OnOpenCamera(val path: String) : CollectionAction
+    data object OnCameraCancelled : CollectionAction
+    data class OnCameraUnavailable(val reason: String) : CollectionAction
+    /** JPEG bytes from the camera or the gallery, uncompressed as captured. */
+    data class OnImageCaptured(val path: String, val bytes: ByteArray) : CollectionAction
+    /** RGBA8888 pixels from the signature canvas. */
+    data class OnSignatureDrawn(
+        val path: String,
+        val pixels: ByteArray,
+        val width: Int,
+        val height: Int,
+    ) : CollectionAction
+    data class OnClearMedia(val path: String) : CollectionAction
+    data class OnCaptureLocation(val path: String) : CollectionAction
+    data class OnClearGeoPoint(val path: String) : CollectionAction
     data class OnChoiceSelect(val path: String, val value: String) : CollectionAction
     data class OnDateSelect(val path: String, val iso: String?) : CollectionAction
     data object OnNextClick : CollectionAction
@@ -96,6 +158,13 @@ class CollectionViewModel(
     private val store: SubmissionStore,
     private val catalog: FormCatalog,
     private val submissionId: String,
+    /**
+     * Media capture. Null on a build with no media staging — the desktop
+     * review client — where image, signature and geopoint questions render as
+     * "not available on this device" rather than as a widget that cannot
+     * answer them.
+     */
+    private val mediaCapture: MediaCaptureGraph? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CollectionState())
@@ -156,6 +225,19 @@ class CollectionViewModel(
             CollectionAction.OnPreviousClick -> move { navigator.previous() }
             CollectionAction.OnLanguageToggle -> toggleLanguage()
             CollectionAction.OnFinalizeClick -> finalize()
+            is CollectionAction.OnOpenCamera ->
+                _state.update { it.copy(cameraForPath = action.path, captureMessage = null) }
+            CollectionAction.OnCameraCancelled ->
+                _state.update { it.copy(cameraForPath = null) }
+            is CollectionAction.OnCameraUnavailable ->
+                _state.update { it.copy(cameraForPath = null, captureMessage = action.reason) }
+            is CollectionAction.OnImageCaptured -> onImageCaptured(action.path, action.bytes)
+            is CollectionAction.OnSignatureDrawn ->
+                onSignatureDrawn(action.path, action.pixels, action.width, action.height)
+            is CollectionAction.OnClearMedia -> onClearMedia(action.path)
+            is CollectionAction.OnCaptureLocation -> onCaptureLocation(action.path)
+            is CollectionAction.OnClearGeoPoint ->
+                commit(action.path, FormValue.Null, debounce = false)
             CollectionAction.OnBackClick -> viewModelScope.launch {
                 flushAllOps()
                 _events.send(CollectionEvent.NavigateBack)
@@ -206,6 +288,162 @@ class CollectionViewModel(
             instance.set(path, value)
             queueOp(path, value, if (debounce) TYPING_COMMIT_DELAY_MS else 0L)
         }
+        rebuild()
+    }
+
+    // -- media -------------------------------------------------------------
+
+    /**
+     * A photograph, from the camera or the gallery.
+     *
+     * Compressed to the project's settings, then staged — which encrypts it and
+     * writes the `set` op naming it, in that order. The plaintext bytes are
+     * never written anywhere: they go from this parameter through the
+     * compressor into the cipher (encryption envelope §6, and the staging
+     * pipeline in shared/core).
+     */
+    private fun onImageCaptured(path: String, bytes: ByteArray) {
+        val media = mediaCapture ?: return
+        _state.update { it.copy(cameraForPath = null) }
+        viewModelScope.launch {
+            val compressed = try {
+                val policy = media.store.policy()
+                withContext(Dispatchers.Default) {
+                    media.compressor.compressJpeg(
+                        bytes, policy.imageMaxDimension, policy.imageQuality,
+                    )
+                }
+            } catch (cause: Exception) {
+                // Not staged and no op written, so the question stays
+                // unanswered — which is the truth. Silently staging the
+                // uncompressed original instead would blow the project's
+                // bandwidth budget with nothing saying so.
+                _state.update {
+                    it.copy(captureMessage = cause.message ?: "the image could not be read")
+                }
+                return@launch
+            }
+            stage(path, compressed, "photo.jpg", "image/jpeg")
+        }
+    }
+
+    /** A signature, rasterised by the canvas and encoded to PNG here. */
+    private fun onSignatureDrawn(path: String, pixels: ByteArray, width: Int, height: Int) {
+        val media = mediaCapture ?: return
+        viewModelScope.launch {
+            val png = try {
+                withContext(Dispatchers.Default) { media.encoder.encodePng(pixels, width, height) }
+            } catch (cause: Exception) {
+                _state.update {
+                    it.copy(captureMessage = cause.message ?: "the signature could not be saved")
+                }
+                return@launch
+            }
+            stage(path, png, "signature.png", "image/png")
+        }
+    }
+
+    /**
+     * Stages the bytes and replaces whatever was there.
+     *
+     * The previous file is forgotten only after the new one is staged: the
+     * other order would leave the question briefly answered by a file that no
+     * longer exists, and a crash in between would make that permanent.
+     */
+    private suspend fun stage(path: String, bytes: ByteArray, filename: String, mimeType: String) {
+        val media = mediaCapture ?: return
+        val previous = media.store.forSubmission(submissionId)
+            .firstOrNull { it.fieldPath == path && !it.uploaded }
+        val staged = try {
+            media.staging.captureInto(
+                submissionId = submissionId,
+                formId = form.formId,
+                formVersion = form.version,
+                fieldPath = path,
+                filename = filename,
+                mimeType = mimeType,
+                plaintext = bytes,
+                crypto = store.projectCrypto(),
+            )
+        } catch (cause: Exception) {
+            _state.update {
+                it.copy(captureMessage = cause.message ?: "the file could not be saved")
+            }
+            return
+        }
+        // Only now: the answer has a file behind it.
+        previous?.let { media.staging.forget(it.mediaId) }
+
+        touched += path
+        instance.set(path, staged.reference().toFormValue())
+        _state.update { it.copy(captureMessage = null) }
+        rebuild()
+    }
+
+    /**
+     * Clears a media answer.
+     *
+     * The staged file is dropped only when the server has not sealed it. Once
+     * it has, the bytes are gone from the device anyway and the row is history
+     * — the `unset` op is what records that the answer was removed, and
+     * deleting the row would erase the fact that a file was ever there.
+     */
+    private fun onClearMedia(path: String) {
+        val media = mediaCapture
+        if (media != null) {
+            media.store.forSubmission(submissionId)
+                .filter { it.fieldPath == path && !it.uploaded }
+                .forEach { media.staging.forget(it.mediaId) }
+        }
+        commit(path, FormValue.Null, debounce = false)
+    }
+
+    /**
+     * Captures a position, held to the project's accuracy threshold.
+     *
+     * A reading worse than the threshold is NOT stored. It is shown, with its
+     * accuracy and what the project needs, because a phone under a tin roof
+     * reports a two-kilometre fix with exactly the authority of a good one, and
+     * once it is in the data nothing downstream can tell them apart.
+     */
+    private fun onCaptureLocation(path: String) {
+        val media = mediaCapture ?: return
+        if (_state.value.finalized) return
+        setCapturing(path, true)
+        viewModelScope.launch {
+            val lang = _state.value.language
+            val required = media.store.policy().gpsMaxAccuracyM
+            val outcome = media.geo.capture()
+            setCapturing(path, false)
+            when (outcome) {
+                is GeoCaptureOutcome.Accepted -> {
+                    _state.update { it.copy(captureMessage = null) }
+                    commit(path, outcome.fix.toFormValue(), debounce = false)
+                }
+                is GeoCaptureOutcome.TooImprecise -> {
+                    val accuracy = outcome.fix.accuracyM
+                    _state.update {
+                        it.copy(
+                            captureMessage = if (accuracy == null) {
+                                UiStrings.accuracyUnknown(lang, required)
+                            } else {
+                                UiStrings.accuracyTooPoor(lang, accuracy.toInt(), required)
+                            }
+                        )
+                    }
+                }
+                GeoCaptureOutcome.TimedOut ->
+                    _state.update { it.copy(captureMessage = UiStrings.positionTimedOut(lang)) }
+                is GeoCaptureOutcome.Unavailable ->
+                    _state.update { it.copy(captureMessage = outcome.reason) }
+            }
+        }
+    }
+
+    private val capturingPaths = mutableSetOf<String>()
+
+    private fun setCapturing(path: String, active: Boolean) {
+        if (active) capturingPaths += path else capturingPaths -= path
         rebuild()
     }
 
@@ -339,7 +577,70 @@ class CollectionViewModel(
             },
             dateIso = textValue,
             error = error,
+            media = mediaUi(node, fieldState.value, lang),
+            geo = geoUi(fieldState.value, lang),
+            capturing = node.id in capturingPaths,
         )
+    }
+
+    /**
+     * What the answer widget says about a staged file.
+     *
+     * Driven by the engine's value first: the answer is the media reference in
+     * the op log, and the local `media` row is where the upload state lives. A
+     * row with no matching answer is a capture that was replaced or cleared,
+     * and must not show as the current answer.
+     */
+    private fun mediaUi(node: QuestionNode, value: FormValue, lang: String): MediaUi? {
+        if (node.dataType != "image" && node.dataType != "signature") return null
+        val reference = value as? FormValue.MediaRef ?: return null
+        val row = mediaCapture?.store?.get(reference.id)
+        return MediaUi(
+            mediaId = reference.id,
+            filename = reference.filename,
+            status = when {
+                row == null || row.uploaded -> UiStrings.mediaUploaded(lang)
+                row.lastError != null -> UiStrings.mediaUploadFailed(lang, row.lastError!!)
+                else -> UiStrings.mediaStaged(lang)
+            },
+        )
+    }
+
+    /**
+     * A captured point, and how good it is.
+     *
+     * Only an accepted reading is ever an answer — [onCaptureLocation] refuses
+     * the rest — so anything showing here met the threshold at the time it was
+     * taken. It still displays its accuracy, because a project that later
+     * tightens the threshold has not made this reading worse, and the number is
+     * how a reviewer can tell.
+     */
+    private fun geoUi(value: FormValue, lang: String): GeoUi? {
+        val point = value as? FormValue.GeoPoint ?: return null
+        val accuracy = point.accuracy
+        val required = mediaCapture?.store?.policy()?.gpsMaxAccuracyM
+        return GeoUi(
+            coordinates = formatCoordinate(point.lat) + ", " + formatCoordinate(point.lon),
+            accuracyText = when {
+                accuracy == null -> UiStrings.accuracyUnknown(lang, required ?: 0)
+                required != null && accuracy > required ->
+                    UiStrings.accuracyTooPoor(lang, accuracy.toInt(), required)
+                else -> UiStrings.accuracyOk(lang, accuracy.toInt())
+            },
+            accepted = accuracy != null && (required == null || accuracy <= required),
+        )
+    }
+
+    /**
+     * Six decimal places — about 0.1 m at the equator, which is finer than any
+     * handset GPS and coarse enough not to imply a precision that is not there.
+     */
+    private fun formatCoordinate(degrees: Double): String {
+        val scaled = kotlin.math.round(degrees * 1_000_000.0).toLong()
+        val whole = scaled / 1_000_000
+        val fraction = kotlin.math.abs(scaled % 1_000_000).toString().padStart(6, '0')
+        val sign = if (scaled < 0 && whole == 0L) "-" else ""
+        return "$sign$whole.$fraction"
     }
 
     private fun formatValue(value: FormValue): String = when (value) {

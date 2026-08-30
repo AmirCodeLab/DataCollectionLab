@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     Text,
     UniqueConstraint,
     text,
@@ -26,6 +27,18 @@ class Project(Base):
             "security_mode IN ('standard', 'field_level', 'project_e2e')",
             name="project_security_mode_check",
         ),
+        CheckConstraint(
+            "media_image_max_dimension BETWEEN 320 AND 8192",
+            name="project_media_image_max_dimension_check",
+        ),
+        CheckConstraint(
+            "media_image_quality BETWEEN 1 AND 100",
+            name="project_media_image_quality_check",
+        ),
+        CheckConstraint(
+            "media_gps_max_accuracy_m BETWEEN 1 AND 10000",
+            name="project_media_gps_max_accuracy_check",
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -35,6 +48,20 @@ class Project(Base):
     # historical data, which defeats the point of having chosen it.
     security_mode: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'standard'")
+    )
+    # Capture policy, fetched by devices and cached for however long they are
+    # next offline. Compression is a project decision because it trades
+    # evidentiary quality against bandwidth and only the study knows which side
+    # it is on; the GPS threshold is a project decision because a phone indoors
+    # will report a 2 km "fix" with the same authority as a good one.
+    media_image_max_dimension: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1600")
+    )
+    media_image_quality: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("80")
+    )
+    media_gps_max_accuracy_m: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("50")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

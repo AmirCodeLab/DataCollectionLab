@@ -168,6 +168,162 @@ export const KEY_ROLES = ["primary", "backup", "recovery"] as const;
 export type KeyRole = (typeof KEY_ROLES)[number];
 
 /**
+ * One chunk stored. Re-sending a chunk already held is a success, not an
+ * error: a client that lost the response has no way to tell the difference,
+ * and making it retry-safe is cheaper than making it careful.
+ */
+export interface MediaChunkResponse {
+  mediaId: string;
+  chunkIndex: number;
+  sizeBytes: number;
+  receivedChunks: number;
+  chunkCount: number;
+}
+
+export interface MediaCompleteRequest {
+  ciphertextHash: string;
+}
+
+export interface MediaCompleteResponse {
+  mediaId: string;
+  hash: string;
+  sizeBytes: number;
+  chunkCount: number;
+  status: MediaStatus;
+}
+
+/** The wrapped media keys for one file (envelope §6, §7). */
+export interface MediaKeysView {
+  mediaId: string;
+  contentKeyId: string | null;
+  wraps: MediaWrappedKeyView[];
+}
+
+/** Per-project capture settings (see project.media_* in 002_media.sql). */
+export interface MediaPolicy {
+  imageMaxDimension: number;
+  imageQuality: number;
+  gpsMaxAccuracyM: number;
+}
+
+export interface MediaPolicyResponse {
+  projectId: string;
+  chunkSize: number;
+  policy: MediaPolicy;
+}
+
+/** Change one or more settings. Omitted fields are left alone. */
+export interface MediaPolicyUpdate {
+  imageMaxDimension?: number | null;
+  imageQuality?: number | null;
+  gpsMaxAccuracyM?: number | null;
+}
+
+export const MEDIA_STATUSES = ["pending", "uploading", "complete", "failed"] as const;
+
+export type MediaStatus = (typeof MEDIA_STATUSES)[number];
+
+/** A refusal a client can branch on, not just a status code. */
+export interface MediaUploadError {
+  reason: MediaUploadFailure;
+  message: string;
+}
+
+/**
+ * FastAPI sends `{"detail": ...}`; this is that envelope, not the payload
+ * inside it.
+ */
+export interface MediaUploadErrorResponse {
+  detail: MediaUploadError;
+}
+
+export const MEDIA_UPLOAD_FAILURES = [
+  "submission_not_found",
+  "device_not_authorized",
+  "media_conflict",
+  "session_not_found",
+  "session_expired",
+  "chunk_out_of_range",
+  "chunk_size_mismatch",
+  "chunks_missing",
+  "hash_mismatch",
+  "unknown_recipient",
+  "unwrapped_media_key",
+] as const;
+
+export type MediaUploadFailure = (typeof MEDIA_UPLOAD_FAILURES)[number];
+
+/**
+ * Open — or reopen — an upload for one file.
+ *
+ * Idempotent on `mediaId`. Calling it again for a file already part-uploaded
+ * is exactly how resumption starts: the response says which chunks the server
+ * already holds, and the client sends the rest. That is why there is no
+ * separate "session status" endpoint — a resuming client has to make this call
+ * anyway, and a second way to ask the same question is a second thing that can
+ * disagree.
+ */
+export interface MediaUploadSessionRequest {
+  mediaId: string;
+  submissionId: string;
+  deviceId: string;
+  opId?: string | null;
+  fieldPath?: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  chunkCount: number;
+  encrypted: boolean;
+  contentKeyId?: string | null;
+  wraps?: MediaWrappedKeyIn[];
+}
+
+/** Where to send the chunks, and which ones are already here. */
+export interface MediaUploadSessionResponse {
+  uploadId: string;
+  mediaId: string;
+  chunkSize: number;
+  chunkCount: number;
+  receivedChunks: number[];
+  status: MediaStatus;
+  expiresAt: string;
+}
+
+/** One file as the console sees it. */
+export interface MediaView {
+  mediaId: string;
+  submissionId: string;
+  opId: string | null;
+  fieldPath: string | null;
+  deviceId: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  chunkCount: number;
+  receivedChunks: number;
+  status: MediaStatus;
+  encrypted: boolean;
+  ciphertextHash: string | null;
+  contentKeyId: string | null;
+  resolved: boolean;
+  createdAt: string;
+  uploadedAt: string | null;
+}
+
+/** The media key wrapped to one recipient project key (envelope §6, §4.4). */
+export interface MediaWrappedKeyIn {
+  projectKeyId: string;
+  ephemeralPublic: string;
+  nonce: string;
+  wrappedKey: string;
+}
+
+export interface MediaWrappedKeyView {
+  projectKeyId: string;
+  ephemeralPublic: string;
+  nonce: string;
+  wrappedKey: string;
+}
+
+/**
  * The body of a refusal that carries prose and nothing to branch on.
  *
  * `{"detail": "submission not found"}`. Used where there is exactly one way
@@ -405,6 +561,14 @@ export interface SubmissionListResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+/** Every file belonging to one submission, resolved or not. */
+export interface SubmissionMediaResponse {
+  submissionId: string;
+  media: MediaView[];
+  keys: MediaKeysView[];
+  pendingCount: number;
 }
 
 /** One row of the raw op log. */

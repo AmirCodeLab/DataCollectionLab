@@ -132,6 +132,61 @@
         }
       }
     },
+    "/api/v1/devices/{device_id}/media-policy": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "Media Policy",
+        "description": "The capture settings this device must apply, and the chunk size.\n\nFetched every sync and cached locally, for the same reason as the crypto\nconfig: a device may go two weeks without a server and has to keep capturing\nto the project's settings throughout.\n\nTwo of the three are compression, which trades evidentiary quality against\nbandwidth — only the study knows which side it is on. The third,\n`gpsMaxAccuracyM`, is a refusal threshold rather than a preference: a phone\nindoors will report a two-kilometre \"fix\" with exactly the authority of a\ngood one, and nothing downstream can tell them apart afterwards. The client\nrefuses a worse fix rather than storing it quietly.\n\n404 when the device is unknown or revoked — a device the server will not\naccept data from has no business learning a project's settings either.",
+        "operationId": "media_policy_api_v1_devices__device_id__media_policy_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms": {
       "get": {
         "tags": [
@@ -288,6 +343,290 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Open Upload Session",
+        "description": "Open, or resume, the upload of one file.\n\nIdempotent on `mediaId`. `receivedChunks` is the whole of resumption: the\nclient skips those indexes and sends the rest, so an upload interrupted at\n90% costs 10% to finish rather than starting over — which on a 2G link is\nthe difference between a photograph that arrives and one that never does.\n\nAn encrypted file must arrive with its media key wrapped to at least one\nactive project key (envelope §6). Refused otherwise: ciphertext nobody can\nopen looks exactly like ciphertext somebody can, and this is the last moment\nthe mistake is recoverable.\n\nAlso 422 for a domain refusal (`unwrapped_media_key`, `unknown_recipient`)\nwith a `{\"detail\": {\"reason\", \"message\"}}` body — the same collision with\nFastAPI's request-validation 422 that `POST /forms/compile` has, and\ndocumented here rather than declared for the same reason: only one body\nshape can be declared under one status.",
+        "operationId": "open_upload_session_api_v1_media_upload_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaUploadSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadSessionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions/{upload_id}/chunks/{chunk_index}": {
+      "put": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Put Chunk",
+        "description": "Store one 4 MiB chunk of ciphertext.\n\nEvery chunk but the last is exactly 4 MiB, and that is fixed rather than\nnegotiated (envelope §6): the nonce for chunk *n* is derived from\n`(mediaId, n)`, so two clients that disagreed about where the boundaries\nfall would encrypt different plaintext under the same nonce — the one\nfailure AES-GCM does not survive.\n\nIdempotent. Re-sending a stored chunk succeeds: a client that lost the\nresponse cannot tell \"stored\" from \"lost in transit\", and making the retry\nsafe is cheaper than making the client careful.\n\nAlso 422 (`chunk_out_of_range`, `chunk_size_mismatch`) with the\n`{\"detail\": {\"reason\", \"message\"}}` body — see the note on\n`POST /upload-sessions`.",
+        "operationId": "put_chunk_api_v1_media_upload_sessions__upload_id__chunks__chunk_index__put",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Upload Id"
+            }
+          },
+          {
+            "name": "chunk_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Chunk Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream",
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaChunkResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/upload-sessions/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Complete Upload",
+        "description": "Seal the upload: every chunk present, and the hash is what we stored.\n\n`hash` in the response is the server's own SHA-256 over the stored bytes,\nnot an echo of the request — echoing would make the check a formality. Those\nbytes are CIPHERTEXT for an encrypted file, and the server has no key for\nthem; hashing plaintext would let it confirm that two submissions contain\nthe same photograph, which is the inference the mode exists to prevent\n(envelope §6).\n\nAlso 422 (`hash_mismatch`) with the `{\"detail\": {\"reason\", \"message\"}}`\nbody — see the note on `POST /upload-sessions`.",
+        "operationId": "complete_upload_api_v1_media_upload_sessions__upload_id__complete_post",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Upload Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaCompleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaCompleteResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
           },
           "422": {
             "description": "Validation Error",
@@ -560,6 +899,124 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/media-policy": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Media Policy",
+        "description": "This project's capture settings. Devices read them from\n`GET /devices/{deviceId}/media-policy`; this is the console's view of the\nsame three numbers.",
+        "operationId": "get_media_policy_api_v1_projects__project_id__media_policy_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Set Media Policy",
+        "description": "Change the capture settings. Omitted fields are left alone.\n\nTakes effect on each device at its next sync, and is not retroactive — nor\nmeant to be. A photograph already captured at 1600px is the evidence that\nexists; re-compressing history would be inventing a different one.\n\nLowering `gpsMaxAccuracyM` tightens what devices will accept from then on.\nPoints already collected under the old threshold keep the accuracy they were\nrecorded with, which is why the reading is stored beside every point rather\nthan being checked and discarded.",
+        "operationId": "set_media_policy_api_v1_projects__project_id__media_policy_patch",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaPolicyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/submissions": {
       "get": {
         "tags": [
@@ -732,6 +1189,61 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SubmissionKeysResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/media": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Get Submission Media",
+        "description": "Every file this submission references, and whether each has paired up.\n\nMedia never travels inside the op stream (sync §9): the op carries a\n`mediaId` and the file arrives separately, in either order. So a submission\ncan be complete in every answer and still be waiting for three photographs,\nand this is where that shows. `resolved` is true only when both halves are\nhere — the file is `complete` and an op referencing it has arrived — and\n`pendingCount` is how many are not, so the console can say \"still uploading\"\ninstead of rendering a submission that looks finished and is not.\n\nFor an encrypted file the wrapped media keys come back too, exactly as they\nwere uploaded. The server has never held a private key that opens one, and\nhanding them out is what makes decryption possible at all (envelope §7).",
+        "operationId": "get_submission_media_api_v1_submissions__submission_id__media_get",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionMediaResponse"
                 }
               }
             }
@@ -1388,6 +1900,613 @@
           "backup",
           "recovery"
         ]
+      },
+      "MediaChunkResponse": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "chunkIndex": {
+            "type": "integer",
+            "title": "Chunkindex"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "receivedChunks": {
+            "type": "integer",
+            "title": "Receivedchunks"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "chunkIndex",
+          "sizeBytes",
+          "receivedChunks",
+          "chunkCount"
+        ],
+        "title": "MediaChunkResponse",
+        "description": "One chunk stored. Re-sending a chunk already held is a success, not an\nerror: a client that lost the response has no way to tell the difference,\nand making it retry-safe is cheaper than making it careful."
+      },
+      "MediaCompleteRequest": {
+        "properties": {
+          "ciphertextHash": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Ciphertexthash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ciphertextHash"
+        ],
+        "title": "MediaCompleteRequest"
+      },
+      "MediaCompleteResponse": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "hash",
+          "sizeBytes",
+          "chunkCount",
+          "status"
+        ],
+        "title": "MediaCompleteResponse"
+      },
+      "MediaKeysView": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/MediaWrappedKeyView"
+            },
+            "type": "array",
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "contentKeyId",
+          "wraps"
+        ],
+        "title": "MediaKeysView",
+        "description": "The wrapped media keys for one file (envelope §6, §7)."
+      },
+      "MediaPolicy": {
+        "properties": {
+          "imageMaxDimension": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 320.0,
+            "title": "Imagemaxdimension"
+          },
+          "imageQuality": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Imagequality"
+          },
+          "gpsMaxAccuracyM": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Gpsmaxaccuracym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "imageMaxDimension",
+          "imageQuality",
+          "gpsMaxAccuracyM"
+        ],
+        "title": "MediaPolicy",
+        "description": "Per-project capture settings (see project.media_* in 002_media.sql)."
+      },
+      "MediaPolicyResponse": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "chunkSize": {
+            "type": "integer",
+            "title": "Chunksize"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MediaPolicy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "chunkSize",
+          "policy"
+        ],
+        "title": "MediaPolicyResponse"
+      },
+      "MediaPolicyUpdate": {
+        "properties": {
+          "imageMaxDimension": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 8192.0,
+                "minimum": 320.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagemaxdimension"
+          },
+          "imageQuality": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagequality"
+          },
+          "gpsMaxAccuracyM": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpsmaxaccuracym"
+          }
+        },
+        "type": "object",
+        "title": "MediaPolicyUpdate",
+        "description": "Change one or more settings. Omitted fields are left alone."
+      },
+      "MediaStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "uploading",
+          "complete",
+          "failed"
+        ]
+      },
+      "MediaUploadError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/MediaUploadFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "MediaUploadError",
+        "description": "A refusal a client can branch on, not just a status code."
+      },
+      "MediaUploadErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/MediaUploadError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "MediaUploadErrorResponse",
+        "description": "FastAPI sends `{\"detail\": ...}`; this is that envelope, not the payload\ninside it."
+      },
+      "MediaUploadFailure": {
+        "type": "string",
+        "enum": [
+          "submission_not_found",
+          "device_not_authorized",
+          "media_conflict",
+          "session_not_found",
+          "session_expired",
+          "chunk_out_of_range",
+          "chunk_size_mismatch",
+          "chunks_missing",
+          "hash_mismatch",
+          "unknown_recipient",
+          "unwrapped_media_key"
+        ]
+      },
+      "MediaUploadSessionRequest": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Mediaid"
+          },
+          "submissionId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Submissionid"
+          },
+          "deviceId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Deviceid"
+          },
+          "opId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opid"
+          },
+          "fieldPath": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fieldpath"
+          },
+          "mimeType": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Mimetype"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "maximum": 536870912.0,
+            "minimum": 1.0,
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Chunkcount"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "wraps": {
+            "items": {
+              "$ref": "#/components/schemas/MediaWrappedKeyIn"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Wraps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "submissionId",
+          "deviceId",
+          "mimeType",
+          "sizeBytes",
+          "chunkCount",
+          "encrypted"
+        ],
+        "title": "MediaUploadSessionRequest",
+        "description": "Open — or reopen — an upload for one file.\n\nIdempotent on `mediaId`. Calling it again for a file already part-uploaded\nis exactly how resumption starts: the response says which chunks the server\nalready holds, and the client sends the rest. That is why there is no\nseparate \"session status\" endpoint — a resuming client has to make this call\nanyway, and a second way to ask the same question is a second thing that can\ndisagree."
+      },
+      "MediaUploadSessionResponse": {
+        "properties": {
+          "uploadId": {
+            "type": "string",
+            "title": "Uploadid"
+          },
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "chunkSize": {
+            "type": "integer",
+            "title": "Chunksize"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "receivedChunks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Receivedchunks"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expiresat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploadId",
+          "mediaId",
+          "chunkSize",
+          "chunkCount",
+          "receivedChunks",
+          "status",
+          "expiresAt"
+        ],
+        "title": "MediaUploadSessionResponse",
+        "description": "Where to send the chunks, and which ones are already here."
+      },
+      "MediaView": {
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "title": "Mediaid"
+          },
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "opId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opid"
+          },
+          "fieldPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fieldpath"
+          },
+          "deviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceid"
+          },
+          "mimeType": {
+            "type": "string",
+            "title": "Mimetype"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "chunkCount": {
+            "type": "integer",
+            "title": "Chunkcount"
+          },
+          "receivedChunks": {
+            "type": "integer",
+            "title": "Receivedchunks"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MediaStatus"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted"
+          },
+          "ciphertextHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ciphertexthash"
+          },
+          "contentKeyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentkeyid"
+          },
+          "resolved": {
+            "type": "boolean",
+            "title": "Resolved"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "uploadedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploadedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mediaId",
+          "submissionId",
+          "opId",
+          "fieldPath",
+          "deviceId",
+          "mimeType",
+          "sizeBytes",
+          "chunkCount",
+          "receivedChunks",
+          "status",
+          "encrypted",
+          "ciphertextHash",
+          "contentKeyId",
+          "resolved",
+          "createdAt",
+          "uploadedAt"
+        ],
+        "title": "MediaView",
+        "description": "One file as the console sees it."
+      },
+      "MediaWrappedKeyIn": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "MediaWrappedKeyIn",
+        "description": "The media key wrapped to one recipient project key (envelope §6, §4.4)."
+      },
+      "MediaWrappedKeyView": {
+        "properties": {
+          "projectKeyId": {
+            "type": "string",
+            "title": "Projectkeyid"
+          },
+          "ephemeralPublic": {
+            "type": "string",
+            "title": "Ephemeralpublic"
+          },
+          "nonce": {
+            "type": "string",
+            "title": "Nonce"
+          },
+          "wrappedKey": {
+            "type": "string",
+            "title": "Wrappedkey"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectKeyId",
+          "ephemeralPublic",
+          "nonce",
+          "wrappedKey"
+        ],
+        "title": "MediaWrappedKeyView"
       },
       "MessageError": {
         "properties": {
@@ -2283,6 +3402,41 @@
           "offset"
         ],
         "title": "SubmissionListResponse"
+      },
+      "SubmissionMediaResponse": {
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/MediaView"
+            },
+            "type": "array",
+            "title": "Media"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/MediaKeysView"
+            },
+            "type": "array",
+            "title": "Keys"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "title": "Pendingcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submissionId",
+          "media",
+          "keys",
+          "pendingCount"
+        ],
+        "title": "SubmissionMediaResponse",
+        "description": "Every file belonging to one submission, resolved or not."
       },
       "SubmissionOpView": {
         "properties": {

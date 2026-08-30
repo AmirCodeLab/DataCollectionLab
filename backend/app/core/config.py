@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
 
+    # Where uploaded media chunks are written until the S3 backend lands. See
+    # app/infrastructure/media_storage.py — the seam is that module, not this
+    # setting, so the switch is one file rather than a search for boto3 calls.
+    media_storage_root: str = "./var/media"
+    # How long an upload session stays resumable. Long enough to cross a night
+    # in a village with no signal; short enough that abandoned half-uploads do
+    # not accumulate forever.
+    media_session_ttl_seconds: int = 60 * 60 * 24 * 7
+
     jwt_secret: str = "change-me-in-production"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 60 * 60 * 24 * 30
