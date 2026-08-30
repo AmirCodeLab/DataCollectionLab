@@ -268,11 +268,34 @@ fun formValueFromJson(element: JsonElement): FormValue = when (element) {
         }
     }
     is JsonArray -> FormValue.Sequence(element.map(::formValueFromJson))
+    // Two object shapes, both from the spec's §2.1 value table: a geopoint
+    // `{lat, lon, alt?, accuracy?}` and a media reference
+    // `{id, filename, hash, size}`. The Python reference holds values as plain
+    // Python and reads any object at all; this engine is statically typed and
+    // has to name the shapes it accepts, which is why anything else is refused
+    // here rather than silently becoming an opaque value the two engines would
+    // then disagree about.
     is JsonObject -> {
         val lat = (element["lat"] as? JsonPrimitive)?.doubleOrNull
         val lon = (element["lon"] as? JsonPrimitive)?.doubleOrNull
-        if (lat != null && lon != null) FormValue.GeoPoint(lat, lon)
-        else throw CompileException("unsupported literal value: $element")
+        val id = (element["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        when {
+            lat != null && lon != null -> FormValue.GeoPoint(
+                lat = lat,
+                lon = lon,
+                alt = (element["alt"] as? JsonPrimitive)?.doubleOrNull,
+                accuracy = (element["accuracy"] as? JsonPrimitive)?.doubleOrNull,
+            )
+            id != null -> FormValue.MediaRef(
+                id = id,
+                filename = (element["filename"] as? JsonPrimitive)
+                    ?.takeIf { it.isString }?.content ?: "",
+                hash = (element["hash"] as? JsonPrimitive)
+                    ?.takeIf { it.isString }?.content ?: "",
+                size = (element["size"] as? JsonPrimitive)?.longOrNull ?: 0L,
+            )
+            else -> throw CompileException("unsupported literal value: $element")
+        }
     }
 }
 
@@ -284,8 +307,20 @@ fun formValueToJson(value: FormValue): JsonElement = when (value) {
     is FormValue.Bool -> JsonPrimitive(value.value)
     is FormValue.DateValue -> JsonPrimitive(value.iso)
     is FormValue.Sequence -> JsonArray(value.items.map(::formValueToJson))
+    // Optional members are omitted when absent rather than written as null.
+    // The canonical JSON of the encryption envelope (§5.1) is computed over
+    // exactly these bytes, so an omitted key and an explicit null are different
+    // ciphertexts, and the two engines have to make the same choice.
     is FormValue.GeoPoint -> buildJsonObject {
         put("lat", JsonPrimitive(value.lat))
         put("lon", JsonPrimitive(value.lon))
+        value.alt?.let { put("alt", JsonPrimitive(it)) }
+        value.accuracy?.let { put("accuracy", JsonPrimitive(it)) }
+    }
+    is FormValue.MediaRef -> buildJsonObject {
+        put("id", JsonPrimitive(value.id))
+        put("filename", JsonPrimitive(value.filename))
+        put("hash", JsonPrimitive(value.hash))
+        put("size", JsonPrimitive(value.size))
     }
 }

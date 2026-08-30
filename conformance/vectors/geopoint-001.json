@@ -1,0 +1,68 @@
+{
+  "id": "geopoint-001",
+  "description": "A geopoint keeps its altitude and accuracy",
+  "spec": "2.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "geo1",
+    "version": 1,
+    "title": {
+      "en": "geo1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "dwelling",
+        "dataType": "geopoint",
+        "label": {
+          "en": "Dwelling"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "dwelling": {
+          "lat": -1.286389,
+          "lon": 36.817223,
+          "alt": 1795.0,
+          "accuracy": 8.0
+        }
+      },
+      "expect": {
+        "values": {
+          "dwelling": {
+            "lat": -1.286389,
+            "lon": 36.817223,
+            "alt": 1795.0,
+            "accuracy": 8.0
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "dwelling": {
+          "lat": 0.0,
+          "lon": 0.0
+        }
+      },
+      "expect": {
+        "values": {
+          "dwelling": {
+            "lat": 0.0,
+            "lon": 0.0
+          }
+        }
+      }
+    }
+  ]
+}

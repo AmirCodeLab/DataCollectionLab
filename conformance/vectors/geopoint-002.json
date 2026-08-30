@@ -1,0 +1,101 @@
+{
+  "id": "geopoint-002",
+  "description": "Two geopoints are equal when they are the same point, accuracy included",
+  "spec": "2.1, 4.4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "geo2",
+    "version": 1,
+    "title": {
+      "en": "geo2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "first_reading",
+        "dataType": "geopoint",
+        "label": {
+          "en": "First Reading"
+        }
+      },
+      {
+        "type": "question",
+        "id": "second_reading",
+        "dataType": "geopoint",
+        "label": {
+          "en": "Second Reading"
+        }
+      },
+      {
+        "type": "question",
+        "id": "unmoved",
+        "dataType": "boolean",
+        "label": {
+          "en": "Unmoved"
+        },
+        "calculate": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "first_reading"
+            },
+            {
+              "op": "ref",
+              "path": "second_reading"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "unmoved": null
+        }
+      }
+    },
+    {
+      "set": {
+        "first_reading": {
+          "lat": -1.28,
+          "lon": 36.81,
+          "accuracy": 8.0
+        },
+        "second_reading": {
+          "lat": -1.28,
+          "lon": 36.81,
+          "accuracy": 400.0
+        }
+      },
+      "expect": {
+        "values": {
+          "unmoved": false
+        }
+      }
+    },
+    {
+      "set": {
+        "second_reading": {
+          "lat": -1.28,
+          "lon": 36.81,
+          "accuracy": 8.0
+        }
+      },
+      "expect": {
+        "values": {
+          "unmoved": true
+        }
+      }
+    }
+  ]
+}

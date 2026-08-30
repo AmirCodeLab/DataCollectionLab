@@ -1,0 +1,59 @@
+{
+  "id": "media-001",
+  "description": "A media reference survives a round trip through the engine unchanged",
+  "spec": "2.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "media1",
+    "version": 1,
+    "title": {
+      "en": "media1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "roof_photo",
+        "dataType": "image",
+        "label": {
+          "en": "Roof Photo"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "roof_photo": null
+        }
+      }
+    },
+    {
+      "set": {
+        "roof_photo": {
+          "id": "01MEDIAROOF",
+          "filename": "roof.jpg",
+          "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 148213
+        }
+      },
+      "expect": {
+        "values": {
+          "roof_photo": {
+            "id": "01MEDIAROOF",
+            "filename": "roof.jpg",
+            "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size": 148213
+          }
+        }
+      }
+    }
+  ]
+}

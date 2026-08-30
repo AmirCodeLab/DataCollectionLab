@@ -262,7 +262,7 @@ but the point of the workflow is that nobody has to remember to.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
-1. Form IR specification — done incl. screen flow (§11); 29 conformance
+1. Form IR specification — done incl. screen flow (§11); 34 conformance
    vectors pass identically on the Python and Kotlin engines
 2. Sync protocol specification — done; server push/pull implemented
    (`backend/app/modules/sync/`, commit e9f30d7) and the client op log +
