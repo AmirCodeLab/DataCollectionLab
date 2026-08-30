@@ -269,8 +269,49 @@ computed over the **ciphertext**, not the plaintext. Hashing plaintext would let
 the server confirm whether two submissions contain the same photograph, which
 is exactly the kind of inference end-to-end encryption exists to prevent.
 
-Chunk size is fixed at 4 MiB. Each chunk is encrypted independently with
-`nonce = SHA-256("dcp/v1/media-nonce" || media_id || chunk_index)[0:12]`.
+Chunk size is fixed at 4 MiB — fixed, not negotiated, because the nonce for
+chunk *n* is derived from `(media_id, n)`: two clients that disagreed about
+where the boundaries fall would encrypt different plaintext under the same
+nonce. Each chunk is encrypted independently with
+`nonce = SHA-256("dcp/v1/media-nonce" || media_id || chunk_index)[0:12]`
+and `aad = media_id || chunk_index`, so a chunk cannot be moved to another
+index or into another file.
+
+AES-GCM appends a 16-byte tag, so a full chunk is 4 MiB **+ 16 bytes** on the
+wire. The 4 MiB is the plaintext chunk size; a server checking the size of what
+arrives must check against the larger number.
+
+### 6.1 Media at rest on the device
+
+A photograph of an identity document sitting in cleartext on a phone defeats
+everything §14 does for the database beside it. So media is encrypted on the
+device too, and by the same mechanism that protects it in transit rather than a
+second one:
+
+```
+camera buffer -> compress in memory -> encrypt in memory -> write chunks
+```
+
+- The **plaintext never reaches the filesystem** — not to a cache file, not to
+  a platform MediaStore entry, not to a temporary a compressor wanted.
+- The **per-file media key lives in the local database**, which is
+  SQLCipher-encrypted under a key the platform keystore holds (§14). The media
+  key is therefore protected by the keystore transitively, and there is no
+  second key hierarchy to get wrong.
+- The **staged file is the upload**: chunks are encrypted once, at capture, and
+  uploaded byte for byte. A resumed upload provably sends the same bytes as the
+  first attempt, and the content hash computed at capture is the one the server
+  verifies.
+
+This holds in **every security mode, including `standard`**. At-rest protection
+on the device is not the project's server-side trust model: a `standard`
+project trusts its own server, which says nothing about the handset left on a
+clinic desk. What the mode decides is whether the *upload* carries ciphertext —
+in `standard` mode the chunk is decrypted on the way out, because the server is
+entitled to read it, and the hash sent is then over what was actually uploaded.
+
+A device deletes a file's chunks once the server has sealed the upload. The
+`media` row stays, so a submission can still say which file its operation names.
 
 ---
 
@@ -340,8 +381,26 @@ submission_op
   UNIQUE (content_key_id, nonce)   -- enforces §4.5
 
 media
-  media_id, submission_id, ciphertext_hash, size, chunk_count,
-  content_key_id, encrypted BOOLEAN
+  media_id, submission_id, op_id, device_id, field_path,
+  mime_type, size, chunk_count, ciphertext_hash,
+  content_key_id, encrypted BOOLEAN, status, storage_key
+  -- op_id is NOT a foreign key to submission_op: an operation referencing a
+  -- file is accepted before the file arrives (sync §9), so the operation may
+  -- genuinely not exist yet, and a constraint would turn the normal case into
+  -- an error.
+
+media_wrapped_key
+  media_id, project_key_id, ephemeral_public, nonce, wrapped_key
+  -- §6 gives each file its OWN content key, which cannot live in
+  -- submission_content_key: that table is UNIQUE (submission_id, device_id) by
+  -- design — one operation key per device per submission — and one device
+  -- captures several files into one submission.
+
+media_chunk
+  media_id, chunk_index, size_bytes, chunk_hash, storage_key
+  -- Rows, not a counter. Resumption has to know exactly which indexes
+  -- arrived: chunks may be uploaded out of order, and re-sending from the
+  -- first gap would re-send chunks the server already holds.
 ```
 
 The `UNIQUE (content_key_id, nonce)` constraint is the database-level
@@ -613,8 +672,9 @@ setting is turned on rather than after.
 - A device compromised **while running and unlocked**. The key is in memory and
   the answers are in the page cache. This is already out of scope in §11 and
   stays there.
-- Anything outside the database: media files on disk (§6 has no local-storage
-  rules yet), exported files, screenshots, the OS keyboard's learned-word cache.
+- Exported files, screenshots, the OS keyboard's learned-word cache.
+
+Media files on disk **were** in this list and are no longer — see §6.1.
 - The plaintext of an answer while it is on screen or in a `ViewModel`.
 - Data on the server. `standard` mode still means the operator reads everything;
   §14 changes nothing about that.
