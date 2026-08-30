@@ -105,6 +105,70 @@ does not need a Node runtime beside Python.
 
 9. **The console uses the public API.** No private endpoints.
 
+10. **The API contract is generated. Never hand-write it, never hand-edit it.**
+    `specs/openapi.json` and `web/src/api/types.ts` are both produced by
+    `scripts/generate_api_contract.py` from the FastAPI app, and CI fails when
+    either is not what the app generates right now. See below.
+
+## The API contract
+
+The app is the source of truth. Everything downstream is generated from it:
+
+```
+backend/app/main.py  ──►  specs/openapi.json  ──►  web/src/api/types.ts
+     (the truth)          (committed snapshot)      (console wire types)
+```
+
+`specs/openapi.json` is committed so an API change shows up as a change to a
+reviewable file. `web/src/api/types.ts` is generated so the console's types
+cannot drift from it — that file used to hand-mirror `SUBMISSION_STATUSES` from
+a database CHECK constraint and needed a test of its own to catch the copy going
+stale.
+
+**Never edit either file.** An edit survives until the next run of the generator
+and until then it says something untrue about the server. Change the Pydantic
+model, then:
+
+```bash
+python scripts/generate_api_contract.py          # rewrite both files
+python scripts/generate_api_contract.py --check  # what CI runs
+```
+
+Commit the regenerated files **in the same commit as the API change**. An API
+change without a contract change is a red build, deliberately.
+
+What that requires of a route:
+
+- **Every route has a `response_model`.** Without one FastAPI infers the body
+  from the return annotation, and `dict[str, Any]` infers to an object with no
+  fields — `Record<string, unknown>` in the console, which type-checks
+  everywhere and describes nothing. `test_openapi_contract` fails the build for
+  an inline 2xx schema and names the route.
+- **Every request body is a Pydantic model.** Same rule, same reason.
+- **Every closed value set is a named `type` alias**, not a plain assignment:
+
+  ```python
+  type SubmissionStatus = Literal["draft", ...]   # one named schema
+  SubmissionStatus = Literal["draft", ...]        # inlined at every use site
+  ```
+
+  Pydantic gives the PEP 695 alias its own entry in the document, so the
+  console gets `SubmissionStatus` **and** a `SUBMISSION_STATUSES` array to
+  render a dropdown from. A plain assignment gets neither.
+- **A declared error model is the `{"detail": ...}` envelope**, not the payload
+  inside it — that is what FastAPI actually sends.
+- **422 belongs to the framework.** It means "the request did not match the
+  schema". Three endpoints also return 422 for a domain refusal with a
+  different body (`POST /forms/compile`, `POST /forms/versions`,
+  `POST /projects/{id}/keys`); only one shape can be declared under one status,
+  so those refusals are documented in the route's description and not in its
+  schema. Anything new gets its own status code.
+
+The remaining hand-copied link is the one no generator can see: a database
+CHECK constraint and the Python `Literal` that mirrors it are written in
+different languages by different hands. `backend/tests/test_wire_enum_mirrors.py`
+is what holds those together.
+
 ## Form engine
 
 Two implementations that must agree:
@@ -133,6 +197,10 @@ uvicorn app.main:app --reload
 pytest tests/ -v
 ruff check . && mypy app
 
+# API contract (run from the repo root; never edit the generated files)
+python scripts/generate_api_contract.py            # openapi.json + console types
+python scripts/generate_api_contract.py --check    # what CI runs
+
 # Conformance
 python conformance/generate_vectors.py     # regenerate vectors
 cd backend && pytest tests/test_conformance.py -v
@@ -158,9 +226,9 @@ docker compose up
 ## CI
 
 `.github/workflows/ci.yml` — four jobs, all of them blocking: **backend**
-(ruff, mypy, pytest without `db`), **db** (pytest `-m db` against a PostGIS
-service), **kotlin** (`:shared:form-engine:jvmTest`, `:shared:core:jvmTest`),
-**web** (typecheck, lint, test, build).
+(ruff, mypy, the API contract check, pytest without `db`), **db** (pytest
+`-m db` against a PostGIS service), **kotlin** (`:shared:form-engine:jvmTest`,
+`:shared:core:jvmTest`), **web** (typecheck, lint, test, build).
 
 These are the same commands listed above. Run them locally before pushing —
 but the point of the workflow is that nobody has to remember to.
@@ -177,7 +245,7 @@ but the point of the workflow is that nobody has to remember to.
 
 ## Current phase
 
-**Phase 0 — architecture proof: complete except the OpenAPI contract.**
+**Phase 0 — architecture proof: complete.**
 **Phase 1 — clients: in progress (Android collection app).**
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
@@ -189,8 +257,12 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
    outbox live in `shared/core` (`SubmissionStore`, 5 JVM tests)
 3. ERD / database schema — done; Alembic migration 0001 in
    `backend/migrations/versions/`, migration tests green against Postgres
-4. OpenAPI contract — **still skeleton**: 4 routes exist, no contract file
-   in `specs/`
+4. OpenAPI contract — done; `specs/openapi.json`, generated from the app by
+   `scripts/generate_api_contract.py` and never hand-written. 16 operations,
+   every one with a `response_model` and a typed request body. The console's
+   wire types are generated from it too, so the last hand-mirrored copy —
+   `SUBMISSION_STATUSES` in `web/src/api/types.ts` — is gone along with the
+   test that watched it. CI regenerates both and fails on any difference
 5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
 6. iOS Compose spike — done: builds and runs on the iPhone 17 Pro simulator;
    the submission list renders with the SQLDelight native driver and the
@@ -269,4 +341,13 @@ Plainly NOT done yet:
   collection in the field silently. What is still missing is the rest of the §8
   *flow*: no rotation (register-new-then-revoke-old is manual and unguided), no
   re-registration of a holder, and no import of a keypair generated elsewhere
-- **OpenAPI contract** — still skeleton (see item 4)
+- **Two gaps the contract work found and did not close.** Both are in
+  `/forms`, both need a decision rather than a patch. (a) Three endpoints
+  return 422 for a domain refusal, colliding with FastAPI's own
+  request-validation 422, so only one of the two bodies can be declared —
+  moving the refusals to their own status code would fix it and is an API
+  change. (b) `POST /forms/compile` returns **500**, not 422, for a Form IR
+  document missing a required top-level key: the engine raises `KeyError`
+  where §10 says it should report an error. The contract says 200 or 422, so
+  the document is currently wrong about that route in one direction the
+  generator cannot see

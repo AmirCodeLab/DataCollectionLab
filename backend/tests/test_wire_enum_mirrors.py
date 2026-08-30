@@ -1,32 +1,39 @@
-"""The database CHECK constraints are the single source of truth for the
-closed-value sets on the wire; everything else is a hand-written mirror.
+"""The database CHECK constraints are the single source of truth for the closed
+value sets on the wire. This is where that source meets the Python type.
 
-Until the OpenAPI contract exists (Phase 0 deliverable 4) the console's
-TypeScript types and the backend's Pydantic `Literal`s are copied by hand from
-`migrations/schema/001_initial.sql`. That copy drifts silently: adding a status
-to the constraint and to Python leaves the console rendering a value it has no
-type for, and dropping one leaves the console offering a filter the database
-rejects. These tests make the drift a test failure instead.
+The chain used to have two hand-copied links and now has one:
 
-When the generated OpenAPI client lands, the TypeScript half of this goes away —
-the schema-to-Python half stays.
+    001_initial.sql  --(this test)-->  Literal  --(generated)-->  openapi.json
+                                                --(generated)-->  types.ts
+
+Everything to the right of the `Literal` is produced by
+`scripts/generate_api_contract.py` and checked byte for byte in CI, so a value
+added to a `Literal` reaches the console or it fails the build. What no
+generator can see is the step on the left: the database constraint and the
+Python type are written by different hands in different languages, and adding a
+status to one and not the other leaves an API that offers a filter the database
+rejects, or a database row the API has no type for.
+
+The console half of this file is gone. It read `SUBMISSION_STATUSES` and the
+`OpKind` union out of `web/src/api/types.ts` with a regex, because that file was
+hand-written and could drift on its own. It is generated now, and a test that
+parses a generated file is testing the generator by proxy — badly, with a regex.
+`tests/test_openapi_contract.py` tests it directly instead.
 """
 
 import pathlib
-import re
 import typing
 
 import pglast
 import pytest
 from pglast import ast
 
-from app.modules.projects.schemas import KeyRole, SecurityMode
+from app.modules.projects.schemas import DevicePlatform, KeyRole, SecurityMode
 from app.modules.submissions.schemas import SubmissionStatus
-from app.modules.sync.schemas import OpKind
+from app.modules.sync.schemas import OpKind, TombstoneSubject
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 SCHEMA = REPO / "backend" / "migrations" / "schema" / "001_initial.sql"
-CONSOLE_TYPES = REPO / "web" / "src" / "api" / "types.ts"
 
 
 @pytest.fixture(scope="module")
@@ -57,18 +64,14 @@ def check_constraint_values(parsed, name: str) -> set[str]:
     raise AssertionError(f"no CHECK constraint named {name} in {SCHEMA.name}")
 
 
-def console_const_array(name: str) -> set[str]:
-    """The members of an `export const NAME = [...] as const;` array in types.ts."""
-    source = CONSOLE_TYPES.read_text()
-    match = re.search(
-        rf"export const {re.escape(name)}\s*=\s*\[(.*?)\]\s*as const;",
-        source,
-        re.DOTALL,
-    )
-    assert match, f"no `export const {name} = [...] as const;` in {CONSOLE_TYPES}"
-    values = re.findall(r'"([^"]*)"', match.group(1))
-    assert values, f"{name} in {CONSOLE_TYPES} parsed as empty"
-    return set(values)
+def literal_members(alias: typing.Any) -> set[str]:
+    """The members of a PEP 695 `type X = Literal[...]` alias.
+
+    `.__value__` is the step a plain `X = Literal[...]` did not need. It is
+    worth the extra call: a named alias is what gives the OpenAPI document one
+    entry per closed set instead of the same six strings inlined at every use.
+    """
+    return set(typing.get_args(alias.__value__))
 
 
 def assert_mirrors(*, allowed: set[str], mirror: set[str], source: str) -> None:
@@ -80,43 +83,23 @@ def assert_mirrors(*, allowed: set[str], mirror: set[str], source: str) -> None:
     )
 
 
-def test_python_submission_status_mirrors_the_check_constraint(parsed):
+def test_submission_status_mirrors_the_check_constraint(parsed):
     assert_mirrors(
         allowed=check_constraint_values(parsed, "submission_status_check"),
-        mirror=set(typing.get_args(SubmissionStatus)),
+        mirror=literal_members(SubmissionStatus),
         source="app.modules.submissions.schemas.SubmissionStatus",
     )
 
 
-def test_console_submission_statuses_mirror_the_check_constraint(parsed):
-    assert_mirrors(
-        allowed=check_constraint_values(parsed, "submission_status_check"),
-        mirror=console_const_array("SUBMISSION_STATUSES"),
-        source="SUBMISSION_STATUSES in web/src/api/types.ts",
-    )
-
-
-def test_python_op_kind_mirrors_the_check_constraint(parsed):
+def test_op_kind_mirrors_the_check_constraint(parsed):
     assert_mirrors(
         allowed=check_constraint_values(parsed, "submission_op_kind_check"),
-        mirror=set(typing.get_args(OpKind)),
+        mirror=literal_members(OpKind),
         source="app.modules.sync.schemas.OpKind",
     )
 
 
-def test_console_op_kind_mirrors_the_check_constraint(parsed):
-    """The console spells this as a union, not an array — read the union members."""
-    source = CONSOLE_TYPES.read_text()
-    match = re.search(r"export type OpKind\s*=(.*?);", source, re.DOTALL)
-    assert match, f"no `export type OpKind` in {CONSOLE_TYPES}"
-    assert_mirrors(
-        allowed=check_constraint_values(parsed, "submission_op_kind_check"),
-        mirror=set(re.findall(r'"([^"]*)"', match.group(1))),
-        source="OpKind in web/src/api/types.ts",
-    )
-
-
-def test_python_security_mode_mirrors_the_check_constraint(parsed):
+def test_security_mode_mirrors_the_check_constraint(parsed):
     """Which mode a project runs in is fixed at creation and cannot be changed.
 
     A mode the database accepts but the wire type does not is a project the API
@@ -125,32 +108,39 @@ def test_python_security_mode_mirrors_the_check_constraint(parsed):
     """
     assert_mirrors(
         allowed=check_constraint_values(parsed, "project_security_mode_check"),
-        mirror=set(typing.get_args(SecurityMode)),
+        mirror=literal_members(SecurityMode),
         source="app.modules.projects.schemas.SecurityMode",
     )
 
 
-def test_python_key_role_mirrors_the_check_constraint(parsed):
+def test_key_role_mirrors_the_check_constraint(parsed):
     """Roles decide who a content key gets wrapped to (envelope §4.1, §4.3)."""
     assert_mirrors(
         allowed=check_constraint_values(parsed, "project_key_role_check"),
-        mirror=set(typing.get_args(KeyRole)),
+        mirror=literal_members(KeyRole),
         source="app.modules.projects.schemas.KeyRole",
     )
 
 
-def test_console_security_modes_mirror_the_check_constraint(parsed):
+def test_device_platform_mirrors_the_check_constraint(parsed):
+    """A platform the database rejects is a device that cannot register at all."""
     assert_mirrors(
-        allowed=check_constraint_values(parsed, "project_security_mode_check"),
-        mirror=console_const_array("SECURITY_MODES"),
-        source="SECURITY_MODES in web/src/api/types.ts",
+        allowed=check_constraint_values(parsed, "device_platform_check"),
+        mirror=literal_members(DevicePlatform),
+        source="app.modules.projects.schemas.DevicePlatform",
     )
 
 
-def test_console_key_roles_mirror_the_check_constraint(parsed):
-    """The console offers these in a dropdown; the database decides what it takes."""
+def test_tombstone_subject_mirrors_the_check_constraint(parsed):
+    """A client pulls tombstones for subjects it does not handle yet (sync §5).
+
+    So the wire type has to name every subject the database can store, not
+    just the two the server writes today — a client that meets an unknown
+    `subjectType` should skip that row, and it cannot skip what its own types
+    say cannot exist.
+    """
     assert_mirrors(
-        allowed=check_constraint_values(parsed, "project_key_role_check"),
-        mirror=console_const_array("KEY_ROLES"),
-        source="KEY_ROLES in web/src/api/types.ts",
+        allowed=check_constraint_values(parsed, "tombstone_subject_check"),
+        mirror=literal_members(TombstoneSubject),
+        source="app.modules.sync.schemas.TombstoneSubject",
     )

@@ -6,10 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.schemas import MessageError
 from app.modules.projects import service
 from app.modules.projects.schemas import (
+    DeviceCryptoError,
+    DeviceCryptoErrorResponse,
     DeviceCryptoResponse,
     DeviceRegisterError,
+    DeviceRegisterErrorResponse,
     DeviceRegisterRequest,
     DeviceRegisterResponse,
 )
@@ -22,8 +26,8 @@ router = APIRouter()
     response_model=DeviceRegisterResponse,
     response_model_by_alias=True,
     responses={
-        403: {"model": DeviceRegisterError},
-        409: {"model": DeviceRegisterError},
+        403: {"model": DeviceRegisterErrorResponse},
+        409: {"model": DeviceRegisterErrorResponse},
     },
 )
 async def register(
@@ -55,6 +59,10 @@ async def register(
     "/{device_id}/crypto",
     response_model=DeviceCryptoResponse,
     response_model_by_alias=True,
+    responses={
+        404: {"model": MessageError},
+        409: {"model": DeviceCryptoErrorResponse},
+    },
 )
 async def crypto_config(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -81,7 +89,11 @@ async def crypto_config(
         except service.RecipientSetError as error:
             raise HTTPException(
                 status_code=error.status_code,
-                detail={"reason": error.reason, "message": error.message},
+                # Built from the declared model, not a bare dict: the body on
+                # the wire and the body in the contract then have one author.
+                detail=DeviceCryptoError(
+                    reason=error.reason, message=error.message
+                ).model_dump(),
             ) from error
     if config is None:
         raise HTTPException(status_code=404, detail="device not found")

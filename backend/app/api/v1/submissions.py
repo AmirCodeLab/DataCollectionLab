@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.schemas import MessageError
 from app.modules.submissions import service
 from app.modules.submissions.schemas import (
     DEFAULT_PAGE_LIMIT,
@@ -44,7 +45,12 @@ async def list_submissions(
         )
 
 
-@router.get("/{submission_id}", response_model=SubmissionDetail, response_model_by_alias=True)
+@router.get(
+    "/{submission_id}",
+    response_model=SubmissionDetail,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
 async def get_submission(
     session: Annotated[AsyncSession, Depends(get_db)],
     submission_id: Annotated[str, Path(min_length=1, max_length=64)],
@@ -61,6 +67,7 @@ async def get_submission(
     "/{submission_id}/keys",
     response_model=SubmissionKeysResponse,
     response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
 )
 async def get_submission_keys(
     session: Annotated[AsyncSession, Depends(get_db)],

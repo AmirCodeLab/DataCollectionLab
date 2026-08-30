@@ -210,11 +210,19 @@ else
     item "ERD / DB schema" "NOT STARTED" "no migrations, no ERD spec"
 fi
 
-# OpenAPI contract: a contract file in specs/ and route handlers in the app.
+# OpenAPI contract. The file existing is not the deliverable — the file being
+# what the app generates is, and a committed snapshot that has fallen behind the
+# server is worse than none. So this runs the same --check CI runs rather than
+# asking `find` whether a file is there.
 ROUTES=$(grep -rE '@router\.(get|post|put|patch|delete)' backend/app/api 2>/dev/null | wc -l | tr -d ' ')
 OPENAPI_SPEC=$(find specs -name '*openapi*' 2>/dev/null | head -1)
 if [ -n "$OPENAPI_SPEC" ] && [ "$ROUTES" -gt 0 ]; then
-    item "OpenAPI contract" "DONE" "$OPENAPI_SPEC + $ROUTES routes"
+    if "$PY" scripts/generate_api_contract.py --check >/dev/null 2>&1; then
+        item "OpenAPI contract" "DONE" "$OPENAPI_SPEC, in step with $ROUTES routes"
+    else
+        item "OpenAPI contract" "STALE" "$OPENAPI_SPEC is not what the app generates"
+        printf '                           run: python scripts/generate_api_contract.py\n'
+    fi
 elif [ "$ROUTES" -gt 0 ] || [ -n "$OPENAPI_SPEC" ]; then
     item "OpenAPI contract" "PARTIAL" "spec: ${OPENAPI_SPEC:-none}, routes in backend/app/api: $ROUTES"
 else

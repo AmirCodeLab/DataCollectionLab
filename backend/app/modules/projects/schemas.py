@@ -10,14 +10,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.crypto.envelope import PUBLIC_KEY_BYTES
 
-DevicePlatform = Literal["android", "ios", "desktop", "web"]
+# All the closed sets here are named `type` aliases rather than plain
+# assignments: Pydantic gives a named alias its own entry in the generated
+# schema, so each set is stated once in the OpenAPI document and every field
+# refs it (see submissions/schemas.py for the reasoning).
+type DevicePlatform = Literal["android", "ios", "desktop", "web"]
 
 # Machine-readable outcomes. Clients branch on these, never on the prose in
 # `message`, and never on the status code alone — a bare 409 gave a developer
 # no way to tell "you forgot to seed the database" from "this device belongs
 # somewhere else".
-RegisterStatus = Literal["registered", "already_registered"]
-RegisterFailure = Literal[
+type RegisterStatus = Literal["registered", "already_registered"]
+type RegisterFailure = Literal[
     # No project exists to attach the device to — almost always an unseeded
     # database (scripts/seed_dev.py).
     "project_not_found",
@@ -49,8 +53,30 @@ class DeviceRegisterResponse(BaseModel):
 
 
 # Both mirror CHECK constraints in migrations/schema/001_initial.sql.
-SecurityMode = Literal["standard", "field_level", "project_e2e"]
-KeyRole = Literal["primary", "backup", "recovery"]
+type SecurityMode = Literal["standard", "field_level", "project_e2e"]
+type KeyRole = Literal["primary", "backup", "recovery"]
+
+# Why a key was refused, for the two endpoints that manage recipients. Same
+# contract as RegisterFailure: the console branches on `reason` and shows
+# `message`, and neither of those is the status code.
+type KeyRegistrationFailure = Literal[
+    "project_not_found",
+    "project_archived",
+    # A small-order point: it drives every exchange to an all-zero secret, so
+    # the "recipient" would be one anybody could impersonate (§4.3).
+    "degenerate_public_key",
+    # A second copy of one key is not a second recipient.
+    "duplicate_public_key",
+    # The private half is published — scripts/dev_project_key.py.
+    "test_only_key",
+    "key_not_found",
+    # Revoking it would stop every device in the field collecting (§8).
+    "last_active_key",
+]
+
+# Why a device may not have the recipient set. One member today; a `Literal` of
+# one is still the right shape, because the client's branch is on the name.
+type RecipientSetFailure = Literal["test_only_key"]
 
 
 class ProjectKeyOut(BaseModel):
@@ -180,3 +206,39 @@ class DeviceRegisterError(BaseModel):
     # Prose for a human reading a log or an app's sync error; says what to do
     # about it. Never parsed.
     message: str
+
+
+# The three envelopes below exist because FastAPI wraps an HTTPException's
+# `detail` in `{"detail": ...}` before it reaches the wire. Declaring the inner
+# payload as the response model — which is what this file used to do for
+# DeviceRegisterError — publishes a contract for a body the app has never once
+# returned, and a generated client written against it fails on the first
+# refusal it meets. The envelope is the response; the payload is inside it.
+
+
+class DeviceRegisterErrorResponse(BaseModel):
+    """403 and 409 from POST /devices."""
+
+    detail: DeviceRegisterError
+
+
+class DeviceCryptoError(BaseModel):
+    reason: RecipientSetFailure
+    message: str
+
+
+class DeviceCryptoErrorResponse(BaseModel):
+    """409 from GET /devices/{id}/crypto."""
+
+    detail: DeviceCryptoError
+
+
+class ProjectKeyError(BaseModel):
+    reason: KeyRegistrationFailure
+    message: str
+
+
+class ProjectKeyErrorResponse(BaseModel):
+    """404, 409 and 422 from the project key endpoints."""
+
+    detail: ProjectKeyError
