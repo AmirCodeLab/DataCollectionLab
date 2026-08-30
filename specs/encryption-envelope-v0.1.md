@@ -381,6 +381,12 @@ mode, not as small print.
 backup theft; a subpoena served on the hosting provider; a lost or stolen
 device.
 
+A lost or stolen device is covered by §14, not by the sections above. Everything
+in §1–§10 is about what *leaves* the device. Until §14 is implemented on a
+platform, a seized phone from that platform gives up every answer on it
+regardless of the project's security mode, and the entry above is a claim rather
+than a defence.
+
 **Out of scope.** A compromised client device *during* an active session; a
 malicious enumerator who can see the data they collect by definition; traffic
 analysis of operation metadata (§3.1); coercion of a private key holder.
@@ -411,3 +417,222 @@ conformance directory.
 - Threshold schemes (k-of-n) as an alternative to multi-recipient wrapping
 - Whether audio audit files warrant a separate key hierarchy, since they are reviewed far more often than submission data
 - Post-quantum key agreement — X25519 is not PQ-safe; a hybrid X25519+ML-KEM wrap is the likely migration path
+
+---
+
+## 14. Local database encryption on the device
+
+Sections 1–10 describe what leaves the device. This section describes what stays
+on it. They are separate mechanisms with separate keys and separate threats, and
+conflating them is the mistake this section exists to prevent.
+
+Added after §13 rather than inserted before it so that every existing reference
+to a section number in this repository still points at the same text.
+
+### 14.1 The gap it closes
+
+The client stores the operation log, not materialised answers (Sync Protocol §2),
+and the operation log holds `value_json` in the clear. A project in
+`project_e2e` mode therefore ships ciphertext to a server that cannot read it
+and keeps the plaintext in a SQLite file that anyone holding the phone can read
+with one command. For most of this platform's users — a field team in a country
+where devices get seized at checkpoints — that is the likelier attack by a wide
+margin.
+
+This applies in **every** security mode, `standard` included. Local encryption
+is not part of a project's mode and is not configurable per project: a device
+either encrypts its database or it does not, and it does.
+
+### 14.2 Cipher
+
+SQLCipher 4 defaults, unchanged:
+
+| Property | Value |
+|---|---|
+| Page cipher | AES-256-CBC, per-page IV |
+| Page authentication | HMAC-SHA512 over ciphertext, page number and IV |
+| File salt | 16 random bytes, in the file header |
+| Key | **Raw 256-bit**, no password KDF |
+| Page size | 4096 |
+
+The key is **raw**, given as `PRAGMA key = "x'<64 hex>'"` or the platform
+binding's equivalent. SQLCipher's default of 256,000 PBKDF2-HMAC-SHA512
+iterations exists to stretch a human passphrase. Our key is 256 uniformly random
+bits out of the platform CSPRNG, so the KDF adds no entropy and costs a second
+of startup on the low-end hardware this platform targets. Stretching a key that
+is already full-entropy is theatre with a battery cost.
+
+Defaults are otherwise not tuned. `cipher_page_size`, `kdf_iter` and the HMAC
+settings stay at SQLCipher's values so that a database written by one build
+opens in the next.
+
+### 14.3 The database key
+
+- **32 bytes**, from the platform CSPRNG, generated on **first run**.
+- It **never leaves the device**: never synced, never wrapped to a project key,
+  never in a backup, never logged, never in a crash report.
+- It is **not stored by the application**. It is held by the platform keystore,
+  or derived from a key the platform keystore holds. It is never written to
+  `SharedPreferences`, to a preferences plist, to a file, to an environment
+  variable, or into a build.
+- It is unrelated to every key in §4. A content key protects one submission
+  from the server; the database key protects the whole local store from whoever
+  is holding the phone. Neither can substitute for the other, and **the database
+  key must never be used to wrap or unwrap anything in §4**.
+- **There is no recovery.** If the keystore entry is lost — app uninstalled,
+  device wiped, keystore invalidated by a lock-screen change — the local
+  database is unreadable and unsynced operations in it are gone. An escrow copy
+  would be a second copy of the key somewhere less protected, which is precisely
+  the artifact this design refuses to create. Operations that have been pushed
+  survive on the server; that is the recovery path, and it is why sync latency
+  is a data-durability concern and not only a convenience one.
+
+### 14.4 Where the key lives, per platform
+
+| Platform | Store | Binding |
+|---|---|---|
+| Android | Android Keystore (TEE or StrongBox where the device has one) | Non-exportable `HmacSHA256` key, alias `dcp_local_db_key_v1`. The database key is **derived**, not stored — see below |
+| iOS | Keychain, `kSecClassGenericPassword` | 32 random bytes, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` |
+| Desktop | The OS credential store: macOS Keychain, Windows Credential Manager (DPAPI), Linux Secret Service (`libsecret`) | 32 random bytes |
+
+**Android is derived rather than stored, and this is deliberate.** The Android
+Keystore will not return the raw bytes of a key it holds, so the conventional
+pattern is to generate a random database key, seal it with a keystore key, and
+write the sealed blob to `SharedPreferences` or a file. This specification
+forbids that. The sealed blob is one offline-attackable artifact more than the
+design needs, it survives in cloud backups and `adb backup` unless separately
+excluded, and it makes "the key is in no file the app owns" unverifiable —
+there is now a key-shaped object in a file, and the guarantee rests on an
+argument about it rather than on its absence.
+
+Instead:
+
+```
+db_key = HMAC-SHA256(K_keystore, "dcp/v1/local-db-key")
+```
+
+where `K_keystore` is a 256-bit HMAC key generated inside the Android Keystore
+and marked non-exportable. Nothing is persisted outside the keystore, the
+derivation is deterministic so the same database opens on every run, and an
+attacker with the filesystem but not the TEE has nothing to attack. The `info`
+string is domain-separated so the same keystore key can safely derive a
+different subkey later.
+
+iOS and desktop store the bytes directly because their keystores, unlike
+Android's, will give them back. `ThisDeviceOnly` on iOS keeps the key out of
+iCloud Keychain and out of encrypted iTunes/Finder backups — a key that
+synchronises to a second device is a key that can be seized on the second
+device.
+
+### 14.5 Fail closed
+
+Two failure modes here are silent, produce a working application, and leave the
+data in the clear. Both MUST be checked at runtime.
+
+1. **A build linked against plain SQLite ignores `PRAGMA key`.** Plain SQLite
+   treats an unknown pragma as a no-op and returns no error, so the application
+   runs, the tests pass and the database is written in cleartext. After opening,
+   an implementation MUST read the first 16 bytes of the database file and
+   refuse to continue if they are the ASCII string `SQLite format 3\0` — the
+   header a cleartext SQLite file always begins with, and which an encrypted
+   file never does because the salt occupies those bytes.
+
+2. **A missing or broken keystore MUST NOT fall back to an unencrypted
+   database.** No fallback, no "encryption unavailable, continuing" path, no
+   development-only escape hatch that can be shipped. Failing to start is the
+   correct behaviour: an enumerator who cannot open the app files a support
+   ticket, and an enumerator whose app quietly stopped encrypting files nothing.
+
+An implementation MUST NOT log the key or its hex form, and MUST NOT put the key
+into SQL text where the binding offers an alternative — a bound parameter, or a
+native keying call such as `sqlite3_key`.
+
+This is not a style rule. **SQLite's error log prints the text of a statement
+that fails**, so `ATTACH DATABASE '<path>' AS encrypted KEY 'x''<hex>'''` writes
+the key to the device log the first time the attach goes wrong. It did, on an
+emulator, during the first run of the Android migration in §14.6; the fix was to
+bind both values.
+
+Where a platform binding can key *only* through `PRAGMA key` — SQLiter on iOS,
+the JDBC driver on desktop, neither of which exposes `sqlite3_key`, and pragma
+arguments cannot be bound — the key is unavoidably in statement text, and a
+SQLite error on that statement would log it. That residual exposure is stated
+here rather than claimed away. The Android path avoids it: Zetetic's binding
+keys through `sqlite3_key`.
+
+### 14.6 Migrating an existing cleartext database
+
+A device upgrading from a build that predates this section has a cleartext
+`dcp.db` holding real, possibly unsynced work. It is migrated, never recreated,
+for the reason in §4.5: the device's logical counter lives in that file, and a
+device that reset its counter and later encrypted would reuse an operation
+nonce.
+
+```sql
+-- against the cleartext database
+ATTACH DATABASE 'dcp.db.migrating' AS encrypted KEY "x'<64 hex>'";
+SELECT sqlcipher_export('encrypted');
+PRAGMA encrypted.user_version = <the cleartext user_version>;
+DETACH DATABASE encrypted;
+```
+
+then replace the original by rename. `user_version` must be carried across by
+hand: `sqlcipher_export` copies schema and rows and not that pragma, and
+SQLDelight reads it to decide which `.sqm` migrations to run. Losing it makes
+the next launch replay every migration against a schema that already has them.
+
+The cleartext file MUST be deleted after a successful swap. Deleting a file does
+not erase its blocks, so this narrows the window rather than closing it — the
+honest statement is that a device that ever ran a cleartext build may leave
+recoverable plaintext in unallocated space until the flash is reused. Only a
+factory reset closes that.
+
+### 14.7 App lock (optional)
+
+Optional per deployment. When enabled, the keystore entry is bound to user
+authentication:
+
+| Platform | Binding |
+|---|---|
+| Android | `setUserAuthenticationRequired(true)` on the keystore key, with a validity window, satisfied by device credential or a strong biometric |
+| iOS | `kSecAccessControl` with `.userPresence` on the Keychain item |
+| Desktop | The OS credential store's own unlock (login keychain, Windows sign-in, keyring prompt) |
+
+The lock gates **the key**, not a screen. A lock that only hides the UI protects
+nothing: the database file is still readable by anyone who can copy it. If the
+platform will not release the key, the application has no database, which is the
+whole point.
+
+Enabling the lock on Android invalidates the existing keystore key if the user
+later removes their lock screen, and the database becomes unreadable. That is
+the platform's behaviour, it is correct, and the product must say so before the
+setting is turned on rather than after.
+
+### 14.8 What this does not protect
+
+- A device compromised **while running and unlocked**. The key is in memory and
+  the answers are in the page cache. This is already out of scope in §11 and
+  stays there.
+- Anything outside the database: media files on disk (§6 has no local-storage
+  rules yet), exported files, screenshots, the OS keyboard's learned-word cache.
+- The plaintext of an answer while it is on screen or in a `ViewModel`.
+- Data on the server. `standard` mode still means the operator reads everything;
+  §14 changes nothing about that.
+
+### 14.9 Conformance
+
+Local database encryption produces no cross-engine vectors — there is no second
+implementation to agree with, and the ciphertext is a SQLCipher file rather than
+an envelope this specification defines. It is instead defended by tests that
+assert the properties directly, which every client implementation MUST carry:
+
+1. The database file on disk contains none of the plaintext answers written
+   through it.
+2. A database created under one key cannot be opened with another, and cannot
+   be opened with no key.
+3. The key appears in no file the application owns — `SharedPreferences`
+   included — and in no key-value store the platform offers.
+4. A cleartext database is migrated to an encrypted one with its rows, its
+   schema version and its device counter intact.
+5. Opening against a plain-SQLite binding fails rather than writing cleartext
+   (§14.5).

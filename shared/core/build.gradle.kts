@@ -48,6 +48,9 @@ kotlin {
             implementation(libs.cryptography.provider.jdk.bc)
 
             implementation(libs.sqldelight.sqlite.driver)
+            // The cipher for the local database (envelope §14). Substituted
+            // for org.xerial:sqlite-jdbc below, not added alongside it.
+            implementation(libs.sqlite.jdbc.mc)
         }
         androidMain.dependencies {
             // Platform JCA has no X25519 below API 33; BouncyCastle backs the
@@ -55,6 +58,7 @@ kotlin {
             implementation(libs.cryptography.provider.jdk.bc)
 
             implementation(libs.sqldelight.android.driver)
+            implementation(libs.sqlcipher.android)
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
@@ -74,5 +78,27 @@ sqldelight {
         create("DcpDatabase") {
             packageName.set("com.dcp.core.db")
         }
+    }
+}
+
+/*
+ * The local database is encrypted (encryption envelope §14), and on the JVM the
+ * cipher comes from SQLite3 Multiple Ciphers — a fork of org.xerial:sqlite-jdbc
+ * with the SQLCipher codec compiled into its bundled native library.
+ *
+ * A substitution rather than an extra dependency, because the two register the
+ * same `org.sqlite.JDBC` driver under the same class name. With both on the
+ * classpath the winner is whichever the class loader reaches first, and if that
+ * is the stock one then `PRAGMA key` is an unknown pragma, SQLite ignores it
+ * without error, and the op log is written in cleartext. Substituting makes
+ * that outcome impossible instead of unlikely — `sqldelight-sqlite-driver`
+ * pulls the stock driver in transitively, so it would otherwise arrive without
+ * anyone naming it.
+ */
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("org.xerial:sqlite-jdbc"))
+            .using(module("io.github.willena:sqlite-jdbc:${libs.versions.sqlite.jdbc.mc.get()}"))
+            .because("SQLCipher for the local database at rest — encryption envelope §14")
     }
 }
