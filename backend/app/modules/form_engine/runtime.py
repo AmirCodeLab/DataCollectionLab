@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
+from .document import check_document
 from .expression import (
     CompileError,
     EvalContext,
@@ -60,6 +61,12 @@ class CompiledForm:
     """A validated form with its dependency graph resolved."""
 
     def __init__(self, ir: dict[str, Any]) -> None:
+        # §10.1 first, over the raw document. Everything below this line — and
+        # every semantic check in _compile — may assume the keys it reads exist
+        # and hold what they say they do. Without it `ir["formId"]` on the next
+        # line is a KeyError on any document that is not a form.
+        check_document(ir)
+
         self.ir = ir
         self.form_id: str = ir["formId"]
         self.version: int = ir["version"]

@@ -76,9 +76,12 @@ does not need a Node runtime beside Python.
    disagree, the spec wins — or the spec changes deliberately, in its own commit.
 
 2. **Conformance vectors are the contract.** Every engine — Python reference and
-   Kotlin — must pass every vector in `conformance/vectors` identically. A vector
-   passing on one and failing on the other is a release blocker, never a platform
-   difference.
+   Kotlin — must pass every vector identically. A vector passing on one and
+   failing on the other is a release blocker, never a platform difference.
+   Four sets, because one format cannot express all four questions:
+   `conformance/vectors` (evaluation), `crypto` (envelope bytes),
+   `sensitivity` (which forms publish refuses, §10.2), `malformed` (which
+   documents are refused before compilation, §10.1).
 
 3. **Never "fix" a failing vector by editing the expectation.** Change the
    expectation only alongside a spec change explaining why.
@@ -179,6 +182,13 @@ Two implementations that must agree:
   potentially the server.
 
 Key design points:
+- Refusal is two-stage (§10). **Document errors** (§10.1) are checked first over
+  the raw document — is this a Form IR document at all — and only then the
+  semantic errors of §10.2. Python does this in `document.py`/`Document.kt`
+  rather than leaving it to the deserialiser, because a statically typed engine
+  gets that gate free and a dynamically typed one gets nothing: before it
+  existed, Kotlin refused nine document shapes and Python raised `KeyError`,
+  reaching the API as a 500.
 - Expressions are a **typed AST**, never strings. No XPath at runtime.
 - `null` is a first-class value. It propagates through arithmetic and comparison
   and only becomes boolean at the relevance/constraint/required boundary.
@@ -201,9 +211,11 @@ ruff check . && mypy app
 python scripts/generate_api_contract.py            # openapi.json + console types
 python scripts/generate_api_contract.py --check    # what CI runs
 
-# Conformance
-python conformance/generate_vectors.py     # regenerate vectors
+# Conformance — four sets, all of them on both engines
+python conformance/generate_vectors.py     # regenerate the evaluation vectors
 cd backend && pytest tests/test_conformance.py -v
+cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, §10.1
+./gradlew :shared:form-engine:jvmTest      # the Kotlin half of all of them
 
 # Kotlin engine (from the repo root — one build)
 ./gradlew :shared:form-engine:jvmTest
@@ -341,13 +353,10 @@ Plainly NOT done yet:
   collection in the field silently. What is still missing is the rest of the §8
   *flow*: no rotation (register-new-then-revoke-old is manual and unguided), no
   re-registration of a holder, and no import of a keypair generated elsewhere
-- **Two gaps the contract work found and did not close.** Both are in
-  `/forms`, both need a decision rather than a patch. (a) Three endpoints
+- **One gap the contract work found and did not close.** Three endpoints
   return 422 for a domain refusal, colliding with FastAPI's own
-  request-validation 422, so only one of the two bodies can be declared —
-  moving the refusals to their own status code would fix it and is an API
-  change. (b) `POST /forms/compile` returns **500**, not 422, for a Form IR
-  document missing a required top-level key: the engine raises `KeyError`
-  where §10 says it should report an error. The contract says 200 or 422, so
-  the document is currently wrong about that route in one direction the
-  generator cannot see
+  request-validation 422, so only one of the two bodies can be declared.
+  Moving those refusals to their own status code would fix it, and that is an
+  API change rather than a patch. (The other gap that work found — a 500 from
+  `POST /forms/compile` on a malformed document — is closed: §10.1, both
+  engines, 22 vectors in `conformance/malformed`)

@@ -1,0 +1,30 @@
+{
+  "id": "malformed-022",
+  "type": "malformed",
+  "description": "a lower minor version of the same major",
+  "spec": "10.1",
+  "refused": false,
+  "note": "Spec §9: equal or lower minor is accepted. Refusing it would strand old forms.",
+  "form": {
+    "irVersion": "0.0",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

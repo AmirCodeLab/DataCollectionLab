@@ -1,0 +1,30 @@
+{
+  "id": "malformed-013",
+  "type": "malformed",
+  "description": "a question with no dataType",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "missing_field",
+  "where": "children[0].dataType",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

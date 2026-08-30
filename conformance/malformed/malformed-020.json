@@ -1,0 +1,20 @@
+{
+  "id": "malformed-020",
+  "type": "malformed",
+  "description": "children absent — a form with no nodes still compiles",
+  "spec": "10.1",
+  "refused": false,
+  "note": "Absent is not the same as present-and-wrong. §10.1 lists children as optional.",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ]
+  }
+}

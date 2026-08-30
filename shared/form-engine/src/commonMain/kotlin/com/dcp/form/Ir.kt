@@ -35,6 +35,48 @@ val IrJson: Json = Json {
     classDiscriminator = "type"
 }
 
+/** The IR version this engine implements (spec §9). */
+val SUPPORTED_IR_VERSION: Pair<Int, Int> = 0 to 1
+
+/**
+ * Spec §9 and §10.1. Refuse a version this engine does not implement.
+ *
+ * Not advisory, and not only about the major number: v0.2 may define an
+ * expression node or a node kind this engine would silently ignore, producing
+ * a form that looks correct and evaluates by the wrong rules. The enumerator
+ * whose device is a version behind has to be told to update, and a form that
+ * opens and quietly misbehaves tells them nothing.
+ *
+ * Kept beside [FormIr] rather than in Document.kt because this is the one
+ * document error that survives decoding: the field is present and it is a
+ * string, so a typed FormIr built in code can still carry a version this
+ * engine cannot read. [CompiledForm] therefore calls it again.
+ */
+fun checkIrVersion(raw: String) {
+    val (supportedMajor, supportedMinor) = SUPPORTED_IR_VERSION
+    val parts = raw.split(".")
+    val major = parts.getOrNull(0)?.toIntOrNull()
+    val minor = parts.getOrNull(1)?.toIntOrNull()
+
+    if (major == null || minor == null) {
+        throw DocumentException(
+            "unknown_ir_version",
+            "irVersion",
+            "'$raw' is not a version number. This engine implements " +
+                "$supportedMajor.$supportedMinor.",
+        )
+    }
+    if (major != supportedMajor || minor > supportedMinor) {
+        throw DocumentException(
+            "unknown_ir_version",
+            "irVersion",
+            "this engine implements Form IR $supportedMajor.$supportedMinor and cannot " +
+                "read $raw. Reading what it recognises would produce a form that " +
+                "evaluates by the wrong rules.",
+        )
+    }
+}
+
 @Serializable
 data class FormIr(
     val irVersion: String,
@@ -46,10 +88,17 @@ data class FormIr(
     val children: List<FormNode> = emptyList(),
 ) {
     companion object {
-        fun parse(json: String): FormIr = IrJson.decodeFromString(serializer(), json)
+        fun parse(json: String): FormIr = parse(IrJson.parseToJsonElement(json))
 
-        fun parse(element: JsonElement): FormIr =
-            IrJson.decodeFromJsonElement(serializer(), element)
+        /**
+         * §10.1 runs over the raw JSON first, so a malformed document is
+         * refused with a reason and a location rather than with whatever the
+         * deserialiser says about a Kotlin field. Decoding is the backstop.
+         */
+        fun parse(element: JsonElement): FormIr {
+            checkDocument(element)
+            return IrJson.decodeFromJsonElement(serializer(), element)
+        }
     }
 }
 

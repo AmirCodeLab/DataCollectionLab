@@ -1,0 +1,27 @@
+{
+  "id": "malformed-014",
+  "type": "malformed",
+  "description": "a node type this IR does not define",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "unknown_node_type",
+  "where": "children[0].type",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "section",
+        "id": "a"
+      }
+    ]
+  }
+}

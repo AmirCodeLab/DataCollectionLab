@@ -1,0 +1,24 @@
+{
+  "id": "malformed-010",
+  "type": "malformed",
+  "description": "a node that is a string rather than an object",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "not_an_object",
+  "where": "children[0]",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      "nope"
+    ]
+  }
+}

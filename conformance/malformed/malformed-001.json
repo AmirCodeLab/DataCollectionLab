@@ -1,0 +1,14 @@
+{
+  "id": "malformed-001",
+  "type": "malformed",
+  "description": "a form that is not a JSON object at all",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "not_an_object",
+  "where": "",
+  "form": [
+    "not",
+    "a",
+    "form"
+  ]
+}

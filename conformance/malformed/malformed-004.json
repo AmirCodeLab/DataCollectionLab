@@ -1,0 +1,30 @@
+{
+  "id": "malformed-004",
+  "type": "malformed",
+  "description": "version absent",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "missing_field",
+  "where": "version",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "integer",
+        "label": {
+          "en": "A"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "malformed-011",
+  "type": "malformed",
+  "description": "a node with no type",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "missing_field",
+  "where": "children[0].type",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "id": "a",
+        "dataType": "integer"
+      }
+    ]
+  }
+}

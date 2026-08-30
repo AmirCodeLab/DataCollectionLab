@@ -9,7 +9,9 @@ package com.dcp.form
  */
 
 class EvaluationException(message: String) : Exception(message)
-class CompileException(message: String) : Exception(message)
+
+/** Open so [DocumentException] can be one — see Document.kt. */
+open class CompileException(message: String) : Exception(message)
 
 /**
  * A form value. [Null] is a first-class value, not an absence, because the

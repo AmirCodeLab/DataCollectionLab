@@ -1,0 +1,28 @@
+{
+  "id": "malformed-016",
+  "type": "malformed",
+  "description": "a group whose children are not an array",
+  "spec": "10.1",
+  "refused": true,
+  "reason": "wrong_type",
+  "where": "children[0].children",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "shapes",
+    "version": 1,
+    "title": {
+      "en": "Shapes"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "group",
+        "id": "g",
+        "children": "nope"
+      }
+    ]
+  }
+}
