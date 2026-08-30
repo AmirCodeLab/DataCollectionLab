@@ -29,24 +29,56 @@ Rules that make it worth keeping:
 | | |
 |---|---|
 | **Where** | `clients/composeApp/.../CollectionScreen.kt` → `DateAnswer`, on the desktop client |
-| **Status** | **Open, and this row is incomplete** |
-| **Why not fixed** | Desktop collection was never Phase 1 scope — the desktop app is a supervision and review client (see defect 2) |
+| **Status** | **Open — symptom recorded, and it did not reproduce here** |
+| **Why not fixed** | There is nothing yet to fix. Four attempts to reproduce it all showed the picker opening; see below |
 
-Reported from a desktop run during review. It is recorded here so it is not
-lost, but **the observed symptom has not been written down and has not been
-reproduced in this repository**, so the row cannot yet say what is wrong.
+**Reported symptom.** Clicking the "Pick a date" field focused it — the border
+turned purple — and nothing else happened. No picker. On the focused field,
+Space, Enter and typing `2026-08-30` each changed nothing; all four screenshots
+were byte-identical (sha256 `01f0e572302ea24b…`). Compose Desktop, 800x600
+window, macOS dark appearance, English. Driven with synthesised CGEvent clicks
+and System Events keystrokes rather than by hand.
 
-What is established: the date path is entirely shared code. `DateAnswer` is
-common Compose, `DateUtil.kt` is pure civil-date arithmetic with no platform
-half, and `todayIsoDate()` returns a local-timezone `YYYY-MM-DD` on all three
-platforms. There is no desktop `actual` anywhere in it. So any desktop-only
-difference comes from Material3's own desktop implementation of `DatePicker` —
-which is present, not a stub, and picks up `java.util.Locale.getDefault()` and a
-kotlinx-datetime calendar model where Android picks up `java.util.Calendar` for
-the same locale.
+**It did not reproduce**, by four routes, on 2026-08-30:
 
-**To close this row:** paste the observed symptom (what was on screen, what was
-expected) and the desktop locale it was seen under.
+1. `DateQuestionTest` (`:clients:composeApp:jvmTest`), which drives the real
+   composable on the JVM target with Compose's own injection: mouse and touch
+   both open the picker.
+2. The same composable in a **real 800x600 Compose Desktop window**, clicked
+   with a synthesised `CGEvent` — the report's own instrument. The click reached
+   the overlay and the dialog composed.
+3. The **full desktop app**, navigated to a date question: same result.
+4. A real hand click on 2 and 3, which is what the report asked for.
+
+The picker also lays out on screen rather than off it: instrumented,
+`DatePicker` measured 720x1024 px at `Rect(440, 4, 1160, 1028)` with its button
+row at `y=1028..1124`, inside a content area 1144 px tall. That fits with
+20 px to spare at 800x600, which is tight enough to be worth knowing — a
+smaller window would not fit it.
+
+**What the report's own evidence does and does not settle.** The CGWindowList
+check ruled out the wrong thing. Compose Multiplatform renders a `Dialog` as a
+layer *inside* the parent window, not as a platform window, so an unchanged
+window list is what a working picker looks like too — confirmed here: the
+process still reported exactly one window with the picker open. The
+byte-identical screenshots are the load-bearing evidence, and they are not
+explained.
+
+One detail still contradicts every reproduction: the report says the **field**
+took focus. The transparent overlay sits above the field and consumes the
+click, so a click that opens the picker does not focus the field underneath —
+and a click that focuses the field means the overlay was not hit. The only way
+`DateAnswer` omits the overlay is `enabled == false`, and a disabled
+`OutlinedTextField` does not take focus either. So the two halves of the
+reported symptom do not fit together in this code, which is the strongest
+reason to think something environmental was in play.
+
+**To close this row:** a reproduction on the current tree that says which build
+was running, or a decision that the report was an artefact of the synthetic
+input and the row can go. Do not close it on the strength of the tests alone —
+they are `DateQuestionTest`, they are now in CI, and break 23 in
+`known-breaks.md` is the evidence they can catch this symptom; but every one of
+them passed before the investigation started too.
 
 ### 2. Desktop draws media widgets that silently do nothing
 

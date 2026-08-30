@@ -6,11 +6,12 @@
 # is how 78 ruff errors and a lint script pointing at an uninstalled binary sat
 # unnoticed for weeks.
 #
-# Four jobs, matching the four things that can independently break. They run in
-# parallel because none of them needs another's output, and every one of them
-# fails the build: there is no `continue-on-error` in this file, and there is
-# not going to be. A job that cannot fail is worse than no job — it produces the
-# paperwork of having been checked.
+# Four jobs, matching the four things that can independently break, and a fifth
+# — `suites` — that checks the other four have not left a test suite out. They
+# run in parallel because none of them needs another's output, and every one of
+# them fails the build: there is no `continue-on-error` in this file, and there
+# is not going to be. A job that cannot fail is worse than no job — it produces
+# the paperwork of having been checked.
 
 name: CI
 
@@ -117,7 +118,7 @@ jobs:
         run: pytest tests/ -v -m db
 
   kotlin:
-    name: kotlin (form-engine and core)
+    name: kotlin (form-engine, core and the shared UI)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,12 +140,66 @@ jobs:
       - name: jvmTest
         run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
 
+      # The collection screen, driven through a real composition on the JVM
+      # target — the same skiko-backed implementation the desktop client uses.
+      # Headless: Compose's test scene renders offscreen and needs no display.
+      - name: shared UI tests
+        run: ./gradlew :clients:composeApp:jvmTest
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: kotlin-test-reports
-          path: shared/*/build/reports/tests/
+          path: |
+            shared/*/build/reports/tests/
+            clients/composeApp/build/reports/tests/
+
+  # The job that watches the other four. Everything above is a suite; this asks
+  # whether any suite in the repository is missing from that list.
+  #
+  # It exists because the answer has been "yes" three times: this whole file was
+  # uncommitted, `npm run lint` exited 0 with no eslint config, and
+  # :clients:composeApp:jvmTest was absent from the kotlin job. None of those
+  # showed up as a red build — a suite nobody runs reads exactly like a suite
+  # that passes, which is what makes it worse than having no suite at all.
+  #
+  # It installs the backend and web toolchains because it enumerates pytest and
+  # vitest by asking them what they collect, not by parsing config. --strict is
+  # what makes that honest: without it a check whose toolchain is missing is
+  # skipped, and a skip reported as green is the failure being guarded against.
+  suites:
+    name: suites (every suite is run by CI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      # PyYAML to read this file, and the backend so `pytest --collect-only`
+      # can be asked which tests each of the two marker halves selects.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
+          pip install -e "backend/[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web
+        working-directory: web
+        run: npm ci
+
+      - name: Every suite is run by CI
+        run: python scripts/check_ci_runs_every_suite.py --strict
 
   web:
     name: web (typecheck, lint, test, build)

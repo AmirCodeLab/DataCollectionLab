@@ -73,6 +73,14 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+        jvmTest.dependencies {
+            // Drives the shared collection screen through a real composition on
+            // the desktop target, so a widget that only misbehaves there is
+            // reproducible without a device and without synthesised OS events.
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+            implementation(compose.desktop.currentOs)
+        }
     }
 }
 
