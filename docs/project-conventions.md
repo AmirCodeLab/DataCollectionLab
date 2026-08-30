@@ -254,6 +254,10 @@ but the point of the workflow is that nobody has to remember to.
 - Migrations must be reversible; self-hosted users run old versions
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
+- A defect left unfixed on purpose goes in `docs/known-defects.md` with the
+  reason it is still open. Knowing about a defect and having fixed it are
+  different claims, in the same way a test existing and a test having caught
+  something are
 
 ## Current phase
 
@@ -289,7 +293,7 @@ media key lives in the SQLCipher database, which is what makes a staged file
 encrypted at rest without a second key hierarchy (§6.1). The staged chunks ARE
 the upload — encrypted once, sent byte for byte — so a resumed upload provably
 sends the same bytes as the first attempt. CameraX behind expect/actual on
-Android, AVFoundation on iOS, desktop refusing rather than pretending; the
+Android, AVFoundation on iOS, **nothing at all on desktop** (see below); the
 viewfinder is `clients/composeApp` and `shared/core` constructs no View.
 
 Upload is resumable per §6: 4 MiB chunks, each under its own derived nonce,
@@ -314,6 +318,17 @@ engine hides until something tries to use it.
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
 constraints, local op log, RTL, tested on a real device with a 52-question form.
+
+Whether an invalid answer stops the enumerator moving on is now decided in the
+spec rather than per platform (§6.2): **navigation is never gated, finalisation
+always is.** It was unspecified before — §11 says nothing about validity, no
+vector covered it, and the clients were observed differing, which is the drift
+the conformance architecture exists to prevent hiding in an undefined rule
+rather than a wrong one. The gate lives in `FormNavigator`
+(`canFinalize`, `finalizationBlockers`, `goToFirstBlocking`) with the same three
+functions in the Python reference, five vectors (`screens-004`…`008`) and
+`NavigatorTest` — which exists because the vectors cannot see the navigator
+class, so a gate added to `next()` would pass all 39 of them.
 
 Client-side encryption is wired into the sync path: a device fetches its
 project's security mode and recipient set from
@@ -368,6 +383,16 @@ Plainly NOT done yet:
   that already holds data needs a re-key of the database, and that is not
   written. A settings toggle without it would silently destroy every answer on
   the device
+- **Desktop collects nothing, and currently pretends otherwise.** Desktop was
+  never in Phase 1 scope — it is the supervision and review client — but the
+  collection screen is shared code and renders there anyway, with the media
+  widgets drawn and inert: the gallery button calls a `rememberGalleryPicker`
+  that reports "nothing chosen", the signature canvas draws strokes and its
+  Save button returns at `mediaCapture ?: return`, and Capture position answers
+  the permission request `true` before doing nothing. No message, no refusal —
+  the enumerator sees a widget behaving as though they had not tapped it. Filed
+  as defects 1 and 2 in `docs/known-defects.md`; do not read the media section
+  above as covering desktop
 - **Media beyond image, signature and geopoint.** Audio, video and file upload
   are not built. They are in the IR and deliberately NOT in the collection
   screen's supported types: rendering a widget that cannot answer a question is
