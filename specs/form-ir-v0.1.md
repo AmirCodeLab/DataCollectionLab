@@ -25,7 +25,7 @@ Every runtime MUST produce identical results for the same IR and the same input 
 
 | Field | Type | Notes |
 |---|---|---|
-| `irVersion` | string | IR schema version. Runtimes reject unknown major versions |
+| `irVersion` | string | IR schema version. A runtime MUST refuse a version it does not implement — §9, §10.1 |
 | `formId` | string | Stable identifier, `^[a-z][a-z0-9_]*$` |
 | `version` | integer | Published version number. Immutable once published |
 | `title` | i18n string | See §7 |
@@ -345,13 +345,61 @@ Automatically captured, addressable under `_metadata`:
 
 ## 9. Versioning
 
-- `irVersion` follows semver. Runtimes accept the same major version and any equal or lower minor version.
+- `irVersion` follows semver. A runtime accepts the same major version and any equal or lower minor version.
+- A runtime **MUST refuse** a document whose `irVersion` names a major version it does not implement, and MUST refuse it as a document error (§10.1) rather than compiling what it can. This is not advisory. A v0.1 runtime handed a v1.0 document does not know which of the fields it recognises still mean what they used to, so a partial read produces a form that looks correct and evaluates by the wrong rules — the one failure this specification exists to prevent. Refusing is also the only way the message reaches anyone: an enumerator whose device is a version behind must be told to update, and silence tells them nothing.
+- A runtime MUST likewise refuse a **higher minor** version of a major version it implements, for the same reason: v0.2 may define an expression node or a node kind that v0.1 would silently ignore. Equal or lower minor versions are accepted.
 - A published form `version` is immutable. Editing creates a new version.
 - Every submission records the exact `formId` + `version` it was collected against, and is always re-validated against that version, never the latest.
 
 ## 10. Compile errors vs warnings
 
-**Errors** (block publish): unresolvable reference, dependency cycle, duplicate id, invalid id format, type mismatch, unknown function, wrong arity, unknown `irVersion`, **sensitivity leak**.
+Refusal happens in two stages, and the distinction is not cosmetic — it is the
+difference between "this is not a Form IR document" and "this is a Form IR
+document that must not ship".
+
+### 10.1 Document errors
+
+Checked **first**, before any semantic check, over the raw document. A document
+that fails here is not a Form IR document at all, so nothing later in this
+specification applies to it: there are no fields to resolve references between
+and no graph to look for cycles in.
+
+A runtime MUST refuse such a document and MUST report which of these it is, and
+where:
+
+| Reason | Condition |
+|---|---|
+| `not_an_object` | the document, or a node inside `children`, is not a JSON object |
+| `missing_field` | a required field is absent |
+| `wrong_type` | a required field is present with the wrong JSON type |
+| `unknown_node_type` | a node's `type` is not `question`, `group` or `repeat` |
+| `unknown_ir_version` | `irVersion` names a version this runtime does not implement (§9) |
+
+**Required fields.** Document: `irVersion` (string), `formId` (string),
+`version` (integer). Node: `type` (string) and `id` (string); a `question` also
+requires `dataType` (string). Everything else in §1 and §2 is optional and
+defaults as described there — `children` absent means a form with no nodes,
+which compiles, and is not the same as `children` present holding a string.
+
+`version` must be an integer and not a string spelling one. A runtime MUST NOT
+coerce: `"1"` and `1` would give two different published versions the same
+number, and a submission records the version it was collected against.
+
+> Rationale for making this a specified stage rather than an implementation
+> detail. A statically typed runtime gets this gate free from its deserialiser
+> and a dynamically typed one gets nothing, so leaving it unstated does not
+> produce two implementations that differ in their error message — it produces
+> one that refuses the document and one that crashes partway through
+> compilation, with a stack trace where the reason should be. That is a
+> conformance failure the vectors could not even express, because every vector
+> in `conformance/vectors` assumes a form that compiled.
+
+### 10.2 Semantic errors
+
+Checked over a document that passed §10.1. These block publish:
+
+unresolvable reference, dependency cycle, duplicate id, invalid id format, type
+mismatch, unknown function, wrong arity, **sensitivity leak**.
 
 A **sensitivity leak** is a field that is not `sensitive` but whose `calculate`,
 `relevant`, `constraint`, `required`, `readOnly` or `default` reads a field that
@@ -361,7 +409,10 @@ reading field sensitive too, never to unmark the source. This is checked over
 the same dependency graph §5.1 builds, so it is exact rather than heuristic, and
 it blocks publish in every security mode.
 
-**Warnings** (allow publish): missing translation, decimal equality comparison, unreachable relevance (statically false), repeat with no bound, unused calculate.
+### 10.3 Warnings
+
+Allow publish: missing translation, decimal equality comparison, unreachable
+relevance (statically false), repeat with no bound, unused calculate.
 
 ## 11. Screen flow
 
