@@ -89,7 +89,10 @@ does not need a Node runtime beside Python.
 5. **Crypto rules are not negotiable.** `specs/encryption-envelope-v0.1.md`
    is normative. Never remove a field from an AAD, never make a nonce constant
    or random-without-justification, never hash media plaintext. Every change to
-   `backend/app/modules/crypto/` needs a test proving the property it protects.
+   `backend/app/modules/crypto/` needs a test proving the property it protects,
+   and so does every change to `shared/core/src/*/kotlin/com/dcp/core/security/`
+   — §14 has no cross-engine vectors to catch a regression, only tests that read
+   the bytes on disk.
 
 6. **Offline-first is a constraint, not a feature.** For any client change, ask:
    what happens with no network for 14 days?
@@ -139,6 +142,11 @@ cd backend && pytest tests/test_conformance.py -v
 ./gradlew :clients:androidApp:assembleDebug
 ./gradlew :clients:desktopApp:run
 
+# Local database encryption (envelope §14)
+./gradlew :shared:core:jvmTest --tests "com.dcp.core.security.*"
+scripts/prove_local_encryption.sh          # against a connected device
+scripts/build_sqlcipher_ios.sh             # once, before the first iOS build
+
 # Web
 cd web && npm install && npm run dev
 npm run typecheck && npm run lint && npm test && npm run build
@@ -186,7 +194,8 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
 6. iOS Compose spike — done: builds and runs on the iPhone 17 Pro simulator;
    the submission list renders with the SQLDelight native driver and the
-   bundled form compiling on-device (app link needs `-lsqlite3`, set in
+   bundled form compiling on-device (the app supplies SQLite at link time —
+   now SQLCipher rather than `-lsqlite3`, see §14 below and
    `clients/iosApp/Configuration/Config.xcconfig`)
 
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
@@ -216,11 +225,36 @@ A key whose private half is published — the fixed keypairs in
 both when registering it as a recipient and when handing the recipient set to a
 device (`backend/app/modules/crypto/published_test_keys.py`).
 
+The local database is encrypted at rest (§14, added in this repository —
+§1–§10 are about what leaves the device, §14 about what stays on it). SQLCipher
+4 with a raw 256-bit key on all three clients: `net.zetetic:sqlcipher-android`,
+SQLite3 Multiple Ciphers on the JVM (substituted for `org.xerial:sqlite-jdbc`,
+which has no cipher), and a SQLCipher static library on iOS built by
+`scripts/build_sqlcipher_ios.sh` and linked from `Config.xcconfig` in place of
+`-lsqlite3`.
+
+The key is generated on first run, never leaves the device, and is not stored by
+the app: Android **derives** it inside the Keystore
+(`HMAC-SHA256(K_keystore, "dcp/v1/local-db-key")`, nothing persisted outside the
+TEE — no sealed blob in SharedPreferences), iOS keeps 32 bytes in the Keychain
+as `WhenUnlockedThisDeviceOnly`, desktop in the OS credential store. There is no
+fallback and no recovery: a build linked against plain SQLite writes cleartext
+while looking perfectly healthy, so every driver checks the file header after
+opening and refuses to start if it says `SQLite format 3` (§14.5). Existing
+cleartext databases are migrated, never recreated — the device's logical counter
+lives in that file and operation nonces derive from it (§4.5). Verified on an
+emulator and an iOS simulator, both carrying real pre-§14 data:
+`scripts/prove_local_encryption.sh`.
+
 Plainly NOT done yet:
 
-- **Local storage is still cleartext** — encryption covers what leaves the
-  device. The op log on disk holds plaintext values (plus the cached
-  ciphertext); at-rest encryption of the local database is separate work
+- **The app lock is off and cannot be toggled.** `AppLock.ENABLED` is a build
+  constant. The keystore side of §14.7 is built — an auth-bound Android
+  Keystore key, `kSecAccessControlUserPresence` on the iOS Keychain item — but
+  the binding is fixed when the key is generated, so switching it on a device
+  that already holds data needs a re-key of the database, and that is not
+  written. A settings toggle without it would silently destroy every answer on
+  the device
 - **Media** (capture, chunked upload) — not started, and it is the remaining
   half of the envelope: §6 media keys and chunk nonces have no callers
 - **Key custody is half built** — the console generates a project keypair with

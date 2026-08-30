@@ -5,6 +5,26 @@ PRODUCT_BUNDLE_IDENTIFIER=com.amr.data_collection_lab.DataCollectionLab$(TEAM_ID
 
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0
+
+// SQLite for the app, and it must be SQLCipher (encryption envelope §14).
+//
 // The Shared static framework embeds SQLDelight's native driver (SQLiter),
-// whose cinterop references the system SQLite; the app does the final link.
-OTHER_LDFLAGS = $(inherited) -lsqlite3
+// whose cinterop leaves every sqlite3_* symbol to be resolved here. Whatever
+// resolves them is the SQLite the app runs. It used to be `-lsqlite3`, the
+// SDK's, which has no cipher — and against it `PRAGMA key` is an unrecognised
+// pragma that SQLite ignores without an error, so the app would run perfectly
+// and write every answer to disk in the clear.
+//
+// So `-lsqlite3` is gone and must not come back. Both on the line resolves to
+// whichever the linker reaches first, which is not a coin toss worth having.
+//
+// Build the library first: scripts/build_sqlcipher_ios.sh. It is not committed
+// — 3 MB of compiled C per slice, reproducible from that script. Until it has
+// been run the link fails with "library not found for -lsqlcipher", which is
+// the right way for a missing cipher to announce itself.
+//
+// Per-SDK search paths pick the xcframework slice, so nothing needs adding to
+// the Xcode project itself.
+LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) $(SRCROOT)/Frameworks/SQLCipher.xcframework/ios-arm64
+LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(SRCROOT)/Frameworks/SQLCipher.xcframework/ios-arm64-simulator
+OTHER_LDFLAGS = $(inherited) -lsqlcipher

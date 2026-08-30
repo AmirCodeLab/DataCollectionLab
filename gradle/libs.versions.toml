@@ -31,6 +31,19 @@ sqldelight = "2.1.0"
 # Ktor backs the sync client in :shared:core. CIO engine on every target.
 ktor = "3.0.3"
 
+# SQLCipher, encrypting the local database at rest (encryption envelope §14).
+# Two different products because no single one covers the three targets:
+#   sqlcipher-android  — Zetetic's own Android build, a SupportSQLite factory
+#                        that drops straight into SQLDelight's AndroidSqliteDriver
+#   sqlite-jdbc (MC)   — SQLite3 Multiple Ciphers, a fork of org.xerial's driver
+#                        with the SQLCipher codec compiled in. Replaces
+#                        org.xerial:sqlite-jdbc entirely; both on the classpath
+#                        would be two org.sqlite.JDBC implementations racing.
+# iOS gets neither: Kotlin/Native links libsqlite3 from the SDK, so the cipher
+# has to come from the Xcode link line — see scripts/build_sqlcipher_ios.sh.
+sqlcipher-android = "4.9.0"
+sqlite-jdbc-mc = "3.50.1.0"
+
 # TODO(phase-0): pin versions compatible with Kotlin 2.4.10 before use.
 # Deliberately not wired into any module yet so the build stays green.
 kotlinx-datetime = "0.6.2"
@@ -79,6 +92,11 @@ sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", ver
 sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
 sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
 sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
+
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher-android" }
+# Substituted for org.xerial:sqlite-jdbc, which sqldelight-sqlite-driver pulls
+# in and which has no cipher. The substitution is in shared/core/build.gradle.kts.
+sqlite-jdbc-mc = { module = "io.github.willena:sqlite-jdbc", version.ref = "sqlite-jdbc-mc" }
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 
 [plugins]
