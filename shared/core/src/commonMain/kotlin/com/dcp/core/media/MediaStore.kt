@@ -200,6 +200,24 @@ class MediaStore(
 
     fun setUploadId(mediaId: String, uploadId: String?) = queries.setUploadId(uploadId, mediaId)
 
+    /**
+     * Records that this file's upload must carry ciphertext after all, and
+     * stores the wraps that make it openable.
+     *
+     * One transaction: a file marked encrypted with no wraps is a file nobody
+     * can ever open, and it would look exactly like a correctly protected one.
+     */
+    fun markEncrypted(mediaId: String, contentKeyId: String, wraps: List<WrappedKeyRecord>) =
+        queries.transaction {
+            queries.clearMediaWraps(mediaId)
+            for (wrap in wraps) {
+                queries.insertMediaWrap(
+                    mediaId, wrap.projectKeyId, wrap.ephemeralPublic, wrap.nonce, wrap.wrappedKey,
+                )
+            }
+            queries.markMediaEncrypted(contentKeyId, mediaId)
+        }
+
     fun wrapsFor(mediaId: String): List<WrappedKeyRecord> =
         queries.wrapsForMedia(mediaId).executeAsList().map {
             WrappedKeyRecord(it.project_key_id, it.ephemeral_public, it.nonce, it.wrapped_key)

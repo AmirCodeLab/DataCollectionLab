@@ -100,8 +100,12 @@ data class CollectionState(
     val hasPrevious: Boolean = false,
     val hasNext: Boolean = false,
     val finalized: Boolean = false,
-    val isValid: Boolean = false,
-    val invalidCount: Int = 0,
+    /** Whether the shared navigator will allow finalisation (spec 6.2).
+     * Not the same as "every answer is valid": a soft constraint is invalid
+     * and does not block. */
+    val canFinalize: Boolean = false,
+    /** How many fields stand in the way, for the refusal message. */
+    val blockingCount: Int = 0,
     val showErrors: Boolean = false,
     /**
      * The question whose viewfinder is open, or null. A full screen rather than
@@ -118,7 +122,8 @@ sealed interface CollectionAction {
     /** Open the viewfinder for this question. */
     data class OnOpenCamera(val path: String) : CollectionAction
     data object OnCameraCancelled : CollectionAction
-    data class OnCameraUnavailable(val reason: String) : CollectionAction
+    /** The camera or the location service cannot be used, and why. */
+    data class OnCaptureUnavailable(val reason: String) : CollectionAction
     /** JPEG bytes from the camera or the gallery, uncompressed as captured. */
     data class OnImageCaptured(val path: String, val bytes: ByteArray) : CollectionAction
     /** RGBA8888 pixels from the signature canvas. */
@@ -229,7 +234,7 @@ class CollectionViewModel(
                 _state.update { it.copy(cameraForPath = action.path, captureMessage = null) }
             CollectionAction.OnCameraCancelled ->
                 _state.update { it.copy(cameraForPath = null) }
-            is CollectionAction.OnCameraUnavailable ->
+            is CollectionAction.OnCaptureUnavailable ->
                 _state.update { it.copy(cameraForPath = null, captureMessage = action.reason) }
             is CollectionAction.OnImageCaptured -> onImageCaptured(action.path, action.bytes)
             is CollectionAction.OnSignatureDrawn ->
@@ -488,11 +493,24 @@ class CollectionViewModel(
 
     // -- finalize ----------------------------------------------------------
 
+    /**
+     * Finalisation is the one gate in the form (spec 6.2) — navigation is
+     * never gated — and the shared navigator owns it. Asking `instance.isValid`
+     * here instead would put the rule in one client: it would also refuse a
+     * submission whose only fault is a soft constraint, which is meant to be
+     * overridable.
+     */
     private fun finalize() {
         if (!ready() || _state.value.finalized) return
         flushAllOps()
-        if (!instance.isValid) {
+        if (!navigator.canFinalize) {
+            // Show the errors and go to the question causing the refusal —
+            // "3 answers still need attention" on a screen with none of them
+            // on it leaves the enumerator hunting. goToFirstBlocking can
+            // decline (a blocker inside a repeat has no screen), which is why
+            // canFinalize above is what decides, not this.
             _state.update { it.copy(showErrors = true) }
+            navigator.goToFirstBlocking()
             rebuild()
             return
         }
@@ -542,8 +560,8 @@ class CollectionViewModel(
                 progressTotal = total,
                 hasPrevious = navigator.hasPrevious,
                 hasNext = navigator.hasNext,
-                isValid = instance.isValid,
-                invalidCount = instance.states.values.count { s -> s.relevant && !s.valid },
+                canFinalize = navigator.canFinalize,
+                blockingCount = navigator.finalizationBlockers.size,
             )
         }
     }

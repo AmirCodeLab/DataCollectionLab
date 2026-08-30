@@ -35,3 +35,4 @@ clients/iosApp/**/DerivedData/
 # scripts/build_sqlcipher_ios.sh. A binary blob in the repository is a
 # supply-chain question nobody wants to answer at review time.
 clients/iosApp/Frameworks/
+backend/var/

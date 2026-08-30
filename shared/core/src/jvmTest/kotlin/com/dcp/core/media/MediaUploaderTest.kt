@@ -138,14 +138,18 @@ class MediaUploaderTest {
 
     private fun photo(size: Int) = ByteArray(size) { ((it * 37 + 11) % 251).toByte() }
 
-    /** Two full chunks and a short one. */
+    /**
+     * Two full chunks and a short one, with the project's mode cached in the
+     * store — which is what a device that has synced at least once looks like,
+     * since SyncClient caches the config before draining media.
+     */
     private suspend fun stageThreeChunks(h: Harness, mode: String = SecurityMode.PROJECT_E2E) =
         h.staging.stage(
             h.submissions.createDraft("f", 1),
             "photo", "photo.jpg", "image/jpeg",
             photo(2 * MEDIA_CHUNK_BYTES + 4096),
             crypto(mode),
-        )
+        ).also { h.submissions.putProjectCrypto(crypto(mode)) }
 
     @Test
     fun `a fresh upload sends every chunk`() = runBlocking {
@@ -233,6 +237,63 @@ class MediaUploaderTest {
         assertFalse(
             staged.ciphertextHash == declaredHash,
             "a standard-mode upload must not declare the at-rest ciphertext hash",
+        )
+    }
+
+    @Test
+    fun `a file captured before the first sync is still uploaded encrypted`() = runBlocking {
+        // The leak this test exists for, found on an emulator and not by any
+        // test before it. MediaStaging reads the security mode from a local
+        // cache; a device that has never synced has none, so the file was
+        // staged as "plaintext upload". The operations in the same submission
+        // were encrypted — the push path refreshes the config and fails closed
+        // — and the photograph went to a project_e2e server in the clear.
+        val h = harness(deleteAfterUpload = false)
+        val submissionId = h.submissions.createDraft("f", 1)
+
+        // No project crypto cached: this device has never reached the server.
+        val staged = h.staging.stage(
+            submissionId, "id_card", "id.jpg", "image/jpeg", photo(4096), crypto = null,
+        )
+        assertFalse(staged.encrypted, "with no cached config, staging cannot know yet")
+        assertTrue(h.store.wrapsFor(staged.mediaId).isEmpty())
+
+        // The first sync learns the mode, exactly as SyncClient does before
+        // draining media.
+        h.submissions.putProjectCrypto(crypto(SecurityMode.PROJECT_E2E))
+
+        h.uploader.uploadPending()
+
+        val after = h.store.get(staged.mediaId)!!
+        assertTrue(after.encrypted, "an e2e project must not receive a plaintext file")
+        assertEquals(
+            1, h.store.wrapsFor(staged.mediaId).size,
+            "the media key must be wrapped to the project's recipients",
+        )
+        // And the bytes on the wire are the staged ciphertext, not plaintext.
+        assertContentEquals(h.files.read(staged.mediaId, 0), sentBodies[0])
+        assertEquals(staged.ciphertextHash, declaredHash)
+    }
+
+    @Test
+    fun `a file is not uploaded at all while the security mode is unknown`() = runBlocking {
+        // Fail closed. A file left staged is recoverable on the next sync; a
+        // plaintext photograph on someone else's server is not.
+        val h = harness()
+        val submissionId = h.submissions.createDraft("f", 1)
+        val staged = h.staging.stage(
+            submissionId, "id_card", "id.jpg", "image/jpeg", photo(4096), crypto = null,
+        )
+
+        val result = h.uploader.uploadPending()
+
+        assertEquals(1, result.filesFailed)
+        assertEquals(0, result.filesCompleted)
+        assertEquals(emptyList(), sentChunks, "nothing may leave while the mode is unknown")
+        assertFalse(h.store.get(staged.mediaId)!!.uploaded)
+        assertTrue(
+            h.store.get(staged.mediaId)!!.lastError!!.contains("never fetched"),
+            "the reason has to say why it is stuck",
         )
     }
 

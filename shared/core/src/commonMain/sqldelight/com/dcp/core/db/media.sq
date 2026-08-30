@@ -119,6 +119,11 @@ SELECT COUNT(*) FROM media WHERE uploaded = 0;
 setMediaOpId:
 UPDATE media SET op_id = ? WHERE media_id = ?;
 
+-- Promotes a file staged as plaintext-upload to an encrypted upload, once the
+-- project's security mode is actually known. See MediaUploader.resolveEncryption.
+markMediaEncrypted:
+UPDATE media SET encrypted = 1, content_key_id = ? WHERE media_id = ?;
+
 setUploadId:
 UPDATE media SET upload_id = ? WHERE media_id = ?;
 

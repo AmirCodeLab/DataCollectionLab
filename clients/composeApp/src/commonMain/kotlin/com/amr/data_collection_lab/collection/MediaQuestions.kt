@@ -279,6 +279,21 @@ fun GeoPointAnswer(
 ) {
     val geo = question.geo
 
+    // Permission first, capture second. Asking only when the enumerator taps —
+    // rather than on screen entry — means the prompt arrives with the reason
+    // for it visible on screen behind it.
+    val requestLocation = rememberLocationPermissionRequest { granted ->
+        if (granted) {
+            onAction(CollectionAction.OnCaptureLocation(question.path))
+        } else {
+            onAction(
+                CollectionAction.OnCaptureUnavailable(
+                    UiStrings.locationPermissionRefused(language)
+                )
+            )
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         if (geo != null) {
             Text(geo.coordinates, style = MaterialTheme.typography.bodyLarge)
@@ -300,7 +315,7 @@ fun GeoPointAnswer(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
-                onClick = { onAction(CollectionAction.OnCaptureLocation(question.path)) },
+                onClick = requestLocation,
                 enabled = enabled && !question.capturing,
             ) {
                 Text(

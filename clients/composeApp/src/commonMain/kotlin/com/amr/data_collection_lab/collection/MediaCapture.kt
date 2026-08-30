@@ -49,6 +49,25 @@ expect fun CameraCaptureScreen(
 @Composable
 expect fun rememberGalleryPicker(onPicked: (ByteArray?) -> Unit): () -> Unit
 
+/**
+ * Asks for location permission, then reports whether it was granted.
+ *
+ * Its own request rather than a share of the camera's, because the two are
+ * asked at different moments and a person may reasonably allow one and refuse
+ * the other. Photographing a dwelling and recording where it is are separate
+ * disclosures.
+ *
+ * This was missing entirely and only showed on a device: the geopoint question
+ * asked the platform for a fix, was told permission had not been granted,
+ * reported that honestly — and offered no way to grant it. Correct refusal,
+ * dead end for the enumerator.
+ *
+ * Already granted calls back immediately, so the caller has one path rather
+ * than two.
+ */
+@Composable
+expect fun rememberLocationPermissionRequest(onResult: (Boolean) -> Unit): () -> Unit
+
 /** Whether this platform can capture at all. False on desktop. */
 @Composable
 expect fun isCaptureSupported(): Boolean
