@@ -14,7 +14,10 @@ import pytest
 
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
 from app.modules.form_engine.screens import (
+    blocking_fields,
     build_screen_plan,
+    can_finalize,
+    first_blocking_screen,
     next_screen,
     previous_screen,
     relevant_screens,
@@ -108,6 +111,25 @@ def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int
             got_p = previous_screen(plan, instance, int(frm))
             assert got_p == want, (
                 f"{where}: screens.previous[{frm}] expected {want}, got {got_p}"
+            )
+        if "canFinalize" in screens:
+            got_c = can_finalize(instance)
+            assert got_c == screens["canFinalize"], (
+                f"{where}: screens.canFinalize expected {screens['canFinalize']}, "
+                f"got {got_c}"
+            )
+        if "blocking" in screens:
+            # Vectors address repeat fields positionally, as everywhere else.
+            want_b = [instance._canonical(p) for p in screens["blocking"]]
+            got_b = blocking_fields(instance)
+            assert got_b == want_b, (
+                f"{where}: screens.blocking expected {want_b}, got {got_b}"
+            )
+        if "firstBlocking" in screens:
+            got_f = first_blocking_screen(plan, instance)
+            assert got_f == screens["firstBlocking"], (
+                f"{where}: screens.firstBlocking expected "
+                f"{screens['firstBlocking']}, got {got_f}"
             )
 
 

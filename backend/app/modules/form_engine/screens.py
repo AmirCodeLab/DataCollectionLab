@@ -92,3 +92,44 @@ def previous_screen(
 def relevant_screens(plan: list[FormScreen], instance: FormInstance) -> list[int]:
     """Indices of every currently relevant screen, in order."""
     return [s.index for s in plan if screen_relevant(s, instance)]
+
+
+def blocking_fields(instance: FormInstance) -> list[str]:
+    """Fields that block finalisation (spec 6.2).
+
+    Relevant, and carrying at least one error of severity ``error``. A soft
+    constraint (``warning``) makes a field invalid without blocking it, so this
+    is deliberately not ``not instance.is_valid``.
+
+    Order is field-state order — fields outside a repeat in document order, then
+    each repeat instance's fields in instance order — which is the same on both
+    engines.
+    """
+    return [
+        path
+        for path, state in instance.states.items()
+        if state.relevant
+        and any(e.get("severity", "error") == "error" for e in state.errors)
+    ]
+
+
+def can_finalize(instance: FormInstance) -> bool:
+    """True when nothing blocks finalisation (spec 6.2)."""
+    return not blocking_fields(instance)
+
+
+def first_blocking_screen(
+    plan: list[FormScreen], instance: FormInstance
+) -> int | None:
+    """Lowest-index screen holding a blocking field (spec 6.2), else ``None``.
+
+    ``None`` does not mean finalisation is allowed: a blocking field inside a
+    repeat has no screen at all, because repeats are excluded from the plan
+    (spec 11.1). ``can_finalize`` is the question about finalising; this one is
+    about navigating.
+    """
+    blocking = set(blocking_fields(instance))
+    for screen in plan:
+        if any(qid in blocking for qid in screen.question_ids):
+            return screen.index
+    return None

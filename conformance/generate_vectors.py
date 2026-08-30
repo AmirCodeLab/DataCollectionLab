@@ -679,6 +679,193 @@ vector(
 
 
 # --------------------------------------------------------------------------
+# Navigation vs finalisation (spec 6.2)
+#
+# Whether an unanswered required field should stop the enumerator moving on was
+# unspecified until §6.2: §11 says nothing about validity, so each platform's UI
+# answered it differently and nothing caught that. These five vectors are the
+# rule — navigation never gated, finalisation always gated — and the four edges
+# that would otherwise be re-decided per client: a non-relevant field that
+# retains an invalid value, a soft constraint, a field-list screen, and a
+# blocking field inside a repeat with no screen to navigate to.
+# --------------------------------------------------------------------------
+
+vector(
+    "screens-004",
+    "Navigation is never gated on validity; finalisation is. Blocking fields "
+    "are reported in document order with the screen to send the enumerator to",
+    "6.2",
+    form("scr4", [
+        q("name", "text", required=True),
+        q("age", "integer",
+          constraint=op("lte", ref("age"), lit(120)),
+          constraintMessage={"en": "Age must be 120 or less"}),
+        q("comment", "text"),
+    ]),
+    [
+        # Nothing answered: name blocks, and every screen is still reachable.
+        {"expect": {
+            "valid": {"name": False},
+            "errors": {"name": ["required"]},
+            "screens": {
+                "count": 3,
+                "next": {"-1": 0, "0": 1, "1": 2, "2": None},
+                "previous": {"2": 1, "0": None},
+                "canFinalize": False,
+                "blocking": ["name"],
+                "firstBlocking": 0,
+            }}},
+        # An impossible age adds a second blocker and changes nothing about
+        # navigation — next still moves off the screen holding it.
+        {"set": {"age": 150},
+         "expect": {"screens": {
+             "next": {"0": 1, "1": 2},
+             "previous": {"1": 0},
+             "canFinalize": False,
+             "blocking": ["name", "age"],
+             "firstBlocking": 0,
+         }}},
+        # Answering the first blocker moves firstBlocking on to the second.
+        {"set": {"name": "Amina"},
+         "expect": {"screens": {
+             "canFinalize": False,
+             "blocking": ["age"],
+             "firstBlocking": 1,
+         }}},
+        {"set": {"age": 40},
+         "expect": {
+             "formValid": True,
+             "screens": {"canFinalize": True, "blocking": [],
+                         "firstBlocking": None}}},
+    ],
+)
+
+vector(
+    "screens-005",
+    "A field made non-relevant stops blocking finalisation while keeping the "
+    "invalid value it was given",
+    "6.2",
+    form("scr5", [
+        q("has_job", "boolean"),
+        q("start_year", "integer",
+          relevant=op("eq", ref("has_job"), lit(True)),
+          constraint=op("gte", ref("start_year"), lit(1900)),
+          constraintMessage={"en": "Year must be 1900 or later"}),
+    ]),
+    [
+        {"set": {"has_job": True, "start_year": 1200},
+         "expect": {
+             "valid": {"start_year": False},
+             "screens": {"canFinalize": False, "blocking": ["start_year"],
+                         "firstBlocking": 1}}},
+        # Relevance turns off: the value is retained (5.3), the field is valid
+        # again because it was never asked, and finalisation is unblocked.
+        {"set": {"has_job": False},
+         "expect": {
+             "relevant": {"start_year": False},
+             "values": {"start_year": 1200},
+             "valid": {"start_year": True},
+             "formValid": True,
+             "screens": {"canFinalize": True, "blocking": [],
+                         "firstBlocking": None}}},
+    ],
+)
+
+vector(
+    "screens-006",
+    "A soft constraint makes a field invalid without blocking finalisation; a "
+    "hard one on the same form does block",
+    "6.1",
+    form("scr6", [
+        q("weight_kg", "decimal",
+          constraint=op("lte", ref("weight_kg"), lit(200)),
+          constraintMessage={"en": "Weight over 200 kg — please confirm"},
+          severity="warning"),
+        q("height_m", "decimal",
+          constraint=op("lte", ref("height_m"), lit(3)),
+          constraintMessage={"en": "Height must be 3 m or less"}),
+    ]),
+    [
+        # Invalid and finalisable: formValid and canFinalize are different
+        # questions, and this is the case that separates them.
+        {"set": {"weight_kg": 400.5},
+         "expect": {
+             "valid": {"weight_kg": False},
+             "errors": {"weight_kg": ["constraint"]},
+             "formValid": False,
+             "screens": {"canFinalize": True, "blocking": [],
+                         "firstBlocking": None}}},
+        {"set": {"height_m": 9.5},
+         "expect": {
+             "formValid": False,
+             "screens": {"canFinalize": False, "blocking": ["height_m"],
+                         "firstBlocking": 1}}},
+        {"set": {"height_m": 1.7},
+         "expect": {"screens": {"canFinalize": True, "blocking": [],
+                                "firstBlocking": None}}},
+    ],
+)
+
+vector(
+    "screens-007",
+    "firstBlockingScreen names a screen, not a field: a field-list screen is "
+    "one destination however many of its questions block",
+    "6.2",
+    form("scr7", [
+        q("a", "text"),
+        group("fl", [
+            q("b", "text", required=True),
+            q("c", "text", required=True),
+        ], appearance="field-list"),
+        q("d", "text", required=True),
+    ]),
+    [
+        {"expect": {"screens": {
+            "count": 3,
+            "questions": {"1": ["b", "c"]},
+            "canFinalize": False,
+            "blocking": ["b", "c", "d"],
+            "firstBlocking": 1,
+        }}},
+        {"set": {"b": "one"},
+         "expect": {"screens": {"blocking": ["c", "d"], "firstBlocking": 1}}},
+        {"set": {"c": "two"},
+         "expect": {"screens": {"blocking": ["d"], "firstBlocking": 2}}},
+        {"set": {"d": "three"},
+         "expect": {"screens": {"canFinalize": True, "blocking": [],
+                                "firstBlocking": None}}},
+    ],
+)
+
+vector(
+    "screens-008",
+    "A blocking field inside a repeat has no screen to navigate to and still "
+    "refuses finalisation",
+    "6.2",
+    form("scr8", [
+        q("head", "text"),
+        {"type": "repeat", "id": "kids", "label": {"en": "Kids"},
+         "children": [q("kid_name", "text", required=True)]},
+    ]),
+    [
+        # firstBlocking is None and canFinalize is False at the same time:
+        # repeats are excluded from the screen plan (11.1), so a client must
+        # test canFinalize rather than reading None as "nothing wrong".
+        {"addInstance": "kids",
+         "expect": {"screens": {
+             "count": 1,
+             "canFinalize": False,
+             "blocking": ["kids[0].kid_name"],
+             "firstBlocking": None,
+         }}},
+        {"set": {"kids[0].kid_name": "Sara"},
+         "expect": {"screens": {"canFinalize": True, "blocking": [],
+                                "firstBlocking": None}}},
+    ],
+)
+
+
+# --------------------------------------------------------------------------
 # Media references and geopoints (spec 2.1) — the value shapes an `image`,
 # `signature` or `geopoint` question holds.
 #

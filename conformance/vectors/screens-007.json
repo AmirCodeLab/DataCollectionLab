@@ -1,0 +1,128 @@
+{
+  "id": "screens-007",
+  "description": "firstBlockingScreen names a screen, not a field: a field-list screen is one destination however many of its questions block",
+  "spec": "6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr7",
+    "version": 1,
+    "title": {
+      "en": "scr7"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "text",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "group",
+        "id": "fl",
+        "label": {
+          "en": "Fl"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "b",
+            "dataType": "text",
+            "label": {
+              "en": "B"
+            },
+            "required": true
+          },
+          {
+            "type": "question",
+            "id": "c",
+            "dataType": "text",
+            "label": {
+              "en": "C"
+            },
+            "required": true
+          }
+        ],
+        "appearance": "field-list"
+      },
+      {
+        "type": "question",
+        "id": "d",
+        "dataType": "text",
+        "label": {
+          "en": "D"
+        },
+        "required": true
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "screens": {
+          "count": 3,
+          "questions": {
+            "1": [
+              "b",
+              "c"
+            ]
+          },
+          "canFinalize": false,
+          "blocking": [
+            "b",
+            "c",
+            "d"
+          ],
+          "firstBlocking": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "b": "one"
+      },
+      "expect": {
+        "screens": {
+          "blocking": [
+            "c",
+            "d"
+          ],
+          "firstBlocking": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "c": "two"
+      },
+      "expect": {
+        "screens": {
+          "blocking": [
+            "d"
+          ],
+          "firstBlocking": 2
+        }
+      }
+    },
+    {
+      "set": {
+        "d": "three"
+      },
+      "expect": {
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    }
+  ]
+}
