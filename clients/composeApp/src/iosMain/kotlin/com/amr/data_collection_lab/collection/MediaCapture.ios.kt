@@ -124,6 +124,15 @@ actual fun rememberGalleryPicker(onPicked: (ByteArray?) -> Unit): () -> Unit {
 }
 
 @Composable
+actual fun rememberLocationPermissionRequest(onResult: (Boolean) -> Unit): () -> Unit = {
+    // CoreLocation raises its own prompt the first time the provider is asked
+    // (LocationProvider.availability calls requestWhenInUseAuthorization), so
+    // there is nothing to launch here. Proceeding lets the provider ask and
+    // then report — a second prompt from this layer would be a duplicate.
+    onResult(true)
+}
+
+@Composable
 actual fun isCaptureSupported(): Boolean = true
 
 @OptIn(ExperimentalForeignApi::class)

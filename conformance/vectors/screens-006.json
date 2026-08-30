@@ -1,0 +1,121 @@
+{
+  "id": "screens-006",
+  "description": "A soft constraint makes a field invalid without blocking finalisation; a hard one on the same form does block",
+  "spec": "6.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr6",
+    "version": 1,
+    "title": {
+      "en": "scr6"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "weight_kg",
+        "dataType": "decimal",
+        "label": {
+          "en": "Weight Kg"
+        },
+        "constraint": {
+          "op": "lte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "weight_kg"
+            },
+            {
+              "op": "lit",
+              "value": 200
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Weight over 200 kg — please confirm"
+        },
+        "severity": "warning"
+      },
+      {
+        "type": "question",
+        "id": "height_m",
+        "dataType": "decimal",
+        "label": {
+          "en": "Height M"
+        },
+        "constraint": {
+          "op": "lte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "height_m"
+            },
+            {
+              "op": "lit",
+              "value": 3
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Height must be 3 m or less"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "weight_kg": 400.5
+      },
+      "expect": {
+        "valid": {
+          "weight_kg": false
+        },
+        "errors": {
+          "weight_kg": [
+            "constraint"
+          ]
+        },
+        "formValid": false,
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    },
+    {
+      "set": {
+        "height_m": 9.5
+      },
+      "expect": {
+        "formValid": false,
+        "screens": {
+          "canFinalize": false,
+          "blocking": [
+            "height_m"
+          ],
+          "firstBlocking": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "height_m": 1.7
+      },
+      "expect": {
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    }
+  ]
+}

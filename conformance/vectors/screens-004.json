@@ -1,0 +1,144 @@
+{
+  "id": "screens-004",
+  "description": "Navigation is never gated on validity; finalisation is. Blocking fields are reported in document order with the screen to send the enumerator to",
+  "spec": "6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr4",
+    "version": 1,
+    "title": {
+      "en": "scr4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "name",
+        "dataType": "text",
+        "label": {
+          "en": "Name"
+        },
+        "required": true
+      },
+      {
+        "type": "question",
+        "id": "age",
+        "dataType": "integer",
+        "label": {
+          "en": "Age"
+        },
+        "constraint": {
+          "op": "lte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "age"
+            },
+            {
+              "op": "lit",
+              "value": 120
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Age must be 120 or less"
+        }
+      },
+      {
+        "type": "question",
+        "id": "comment",
+        "dataType": "text",
+        "label": {
+          "en": "Comment"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "valid": {
+          "name": false
+        },
+        "errors": {
+          "name": [
+            "required"
+          ]
+        },
+        "screens": {
+          "count": 3,
+          "next": {
+            "-1": 0,
+            "0": 1,
+            "1": 2,
+            "2": null
+          },
+          "previous": {
+            "2": 1,
+            "0": null
+          },
+          "canFinalize": false,
+          "blocking": [
+            "name"
+          ],
+          "firstBlocking": 0
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 150
+      },
+      "expect": {
+        "screens": {
+          "next": {
+            "0": 1,
+            "1": 2
+          },
+          "previous": {
+            "1": 0
+          },
+          "canFinalize": false,
+          "blocking": [
+            "name",
+            "age"
+          ],
+          "firstBlocking": 0
+        }
+      }
+    },
+    {
+      "set": {
+        "name": "Amina"
+      },
+      "expect": {
+        "screens": {
+          "canFinalize": false,
+          "blocking": [
+            "age"
+          ],
+          "firstBlocking": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "age": 40
+      },
+      "expect": {
+        "formValid": true,
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    }
+  ]
+}

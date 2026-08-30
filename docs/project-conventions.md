@@ -198,6 +198,64 @@ Key design points:
 - Recalculation runs in topological order; document order breaks ties so the
   result is deterministic.
 
+## Where the conformance architecture stops protecting you
+
+Rule 2 is the strongest guarantee in this repository, and it has a boundary that
+is not obvious from inside it. **The vectors cover the engine. They cover
+nothing above it.**
+
+A vector is a comparison between two implementations. That is what gives it its
+power and it is also the whole of its reach: where there is only one
+implementation, there is nothing to compare, and a vector cannot be written at
+all. So the boundary is not a matter of coverage to be improved — it is
+structural.
+
+```
+ Python reference  ==  Kotlin engine        <- vectors compare these
+ ------------------------------------------------------------------
+                       FormNavigator        <- Kotlin only. No vector reaches here
+                       CollectionViewModel
+                       CollectionScreen (Compose)
+```
+
+Below the line: evaluation, null semantics, relevance and constraints, screen
+planning, the crypto envelope bytes, publish-time sensitivity, document-shape
+refusal. Four vector sets, both engines, and a disagreement is a release
+blocker.
+
+Above the line, Kotlin-only and unreachable by any vector:
+
+- **`FormNavigator`** — the interactive cursor every client drives (`next`,
+  `previous`, `canFinalize`, `goToFirstBlocking`). The Python reference has no
+  cursor; it answers questions about a form, it does not walk one.
+- **The ViewModels** — `CollectionViewModel`, `SubmissionListViewModel`. Op log
+  writing, media capture wiring, error surfacing.
+- **The UI** — `CollectionScreen` and everything it renders.
+
+What watches that layer, and all there is:
+
+| Layer | Watched by | Break |
+|---|---|---|
+| `FormNavigator` | `NavigatorTest` (`:shared:form-engine:jvmTest`) | 21 |
+| The collection screen's date question | `DateQuestionTest` (`:clients:composeApp:jvmTest`) | 23 |
+
+Both exist because a break in that layer passed the vectors. Break 21 put the
+§6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
+client-shaped fix would land — and **all 39 vectors stayed green** while the
+navigator refused to let an enumerator past an unanswered question. Break 23
+removed the date field's click overlay: the question became unanswerable and
+every vector still passed, because a form whose date question cannot be opened
+evaluates perfectly.
+
+**So: if you are adding logic above the engine, a green conformance run is not
+evidence about your change.** It is evidence about code you did not touch. Add a
+Kotlin test in the same commit and record the break in `docs/known-breaks.md` —
+the two rows above are the pattern. And prefer to put the logic *below* the
+line, where the vectors can see it: §6.2's gate lives in the shared navigator
+with the same three functions in the Python reference specifically so that the
+clients could not each decide it for themselves, which is what they had been
+doing.
+
 ## Commands
 
 ```bash
@@ -222,6 +280,10 @@ cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, 
 ./gradlew :clients:androidApp:assembleDebug
 ./gradlew :clients:desktopApp:run
 
+# The shared UI, above the line the vectors reach — see "Where the conformance
+# architecture stops protecting you". Headless: Compose renders offscreen.
+./gradlew :clients:composeApp:jvmTest
+
 # Local database encryption (envelope §14)
 ./gradlew :shared:core:jvmTest --tests "com.dcp.core.security.*"
 scripts/prove_local_encryption.sh          # against a connected device
@@ -237,13 +299,45 @@ docker compose up
 
 ## CI
 
-`.github/workflows/ci.yml` — four jobs, all of them blocking: **backend**
+`.github/workflows/ci.yml` — five jobs, all of them blocking: **backend**
 (ruff, mypy, the API contract check, pytest without `db`), **db** (pytest
 `-m db` against a PostGIS service), **kotlin** (`:shared:form-engine:jvmTest`,
-`:shared:core:jvmTest`), **web** (typecheck, lint, test, build).
+`:shared:core:jvmTest`, `:clients:composeApp:jvmTest`), **web** (typecheck,
+lint, test, build), and **suites**.
 
 These are the same commands listed above. Run them locally before pushing —
 but the point of the workflow is that nobody has to remember to.
+
+**`suites` watches the other four.** It fails if a test suite exists in this
+repository and no CI step runs it:
+
+```bash
+python scripts/check_ci_runs_every_suite.py            # local
+python scripts/check_ci_runs_every_suite.py --strict   # what CI runs
+```
+
+It is there because the answer has been "yes" three times — this workflow was
+uncommitted for weeks, `npm run lint` exited 0 with no eslint config, and
+`:clients:composeApp:jvmTest` was absent from the kotlin job. None of them was
+ever a red build. A suite nobody runs does not read as a gap, it reads as
+coverage, which makes it worse than having no suite at all.
+
+It enumerates rather than trusting a list, because a list would drift exactly as
+the suites did: Gradle suites from test source directories that contain test
+files (a *task* existing is not a suite existing — this build declares nine test
+tasks and three have sources), pytest by asking `--collect-only` whether the
+`-m db` / `-m "not db"` split covers every test, vitest by asking `vitest list`
+whether any test file falls outside its `include` glob. It also fails the other
+way, on a CI step that runs an empty suite — green paperwork over nothing.
+
+Two things to know when it fails on you. **Anything it cannot classify is a
+failure**, never a pass; a new test source set means teaching
+`TEST_SOURCE_SETS`, and that is deliberate, because a guard that ignores what it
+does not recognise decays into the thing it was written to prevent. And
+`--strict` is what makes a missing toolchain a failure instead of a skip — "we
+could not check" reported as green is the whole problem. The one case it cannot
+catch from inside CI is the first one: with no workflow there is no job to
+notice. `./scripts/status.sh` section 5 asks locally.
 
 ## Conventions
 
@@ -254,6 +348,10 @@ but the point of the workflow is that nobody has to remember to.
 - Migrations must be reversible; self-hosted users run old versions
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
+- A defect left unfixed on purpose goes in `docs/known-defects.md` with the
+  reason it is still open. Knowing about a defect and having fixed it are
+  different claims, in the same way a test existing and a test having caught
+  something are
 
 ## Current phase
 
@@ -289,7 +387,7 @@ media key lives in the SQLCipher database, which is what makes a staged file
 encrypted at rest without a second key hierarchy (§6.1). The staged chunks ARE
 the upload — encrypted once, sent byte for byte — so a resumed upload provably
 sends the same bytes as the first attempt. CameraX behind expect/actual on
-Android, AVFoundation on iOS, desktop refusing rather than pretending; the
+Android, AVFoundation on iOS, **nothing at all on desktop** (see below); the
 viewfinder is `clients/composeApp` and `shared/core` constructs no View.
 
 Upload is resumable per §6: 4 MiB chunks, each under its own derived nonce,
@@ -314,6 +412,17 @@ engine hides until something tries to use it.
 Phase 1 so far: Android collection screen in `clients/composeApp` — paged
 navigation driven by the shared engine's screen plan, live relevance and
 constraints, local op log, RTL, tested on a real device with a 52-question form.
+
+Whether an invalid answer stops the enumerator moving on is now decided in the
+spec rather than per platform (§6.2): **navigation is never gated, finalisation
+always is.** It was unspecified before — §11 says nothing about validity, no
+vector covered it, and the clients were observed differing, which is the drift
+the conformance architecture exists to prevent hiding in an undefined rule
+rather than a wrong one. The gate lives in `FormNavigator`
+(`canFinalize`, `finalizationBlockers`, `goToFirstBlocking`) with the same three
+functions in the Python reference, five vectors (`screens-004`…`008`) and
+`NavigatorTest` — which exists because the vectors cannot see the navigator
+class, so a gate added to `next()` would pass all 39 of them.
 
 Client-side encryption is wired into the sync path: a device fetches its
 project's security mode and recipient set from
@@ -368,6 +477,16 @@ Plainly NOT done yet:
   that already holds data needs a re-key of the database, and that is not
   written. A settings toggle without it would silently destroy every answer on
   the device
+- **Desktop collects nothing, and currently pretends otherwise.** Desktop was
+  never in Phase 1 scope — it is the supervision and review client — but the
+  collection screen is shared code and renders there anyway, with the media
+  widgets drawn and inert: the gallery button calls a `rememberGalleryPicker`
+  that reports "nothing chosen", the signature canvas draws strokes and its
+  Save button returns at `mediaCapture ?: return`, and Capture position answers
+  the permission request `true` before doing nothing. No message, no refusal —
+  the enumerator sees a widget behaving as though they had not tapped it. Filed
+  as defects 1 and 2 in `docs/known-defects.md`; do not read the media section
+  above as covering desktop
 - **Media beyond image, signature and geopoint.** Audio, video and file upload
   are not built. They are in the IR and deliberately NOT in the collection
   screen's supported types: rendering a widget that cannot answer a question is

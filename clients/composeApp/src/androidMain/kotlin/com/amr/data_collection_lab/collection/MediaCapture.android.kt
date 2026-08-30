@@ -16,7 +16,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,10 +53,27 @@ actual fun CameraCaptureScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
+    // Permission as STATE, not as a one-off check.
+    //
+    // This was a real bug caught on an emulator and invisible to every test:
+    // with the check inside `LaunchedEffect(Unit)`, the effect ran once, saw no
+    // permission, fired the request and returned — and nothing re-ran it when
+    // the person granted. The viewfinder stayed black, the shutter did nothing,
+    // and no CameraX binding was ever attempted. The permission grant has to
+    // move a value the effect is keyed on, or the grant goes nowhere.
+    var granted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) {
+    ) { allowed ->
+        if (allowed) {
+            granted = true
+        } else {
             onUnavailable(
                 "Camera permission was refused. Grant it in Settings to take photographs."
             )
@@ -71,10 +91,11 @@ actual fun CameraCaptureScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+    // Keyed on `granted`: false asks, and the grant flips the key so this runs
+    // again and actually binds the camera. A denial leaves it false and the
+    // effect does not re-run, so there is no permission-prompt loop.
+    LaunchedEffect(granted) {
+        if (!granted) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
             return@LaunchedEffect
         }
@@ -143,6 +164,26 @@ actual fun rememberGalleryPicker(onPicked: (ByteArray?) -> Unit): () -> Unit {
                 .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 .build()
         )
+    }
+}
+
+@Composable
+actual fun rememberLocationPermissionRequest(onResult: (Boolean) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { onResult(it) }
+    return {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            onResult(true)
+        } else {
+            // FINE, not COARSE. The project's accuracy threshold is in metres
+            // and a coarse fix cannot meet a 50 m bar, so asking for coarse
+            // would be asking for a permission that cannot answer the question.
+            launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
 }
 

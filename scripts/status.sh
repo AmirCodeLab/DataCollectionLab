@@ -333,4 +333,16 @@ else
     printf '  none\n'
 fi
 
+# ---------------------------------------------------------------------------
+hr "5. Suites CI does not run"
+
+# The one failure the CI job for this cannot catch: if .github/workflows/ci.yml
+# is missing there is no job to notice, which is exactly how this repository
+# ran with no CI at all. Locally there is something left to ask.
+if [ -f scripts/check_ci_runs_every_suite.py ]; then
+    "$PY" scripts/check_ci_runs_every_suite.py 2>&1 | sed 's/^/  /'
+else
+    printf '  scripts/check_ci_runs_every_suite.py is missing\n'
+fi
+
 exit 0

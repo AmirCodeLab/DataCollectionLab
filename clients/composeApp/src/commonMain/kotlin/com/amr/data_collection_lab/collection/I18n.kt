@@ -75,6 +75,10 @@ object UiStrings {
     fun mediaUploadFailed(l: String, reason: String) =
         if (ar(l)) "لم يتم الرفع: $reason" else "Not uploaded yet: $reason"
 
+    fun locationPermissionRefused(l: String) =
+        if (ar(l)) "تم رفض إذن الموقع. يمكنك منحه من الإعدادات."
+        else "Location permission was refused. Grant it in Settings to record a position."
+
     fun captureUnavailable(l: String) =
         if (ar(l)) "لا تتوفر الكاميرا على هذا الجهاز"
         else "This device cannot take photographs"

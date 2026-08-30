@@ -79,7 +79,7 @@ fun CollectionScreen(
             CameraCaptureScreen(
                 onCaptured = { onAction(CollectionAction.OnImageCaptured(cameraPath, it)) },
                 onCancel = { onAction(CollectionAction.OnCameraCancelled) },
-                onUnavailable = { onAction(CollectionAction.OnCameraUnavailable(it)) },
+                onUnavailable = { onAction(CollectionAction.OnCaptureUnavailable(it)) },
             )
             return@CompositionLocalProvider
         }
@@ -174,9 +174,9 @@ private fun NavigationBar(state: CollectionState, onAction: (CollectionAction) -
     if (state.isLoading) return
     Surface(shadowElevation = 8.dp) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            if (state.showErrors && !state.isValid) {
+            if (state.showErrors && !state.canFinalize) {
                 Text(
-                    text = UiStrings.invalidRemaining(state.language, state.invalidCount),
+                    text = UiStrings.invalidRemaining(state.language, state.blockingCount),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),

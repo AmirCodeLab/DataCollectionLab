@@ -180,6 +180,28 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
                     "$where: screens.previous[$from]",
                 )
             }
+            screens["canFinalize"]?.let { want ->
+                assertEquals(
+                    want.jsonPrimitive.content.toBoolean(),
+                    canFinalize(instance),
+                    "$where: screens.canFinalize",
+                )
+            }
+            screens["blocking"]?.jsonArray?.let { want ->
+                assertEquals(
+                    // Vectors address repeat fields positionally, as elsewhere.
+                    want.map { instance.canonical(it.jsonPrimitive.content) },
+                    blockingFields(instance),
+                    "$where: screens.blocking",
+                )
+            }
+            screens["firstBlocking"]?.let { want ->
+                assertEquals(
+                    indexOrNull(want),
+                    firstBlockingScreen(plan, instance),
+                    "$where: screens.firstBlocking",
+                )
+            }
         }
     }
 

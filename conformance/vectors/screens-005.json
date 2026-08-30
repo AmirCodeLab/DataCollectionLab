@@ -1,0 +1,109 @@
+{
+  "id": "screens-005",
+  "description": "A field made non-relevant stops blocking finalisation while keeping the invalid value it was given",
+  "spec": "6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr5",
+    "version": 1,
+    "title": {
+      "en": "scr5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "has_job",
+        "dataType": "boolean",
+        "label": {
+          "en": "Has Job"
+        }
+      },
+      {
+        "type": "question",
+        "id": "start_year",
+        "dataType": "integer",
+        "label": {
+          "en": "Start Year"
+        },
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "has_job"
+            },
+            {
+              "op": "lit",
+              "value": true
+            }
+          ]
+        },
+        "constraint": {
+          "op": "gte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "start_year"
+            },
+            {
+              "op": "lit",
+              "value": 1900
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Year must be 1900 or later"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "has_job": true,
+        "start_year": 1200
+      },
+      "expect": {
+        "valid": {
+          "start_year": false
+        },
+        "screens": {
+          "canFinalize": false,
+          "blocking": [
+            "start_year"
+          ],
+          "firstBlocking": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "has_job": false
+      },
+      "expect": {
+        "relevant": {
+          "start_year": false
+        },
+        "values": {
+          "start_year": 1200
+        },
+        "valid": {
+          "start_year": true
+        },
+        "formValid": true,
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    }
+  ]
+}

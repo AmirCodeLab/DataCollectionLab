@@ -33,4 +33,11 @@ actual fun rememberGalleryPicker(onPicked: (ByteArray?) -> Unit): () -> Unit = {
 }
 
 @Composable
+actual fun rememberLocationPermissionRequest(onResult: (Boolean) -> Unit): () -> Unit = {
+    // Nothing to ask for: the desktop provider reports that there is no
+    // location hardware, which is the honest answer and the one the UI shows.
+    onResult(true)
+}
+
+@Composable
 actual fun isCaptureSupported(): Boolean = false

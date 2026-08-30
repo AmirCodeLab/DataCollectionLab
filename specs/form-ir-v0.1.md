@@ -50,6 +50,7 @@ Three node types: `question`, `group`, `repeat`.
   "relevant": <expr>,
   "constraint": <expr>,
   "constraintMessage": { "en": "Age must be between 0 and 120" },
+  "severity": "error" | "warning",
   "calculate": <expr>,
   "default": <expr>,
   "readOnly": <expr|bool>,
@@ -60,6 +61,11 @@ Three node types: `question`, `group`, `repeat`.
 ```
 
 All of `required`, `relevant`, `constraint`, `calculate`, `default`, `readOnly` are optional.
+
+`severity` qualifies this question's `constraint` and defaults to `error`; a
+`warning` is a soft constraint, which does not block finalisation (§6.1, §6.2).
+It sits on the question rather than on the constraint because a constraint is an
+expression node (§4.1) and has nowhere to carry it.
 
 `sensitive` defaults to `false`. It marks a field whose **value** carries personal
 or health information, and it is the input to `field_level` encryption
@@ -318,7 +324,73 @@ Each field reports:
 
 Error kinds: `constraint`, `required`, `type`, `evaluation`.
 
-Soft constraints use `"severity": "warning"` on the constraint and require an override reason, recorded with the submission.
+A field is `valid` when it reports no errors. A field that is not relevant is
+always `valid` and reports no errors: relevance is decided first, and a question
+that was never asked cannot have been answered wrongly. Its value is still
+retained (§5.3).
+
+### 6.1 Severity
+
+`severity` is declared on the **question** (§2.1) and qualifies that question's
+`constraint` error only. It is `error` unless the question says
+`"severity": "warning"`. `required`, `type` and `evaluation` errors are always
+`error`.
+
+A soft constraint — `"severity": "warning"` — makes the field invalid and is
+shown to the enumerator like any other error, but it does not block finalisation
+(§6.2). It is meant to be overridden with a reason recorded against the
+submission; that recording is **not specified in v0.1** and no engine implements
+it, so today a soft constraint is advisory and nothing about the override is
+stored.
+
+### 6.2 Navigation and finalisation
+
+Two questions every interactive runtime has to answer: may the enumerator leave
+a screen whose answers are wrong or missing, and may the submission be
+finalised. Both are decided here, not by each platform's UI. A runtime that
+answers them from its own UI layer will answer them differently from the next
+runtime, and the difference will look like a UX detail until two devices
+disagree about which submissions could be sent.
+
+**Navigation is never gated on validity.** `next` and `previous` (§11.2) are a
+function of the screen plan and live relevance alone. A runtime MUST NOT refuse
+to leave a screen, disable its forward control, or skip a screen because a
+question on it is unanswered or its answer is invalid.
+
+The reason is the interview, not the data model. A respondent may refuse to give
+their age, may not know their household's income, may end the interview halfway;
+an enumerator who cannot move past the question invents an answer instead, and
+an invented answer is worse than a gap because nothing downstream can see it.
+The gap is visible — it is exactly what the blocking list below reports to the
+supervisor.
+
+**Finalisation is gated.** A submission MAY be finalised only when it has no
+blocking fields.
+
+- A field is **blocking** when it is relevant and carries at least one error of
+  severity `error` (§6.1).
+- A field that is not relevant never blocks, whatever value it retains.
+- `blockingFields` is the ordered list of blocking paths: fields outside a
+  repeat in document order, then the fields of each repeat instance in instance
+  order. That is the order an engine holds its field states in, so every engine
+  reports the same list in the same order.
+- `canFinalize` is true exactly when `blockingFields` is empty.
+- `firstBlockingScreen` is the lowest-index screen (§11.1) containing a blocking
+  field, and nothing when there is none. It is always a relevant screen: a
+  blocking field is relevant, and a screen is relevant while any of its
+  questions is.
+- A blocking field inside a repeat has no screen at all, because §11.1 excludes
+  repeats from the plan. It still blocks finalisation, and `firstBlockingScreen`
+  can therefore be nothing while `canFinalize` is false. Repeat navigation is a
+  v0.2 question (§12); until it is answered a runtime MUST still refuse, and
+  SHOULD name the field it cannot navigate to.
+
+`canFinalize` and whole-instance validity are different questions: a form whose
+only fault is a soft constraint is invalid and still finalisable.
+
+A runtime that refuses to finalise SHOULD say how many fields are blocking, show
+each one's error, and navigate to `firstBlockingScreen`. A refusal that does not
+lead anywhere is a dead end an enumerator cannot get out of in the field.
 
 ## 7. Internationalised strings
 
@@ -454,6 +526,9 @@ Navigation is over the static plan filtered by live relevance:
   relevant.
 - Progress is the screen's 1-based position within the ordered list of
   currently relevant screens, out of that list's length.
+- Neither consults validity. Navigation is never gated on whether the answers on
+  a screen are present or correct — see §6.2, which also defines the gate that
+  *is* enforced, on finalisation.
 
 ## 12. Open questions for v0.2
 

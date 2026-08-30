@@ -2193,6 +2193,84 @@
     },
     {
       "type": "group",
+      "id": "evidence",
+      "label": {
+        "en": "Evidence",
+        "ar": "الأدلة"
+      },
+      "relevant": {
+        "op": "and",
+        "args": [
+          {
+            "op": "call",
+            "fn": "is_not_null",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "consent"
+              },
+              {
+                "op": "lit",
+                "value": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "children": [
+        {
+          "type": "question",
+          "id": "dwelling_photo",
+          "dataType": "image",
+          "label": {
+            "en": "Photograph of the dwelling",
+            "ar": "صورة المسكن"
+          },
+          "hint": {
+            "en": "Stand back far enough to show the whole frontage.",
+            "ar": "ابتعد بما يكفي لإظهار الواجهة كاملة."
+          }
+        },
+        {
+          "type": "question",
+          "id": "dwelling_location",
+          "dataType": "geopoint",
+          "label": {
+            "en": "Location of the dwelling",
+            "ar": "موقع المسكن"
+          },
+          "hint": {
+            "en": "Step outside for a clear view of the sky.",
+            "ar": "اخرج إلى مكان مفتوح للحصول على إشارة أفضل."
+          }
+        },
+        {
+          "type": "question",
+          "id": "respondent_signature",
+          "dataType": "signature",
+          "sensitive": true,
+          "label": {
+            "en": "Respondent's signature",
+            "ar": "توقيع المستجيب"
+          },
+          "hint": {
+            "en": "Ask the respondent to sign, confirming consent.",
+            "ar": "اطلب من المستجيب التوقيع تأكيدًا للموافقة."
+          }
+        }
+      ]
+    },
+    {
+      "type": "group",
       "id": "closing",
       "label": {
         "en": "Closing",

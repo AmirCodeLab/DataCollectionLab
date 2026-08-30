@@ -1,0 +1,75 @@
+{
+  "id": "screens-008",
+  "description": "A blocking field inside a repeat has no screen to navigate to and still refuses finalisation",
+  "spec": "6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr8",
+    "version": 1,
+    "title": {
+      "en": "scr8"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "head",
+        "dataType": "text",
+        "label": {
+          "en": "Head"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "kids",
+        "label": {
+          "en": "Kids"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "kid_name",
+            "dataType": "text",
+            "label": {
+              "en": "Kid Name"
+            },
+            "required": true
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "kids",
+      "expect": {
+        "screens": {
+          "count": 1,
+          "canFinalize": false,
+          "blocking": [
+            "kids[0].kid_name"
+          ],
+          "firstBlocking": null
+        }
+      }
+    },
+    {
+      "set": {
+        "kids[0].kid_name": "Sara"
+      },
+      "expect": {
+        "screens": {
+          "canFinalize": true,
+          "blocking": [],
+          "firstBlocking": null
+        }
+      }
+    }
+  ]
+}

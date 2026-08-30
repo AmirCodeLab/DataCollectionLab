@@ -1,7 +1,10 @@
 package com.dcp.core.media
 
+import com.dcp.core.crypto.EncryptionEnvelope
 import com.dcp.core.crypto.Hex
+import com.dcp.core.sync.SecurityMode
 import com.dcp.core.sync.SubmissionStore
+import com.dcp.core.sync.WrappedKeyRecord
 import com.dcp.core.sync.SyncJson
 import com.dcp.core.sync.WireWrappedKey
 import io.ktor.client.HttpClient
@@ -83,6 +86,7 @@ class MediaUploader(
      * back.
      */
     private val deleteAfterUpload: Boolean = true,
+    private val envelope: EncryptionEnvelope = EncryptionEnvelope(),
 ) {
 
     /**
@@ -116,8 +120,57 @@ class MediaUploader(
     /** How many files are still staged and unsealed. */
     fun pendingCount(): Long = store.pendingCount()
 
+    /**
+     * Decides — at UPLOAD time, not capture time — whether the server gets
+     * ciphertext, and wraps the media key if it must.
+     *
+     * This exists because of a real leak found on a device. `MediaStaging`
+     * reads the project's security mode from a LOCAL CACHE, and a device that
+     * has not yet synced has no cache: a photograph captured before the first
+     * sync was staged as "plaintext upload" and later uploaded in the clear to
+     * a project_e2e server. The operations in the same submission were
+     * encrypted, because the push path refreshes the crypto config first and
+     * fails closed — media had no equivalent. The result was a submission whose
+     * answers were protected and whose photograph of an identity document was
+     * not, on a project whose whole promise is that the server reads nothing.
+     *
+     * So the mode is resolved here, against the config `SyncClient` has just
+     * refreshed, and an unknown mode refuses to upload rather than guessing.
+     * A file left staged is recoverable; a plaintext photograph on someone
+     * else's server is not.
+     */
+    private suspend fun resolveEncryption(media: StagedMedia): StagedMedia {
+        if (media.encrypted) return media
+
+        val crypto = submissions.projectCrypto()
+            ?: error(
+                "refusing to upload ${media.mediaId}: this device has never fetched " +
+                    "its project's security mode, so it cannot tell whether the server " +
+                    "is allowed to read this file. It stays on the device.",
+            )
+        if (crypto.securityMode == SecurityMode.STANDARD) return media
+
+        if (crypto.projectKeys.isEmpty()) {
+            error(
+                "refusing to upload ${media.mediaId}: project is in " +
+                    "${crypto.securityMode} mode with no active project keys, so the " +
+                    "media key could be wrapped to nobody.",
+            )
+        }
+
+        val wraps = envelope.wrapToRecipients(
+            media.mediaKey,
+            media.contentKeyId,
+            crypto.projectKeys.associate { it.keyId to it.publicKey },
+        ).map { WrappedKeyRecord(it.projectKeyId, it.ephemeralPublic, it.nonce, it.wrappedKey) }
+
+        store.markEncrypted(media.mediaId, media.contentKeyId, wraps)
+        return media.copy(encrypted = true)
+    }
+
     /** Uploads one file. Returns (chunks sent, chunks skipped). */
-    private suspend fun upload(media: StagedMedia): Pair<Int, Int> {
+    private suspend fun upload(staged: StagedMedia): Pair<Int, Int> {
+        val media = resolveEncryption(staged)
         val session = openSession(media)
         store.setUploadId(media.mediaId, session.uploadId)
 
