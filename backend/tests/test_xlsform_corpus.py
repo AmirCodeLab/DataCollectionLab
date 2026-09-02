@@ -287,3 +287,27 @@ def test_a_version_imported_with_errors_is_refused_by_the_server() -> None:
     assert any("row" in v for v in refusal.value.violations), (
         "the refusal should say where, not just what"
     )
+
+
+def test_a_version_that_was_not_imported_writes_sql_null_not_json_null() -> None:
+    """SQL NULL and JSON null are different, and they print the same.
+
+    `import_report` is JSONB. SQLAlchemy writes Python None into a JSONB column
+    as the JSON value `null` unless told otherwise, and JSON null is NOT NULL in
+    SQL — so a version published from hand-written IR failed
+    `form_version_import_complete_check`, which asks for all five import columns
+    NULL or all five set. The error printed the offending value as "null",
+    identical to the SQL NULL it was supposed to be.
+
+    Caught by the `db` suite — 12 errors — and by nothing else: every check that
+    does not talk to Postgres passed. This asserts the column's configuration so
+    the reason survives, since the db suite says only that something is wrong.
+    """
+    from app.modules.forms.models import FormVersion
+
+    column = FormVersion.__table__.c.import_report
+    assert column.type.none_as_null is True, (
+        "import_report must map Python None to SQL NULL. Without it a version "
+        "that was never imported stores JSON null, which is NOT NULL, and the "
+        "all-or-nothing CHECK refuses it."
+    )

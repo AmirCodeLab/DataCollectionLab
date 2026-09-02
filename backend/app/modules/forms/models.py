@@ -52,7 +52,13 @@ class FormVersion(Base):
     # the CHECK there that stops a half-recorded import looking like a whole one.
     import_source_name: Mapped[str | None] = mapped_column(Text)
     import_source_sha256: Mapped[str | None] = mapped_column(Text)
-    import_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # `none_as_null`, and it is load-bearing rather than tidy. Without it
+    # SQLAlchemy writes Python None into a JSONB column as the JSON value
+    # `null`, which is NOT NULL in SQL — so a version that was never imported
+    # failed `form_version_import_complete_check`, which asks for all five
+    # columns NULL or all five set. The two nulls print identically in an error
+    # message, which is what made it worth a comment.
+    import_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     import_importer_version: Mapped[str | None] = mapped_column(Text)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
