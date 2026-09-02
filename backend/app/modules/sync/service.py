@@ -32,7 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ulid import new_ulid
 from app.modules.audit.models import OutboxEvent
 from app.modules.crypto.models import ProjectKey
+from app.modules.forms import service as forms_service
 from app.modules.forms.models import Form, FormVersion
+from app.modules.forms.schemas import DeployedFormVersion
 from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
 from app.modules.submissions.models import (
@@ -645,12 +647,25 @@ async def _server_cursor(session: AsyncSession) -> int:
     return max(op_max or 0, tomb_max or 0)
 
 
-async def pull(session: AsyncSession, cursor: int, limit: int) -> PullResponse:
+async def pull(
+    session: AsyncSession,
+    cursor: int,
+    limit: int,
+    *,
+    device_id: str | None = None,
+    want_forms: bool = False,
+) -> PullResponse:
     """Everything accepted after `cursor`, oldest arrival first, bounded.
 
     Ops and tombstones share one sequence, so one integer resumes both
     streams. The client persists nextCursor only after the batch is durably
     written locally (spec §5).
+
+    `want_forms` adds the device's form manifest (spec §5, `scope=forms`). It
+    needs `device_id` because deployment is per environment: a device is told
+    about the versions its own environment runs, never everything the project
+    has published. Without a device there is no environment and so no answer,
+    and the manifest comes back empty rather than guessing at one.
     """
     ops = (
         (
@@ -744,9 +759,18 @@ async def pull(session: AsyncSession, cursor: int, limit: int) -> PullResponse:
                 )
             )
 
+    forms: list[DeployedFormVersion] = []
+    if want_forms and device_id is not None:
+        # None means the device is unknown or revoked. An empty manifest is the
+        # right answer either way here: pull is not the place to refuse a
+        # device — push already rejects its every op `not_authorized`, which is
+        # where a revoked device learns what has happened.
+        forms = await forms_service.deployed_versions_for_device(session, device_id) or []
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
+        forms=forms,
         next_cursor=next_cursor,
         has_more=has_more,
     )

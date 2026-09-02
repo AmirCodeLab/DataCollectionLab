@@ -1,0 +1,120 @@
+-- The form versions this device holds (specs/sync-protocol-v0.1.md §5).
+--
+-- Before this table a form reached a phone by being compiled into the APK, so a
+-- customer could not put their own form on a device at all. Now the server's
+-- manifest says which versions this device's environment runs, and the IR is
+-- fetched once per version and kept here.
+--
+-- Two rules shape the schema, and both are about *keeping* versions rather than
+-- collecting them:
+--
+-- 1. **A version is kept while any submission references it** (Form IR §9). A
+--    submission is validated against the version it was collected under, so a
+--    device holding a v2 draft on the morning v3 deploys still needs v2's
+--    document — deleting it would leave a draft its own device cannot open, and
+--    the op log alone cannot rebuild the form it was answering.
+--
+-- 2. **`deployed` is the server's word, not this device's.** A version withdrawn
+--    on the server is marked undeployed here rather than deleted, because rule 1
+--    may still require it. The two together are what `deletableFormVersions`
+--    resolves: gone from the server AND nothing on this device needs it.
+--
+-- The IR lives in this SQLCipher database like everything else (envelope §14).
+-- A form document is not secret in the way an answer is, but it names every
+-- question asked of every respondent, and that is enough of a description of a
+-- study to be worth the same protection the op log already gets for free.
+
+CREATE TABLE form_version (
+    -- The server's row id, globally unique across projects, and what
+    -- GET /forms/versions/{id} takes. (form_id, version) is unique only within
+    -- a project, so it cannot be the key.
+    form_version_id TEXT NOT NULL PRIMARY KEY,
+    -- The wire form key an op carries as `formId` (sync §2).
+    form_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    -- The Form IR document. Text rather than something parsed: it is compiled
+    -- on demand and cached in memory, and the engine takes a document.
+    ir_json TEXT NOT NULL,
+    -- The server's content address for that document. Compared against the next
+    -- manifest to decide whether this device already holds the version, so one
+    -- whose content drifted under the same version number cannot pass for the
+    -- document on the phone.
+    --
+    -- Never recomputed here, and it would not match if it were: `ir_json` above
+    -- is re-serialised by the client and the server hashed its own canonical
+    -- key order. This column is the server's word about the version, and it is
+    -- only ever compared with more of the server's words.
+    ir_checksum TEXT NOT NULL,
+    -- 1 while the server's manifest still lists it. Withdrawal is not deletion:
+    -- see rule 2 above.
+    deployed INTEGER NOT NULL DEFAULT 1,
+    fetched_at TEXT NOT NULL
+);
+
+-- One row per (form, version) even though the server id is the key: two ids for
+-- the same version would mean two documents claiming to be the same thing, and
+-- a submission naming that version could not say which it meant.
+CREATE UNIQUE INDEX form_version_key ON form_version(form_id, version);
+
+-- The collection screen's lookup: which forms can a new submission start from.
+CREATE INDEX form_version_deployed ON form_version(deployed);
+
+-- Everything the device holds, newest version of each form first. Includes
+-- undeployed versions: a draft against a withdrawn version still has to open.
+allFormVersions:
+SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
+FROM form_version
+ORDER BY form_id ASC, version DESC;
+
+-- What a new submission may be started on: still deployed, and only the highest
+-- version of each form. Starting a NEW submission on a superseded version would
+-- collect data the server has already moved on from.
+startableFormVersions:
+SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
+FROM form_version
+WHERE deployed = 1
+  -- `latest`, not `inner`: INNER is a reserved word in SQLite and the alias
+  -- fails to parse at runtime, not at build time.
+  AND version = (SELECT MAX(latest.version) FROM form_version latest
+                  WHERE latest.form_id = form_version.form_id AND latest.deployed = 1)
+ORDER BY title ASC, form_id ASC;
+
+formVersion:
+SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
+FROM form_version
+WHERE form_id = ? AND version = ?;
+
+-- The manifest comparison: what this device already holds, id and checksum
+-- only, so deciding what to fetch never reads a single IR document off disk.
+heldFormVersionChecksums:
+SELECT form_version_id, ir_checksum FROM form_version;
+
+upsertFormVersion:
+INSERT OR REPLACE INTO form_version(form_version_id, form_id, version, title, ir_json,
+                                    ir_checksum, deployed, fetched_at)
+VALUES (?, ?, ?, ?, ?, ?, 1, ?);
+
+-- Marks everything undeployed before a manifest is applied; the manifest then
+-- re-marks what it lists. One statement rather than a diff, because the
+-- manifest is a complete statement of the environment's deployments (sync §5)
+-- and a diff would need the server to send withdrawals it does not send.
+markAllUndeployed:
+UPDATE form_version SET deployed = 0;
+
+markDeployed:
+UPDATE form_version SET deployed = 1 WHERE form_version_id = ?;
+
+-- Retention (Form IR §9). A version may go only when the server has stopped
+-- deploying it AND no submission on this device was collected under it.
+-- Both halves matter: the first alone deletes a version an enumerator still has
+-- a draft against; the second alone never deletes anything.
+deletableFormVersions:
+SELECT form_version_id FROM form_version
+WHERE deployed = 0
+  AND NOT EXISTS (SELECT 1 FROM submission s
+                   WHERE s.form_id = form_version.form_id
+                     AND s.form_version = form_version.version);
+
+deleteFormVersion:
+DELETE FROM form_version WHERE form_version_id = ?;

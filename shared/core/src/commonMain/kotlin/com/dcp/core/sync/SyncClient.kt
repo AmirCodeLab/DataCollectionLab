@@ -18,6 +18,7 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 
 data class SyncConfig(
@@ -48,6 +49,15 @@ data class SyncResult(
     val uploadedMedia: Int = 0,
     /** Files still staged — still uploading, or refused and being retried. */
     val pendingMedia: Long = 0,
+    /** Form versions fetched this pass (sync §5) — new or newly redeployed. */
+    val fetchedForms: Int = 0,
+    /**
+     * Why the form manifest could not be applied, or null. Separate from
+     * [error] because it does not fail the sync: the answers are what a sync
+     * exists to move, and a device that could not refresh its forms still holds
+     * the ones it had.
+     */
+    val formError: String? = null,
 ) {
     val isSuccess: Boolean get() = error == null
 }
@@ -95,6 +105,12 @@ class SyncClient(
      * the desktop review app — where the sync loop is ops only.
      */
     private val media: com.dcp.core.media.MediaUploader? = null,
+    /**
+     * Where delivered form versions are kept (sync §5). Null on a client that
+     * does not collect, where asking the server for forms would be work with
+     * nothing to do.
+     */
+    private val forms: FormStore? = null,
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
@@ -108,6 +124,8 @@ class SyncClient(
         var rejected = 0
         var pulled = 0
         var uploadedMedia = 0
+        var fetchedForms = 0
+        var formError: String? = null
         return try {
             // The server rejects every op from a device it has never seen, so
             // an unregistered install must introduce itself before its first
@@ -155,11 +173,40 @@ class SyncClient(
                 }
             }
 
+            // The manifest rides the first pull page only. It is a complete
+            // statement of what this device's environment deploys rather than a
+            // delta (sync §5), so one copy is the whole answer and asking again
+            // on page two would be paying twice for it.
+            // Null until the first page answers; still null afterwards if the
+            // server said nothing about forms at all. See WirePullResponse.
+            var manifest: List<WireDeployedFormVersion>? = null
+            var first = true
             do {
-                val page = withRetry { pullPage(store.syncStatus().pullCursor) }
+                val page = withRetry {
+                    pullPage(store.syncStatus().pullCursor, wantForms = first && forms != null)
+                }
+                if (first) {
+                    manifest = page.forms
+                    first = false
+                }
                 store.applyPullBatch(page.ops.map { it.toSyncOp() }, page.nextCursor)
                 pulled += page.ops.size
             } while (page.hasMore)
+
+            // After the ops, and non-fatally, for the same reason media is: the
+            // answers are the small irreplaceable part and they are already
+            // safe by here. A device that could not refresh its forms keeps the
+            // ones it has and stays able to collect, which is what offline-first
+            // means when the failure is the server's rather than the network's.
+            forms?.let { store ->
+                try {
+                    fetchedForms = refreshForms(store, manifest)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    formError = e.message ?: "form sync failed"
+                }
+            }
 
             // Media last, and deliberately so. An op referencing a file the
             // server has never seen is accepted and marked pending (sync §9),
@@ -181,6 +228,8 @@ class SyncClient(
                 pushed, rejected, pulled,
                 uploadedMedia = uploadedMedia,
                 pendingMedia = media?.let { it.pendingCount() } ?: 0,
+                fetchedForms = fetchedForms,
+                formError = formError,
             )
         } catch (e: CancellationException) {
             throw e
@@ -193,6 +242,8 @@ class SyncClient(
                 registrationFailure = (e as? DeviceRegistrationException)?.reason,
                 uploadedMedia = uploadedMedia,
                 pendingMedia = media?.let { it.pendingCount() } ?: 0,
+                fetchedForms = fetchedForms,
+                formError = formError,
             )
         }
     }
@@ -301,11 +352,90 @@ class SyncClient(
             setBody(WirePushRequest(store.deviceId, prepared.ops, prepared.keys))
         }.body()
 
-    private suspend fun pullPage(cursor: Long): WirePullResponse =
+    private suspend fun pullPage(cursor: Long, wantForms: Boolean = false): WirePullResponse =
         http.get("$baseUrl/api/v1/sync/pull") {
             parameter("cursor", cursor)
             parameter("limit", config.pullLimit)
+            if (wantForms) {
+                parameter("scope", "forms")
+                // Deployment is per environment, so the server cannot answer
+                // without knowing whose forms are being asked for.
+                parameter("deviceId", store.deviceId)
+            }
         }.body()
+
+    /**
+     * Bring the local form store in line with the server's manifest, and report
+     * how many documents were fetched.
+     *
+     * Only the versions this device does not already hold are fetched, compared
+     * on the server's content checksum. That is the whole reason the manifest
+     * and the documents are separate calls: a device that is up to date spends
+     * a few hundred bytes on a sync instead of re-reading every form it has.
+     *
+     * A document that will not fetch is skipped rather than abandoning the
+     * batch. The manifest is still applied for the rest, and a version the
+     * device already holds is simply re-marked as deployed — so one unreachable
+     * form does not cost the device the others.
+     *
+     * A **null** manifest means the server said nothing about forms — it
+     * predates form delivery, or this pull did not ask — and the device's forms
+     * are left exactly as they are. An **empty** manifest is a real answer:
+     * this environment deploys nothing, and the device acts on it. Treating a
+     * silent server as an empty manifest would undeploy every form on the
+     * device and leave an enumerator with no interview to start, caused
+     * entirely by a sync that succeeded.
+     */
+    private suspend fun refreshForms(
+        store: FormStore,
+        manifest: List<WireDeployedFormVersion>?,
+    ): Int {
+        if (manifest == null) return 0
+
+        val entries = manifest.map {
+            FormManifestEntry(
+                formVersionId = it.formVersionId,
+                formId = it.formId,
+                version = it.version,
+                title = it.title,
+                irChecksum = it.irChecksum,
+            )
+        }
+
+        val documents = mutableMapOf<String, String>()
+        for (entry in store.missingFrom(entries)) {
+            val document = try {
+                withRetry { fetchFormVersion(entry.formVersionId) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                continue
+            }
+            documents[entry.formVersionId] = document
+        }
+
+        store.applyManifest(entries, documents)
+        // Retention (Form IR §9): only versions the server has withdrawn AND
+        // no submission on this device refers to. Run here rather than inside
+        // applyManifest so a truncated manifest cannot delete a form as a side
+        // effect of being applied.
+        store.prune()
+        return documents.size
+    }
+
+    /**
+     * The IR document behind one manifest entry, as JSON text for the store.
+     *
+     * Re-serialised rather than relayed byte for byte, so this text is not what
+     * the server hashed — see the note on `ir_checksum` in forms.sq. It is the
+     * same *document*: key order is the only thing that can differ, and the
+     * engine compiles a document, not a byte string.
+     */
+    private suspend fun fetchFormVersion(formVersionId: String): String {
+        val body: WireFormVersionDocument =
+            http.get("$baseUrl/api/v1/forms/versions/$formVersionId").body()
+        return SyncJson.encodeToString(JsonElement.serializer(), body.form)
+    }
 
     /** Exponential backoff; the last failure propagates to syncOnce's catch. */
     private suspend fun <T> withRetry(block: suspend () -> T): T {

@@ -13,6 +13,7 @@ import com.dcp.core.media.MediaUploader
 import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
+import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
 import com.dcp.core.sync.openDatabase
@@ -60,7 +61,14 @@ class AppGraph(
     private val db = openDatabase(driverFactory, keyStore)
 
     val store: SubmissionStore = SubmissionStore(db)
-    val formCatalog: FormCatalog = FormCatalog()
+
+    /**
+     * The form versions this device has been sent (sync §5). Empty until the
+     * first sync — there is no bundled form any more, and a device is not
+     * entitled to collect on a form nobody deployed to it.
+     */
+    val formStore: FormStore = FormStore(db)
+    val formCatalog: FormCatalog = FormCatalog(formStore)
 
     val media: MediaCaptureGraph? = platform?.let { p ->
         val mediaStore = MediaStore(db)
@@ -78,11 +86,16 @@ class AppGraph(
      * a form version this device has not compiled makes the sync path fail
      * closed and encrypt the value rather than assume it is safe to send in the
      * clear.
+     *
+     * Now a lookup across every version the device holds rather than a check
+     * against the one bundled form. That matters more than it looks: with one
+     * form the wrong answer was "encrypt everything", which is safe; with
+     * several, resolving to the wrong *version* would apply another version's
+     * sensitivity flags to these answers, and a field that stopped being
+     * sensitive in v3 would be sent in the clear from a v2 submission.
      */
     private val formSensitivity = FormSensitivity { formId, formVersion ->
-        formCatalog.compiledForm()
-            .takeIf { it.formId == formId && it.version == formVersion }
-            ?.sensitiveFields()
+        formCatalog.compiledForm(formId, formVersion)?.sensitiveFields()
     }
 
     val syncClient: SyncClient = SyncClient(
@@ -101,5 +114,9 @@ class AppGraph(
                 baseUrl = defaultSyncBaseUrl(),
             )
         },
+        // Where delivered forms land. Passed on every client that collects —
+        // without it a device asks the server for no manifest and stays on
+        // whatever forms it already had, which for a fresh install is none.
+        forms = formStore,
     )
 }

@@ -146,12 +146,55 @@ data class WirePulledOp(
     val serverSeq: Long,
 )
 
+/**
+ * One entry of the form manifest (sync §5, `scope=forms`). Names a version and
+ * what it hashes to; the document itself is fetched separately, so a pull costs
+ * a few hundred bytes rather than every form on the phone.
+ */
+@Serializable
+data class WireDeployedFormVersion(
+    val formVersionId: String,
+    val formId: String,
+    val version: Int,
+    val title: String,
+    val irChecksum: String,
+    val deployedAt: String,
+)
+
 @Serializable
 data class WirePullResponse(
     val ops: List<WirePulledOp> = emptyList(),
     // Tombstones are carried but not applied yet — repeat/submission deletion
     // has no local handling in this slice.
     val tombstones: List<JsonElement> = emptyList(),
+    // Null and empty are DIFFERENT answers, which is why this is nullable
+    // rather than defaulted to an empty list.
+    //
+    // Null: the field was absent — this request did not ask for `scope=forms`,
+    // or the server predates form delivery. Nothing has been said about this
+    // device's forms and the device must leave them exactly as they are.
+    //
+    // Empty: the server answered, and this environment deploys nothing. That is
+    // a real statement and the device acts on it.
+    //
+    // Collapsing the two would mean either undeploying every form on the device
+    // whenever it syncs against an older server, or never being able to notice a
+    // project that withdrew its last form.
+    val forms: List<WireDeployedFormVersion>? = null,
     val nextCursor: Long,
     val hasMore: Boolean = false,
+)
+
+/**
+ * GET /api/v1/forms/versions/{formVersionId} — one published version and its
+ * Form IR. Immutable, so a device may cache it forever.
+ */
+@Serializable
+data class WireFormVersionDocument(
+    val formVersionId: String,
+    val formId: String,
+    val version: Int,
+    val title: String,
+    val irChecksum: String,
+    val form: JsonElement,
 )

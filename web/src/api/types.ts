@@ -42,6 +42,26 @@ export interface ContentKeyView {
   wraps: WrappedKeyView[];
 }
 
+/**
+ * One entry in a device's form manifest (sync §5, `scope=forms`).
+ *
+ * Deliberately not the IR. A 52-question form is tens of kilobytes, and a
+ * device re-syncs on whatever connection it has; sending every document on
+ * every pull would spend exactly the bandwidth this protocol exists to
+ * conserve. The manifest says what exists and what it hashes to, and the
+ * device fetches only the versions it does not already hold — the same shape
+ * resumable upload uses, where the server states what it has and the client
+ * sends the rest.
+ */
+export interface DeployedFormVersion {
+  formVersionId: string;
+  formId: string;
+  version: number;
+  title: string;
+  irChecksum: string;
+  deployedAt: string;
+}
+
 export interface DeviceCryptoError {
   reason: RecipientSetFailure;
   message: string;
@@ -95,6 +115,10 @@ export interface DeviceRegisterResponse {
   status: RegisterStatus;
 }
 
+export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
+
+export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
+
 export interface EvaluateRequest {
   form: Record<string, unknown>;
   answers?: Record<string, unknown>;
@@ -134,6 +158,23 @@ export interface FormSummary {
   title: string;
   versions: number[];
   archivedAt: string | null;
+}
+
+/**
+ * One published version and its Form IR (sync §5).
+ *
+ * What a device fetches once the manifest names a version it does not hold.
+ * Immutable: the id addresses a row that can never be rewritten
+ * (specs/erd-v0.1.md §4), so a client may cache it forever.
+ */
+export interface FormVersionDocument {
+  formVersionId: string;
+  formId: string;
+  version: number;
+  title: string;
+  irChecksum: string;
+  publishedAt: string | null;
+  form: Record<string, unknown>;
 }
 
 export interface HTTPValidationError {
@@ -426,6 +467,7 @@ export interface PublishVersionRequest {
   form: Record<string, unknown>;
   title?: string | null;
   publishedBy?: string | null;
+  deployTo?: EnvironmentKind[];
 }
 
 export interface PublishVersionResponse {
@@ -436,11 +478,13 @@ export interface PublishVersionResponse {
   publishedAt: string | null;
   created: boolean;
   warnings: string[];
+  deployments: EnvironmentKind[];
 }
 
 export interface PullResponse {
   ops: PulledOp[];
   tombstones: PulledTombstone[];
+  forms: DeployedFormVersion[];
   nextCursor: number;
   hasMore: boolean;
 }

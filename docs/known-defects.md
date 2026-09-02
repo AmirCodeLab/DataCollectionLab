@@ -115,3 +115,83 @@ unsupported question types: on a build with no `MediaCaptureGraph`, render
 image, signature and geopoint as "not available on this device" and draw no
 control at all. Rendering a widget that cannot answer a question is worse than
 skipping it, because the enumerator thinks they have answered.
+
+### 3. Every device in a project gets the production environment's forms
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/forms/service.py` → `device_environment_id` |
+| **Status** | Open |
+| **Why not fixed** | Nothing enrols a device into an environment, because there is no auth layer and no enrollment UI. A stored `device.environment_id` that nothing can set would be null on every row and a second source of truth beside the derivation still doing the work |
+
+A device's environment is **derived** from its project rather than assigned to
+it: `production` if the project has one, else `staging`, else `development`. So
+a project with both a staging and a production environment gives every device
+production, and there is no way to put one phone on staging to test a form
+before it ships to the field.
+
+That is a real limitation of form delivery rather than a bug in it. What works
+today is the part that must not be got wrong later: the manifest is scoped by
+`form_deployment.environment_id`, so once a device *has* an environment the rule
+is already enforced and watched (`known-breaks.md` row 26). What is missing is
+only the assignment.
+
+The derivation deliberately matches `_ENVIRONMENT_PREFERENCE` in
+`app/modules/sync/service.py`, which is what the push path uses to file a
+submission. The two must keep agreeing: a device handed forms from one
+environment while its data is recorded against another would be a far worse
+failure than the one this row describes, and it would be invisible from both
+ends.
+
+The fix is `device.environment_id`, set at enrollment, defaulting to this same
+derivation for devices that predate it. It belongs with the auth work, not
+before it.
+
+### 4. A deployment cannot be retired
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/forms/service.py` → `deploy_version`; `form_deployment.retired_at` |
+| **Status** | Open |
+| **Why not fixed** | Withdrawal is fully implemented on the *reading* side — the manifest, the client's `deployed` flag and retention all handle a version disappearing — and only the endpoint that would cause it is missing. Adding it is an API change with its own contract regeneration, and nothing in Phase 2 part 1 needs it |
+
+`POST /forms/versions` deploys, and it is additive by design: deploying v3 to
+production does not retire v2, and there is no call that sets `retired_at`. So a
+project accumulates deployments, and every version ever deployed stays in every
+device's manifest.
+
+The consequence today is bounded and not silent: a device holds more form
+versions than it needs, and its picker still offers only the newest version of
+each form (`startableFormVersions`), so an enumerator is never shown a stale
+questionnaire. The cost is storage and manifest size, both small at the scale of
+one customer.
+
+It matters more than that reads, though, because the untested path is the one
+that runs when something has gone wrong — a form withdrawn because it was
+published by mistake. The client half of that is tested (`FormStoreTest`:
+`a version the server stops deploying is withdrawn, not deleted`, and the
+retention pair); the server half cannot happen at all.
+
+### 5. Nothing checks that a device's forms and its submissions agree
+
+| | |
+|---|---|
+| **Where** | The seam between `forms.service.device_environment_id` and `sync.service._ENVIRONMENT_PREFERENCE` |
+| **Status** | Open — no symptom observed |
+| **Why not fixed** | Both currently read the same list in the same order, so there is nothing to reproduce. Filed because the duplication is the kind that drifts, and the drift would be silent |
+
+Two functions in two modules independently decide which environment a device
+belongs to. They agree today by inspection, not by construction, and there is no
+test that would fail if one changed.
+
+If they diverged, a device would be handed the forms of one environment and have
+its submissions filed against another. Every screen would look correct on both
+sides: the phone shows the form it was given, the console shows a submission
+under a form version that exists. Only a comparison across the two would show
+it, and nothing performs one.
+
+The fix is one function with one caller each, not a test — a shared rule cannot
+drift. It was left as two because moving it means moving `_ENVIRONMENT_PREFERENCE`
+out of the push path, and that is a change to the code that decides where every
+submission is recorded, which does not belong in the same commit as form
+delivery.

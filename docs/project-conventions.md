@@ -214,6 +214,7 @@ structural.
  Python reference  ==  Kotlin engine        <- vectors compare these
  ------------------------------------------------------------------
                        FormNavigator        <- Kotlin only. No vector reaches here
+                       FormStore
                        CollectionViewModel
                        CollectionScreen (Compose)
 ```
@@ -228,6 +229,9 @@ Above the line, Kotlin-only and unreachable by any vector:
 - **`FormNavigator`** — the interactive cursor every client drives (`next`,
   `previous`, `canFinalize`, `goToFirstBlocking`). The Python reference has no
   cursor; it answers questions about a form, it does not walk one.
+- **`FormStore`** — which form versions a device holds and which it may drop
+  (sync §5, retention per Form IR §9). The Python reference has no device and
+  nothing to retain.
 - **The ViewModels** — `CollectionViewModel`, `SubmissionListViewModel`. Op log
   writing, media capture wiring, error surfacing.
 - **The UI** — `CollectionScreen` and everything it renders.
@@ -238,8 +242,9 @@ What watches that layer, and all there is:
 |---|---|---|
 | `FormNavigator` | `NavigatorTest` (`:shared:form-engine:jvmTest`) | 21 |
 | The collection screen's date question | `DateQuestionTest` (`:clients:composeApp:jvmTest`) | 23 |
+| `FormStore` retention and the manifest | `FormStoreTest`, `FormDeliveryTest` (`:shared:core:jvmTest`) | 25, 28, 29 |
 
-Both exist because a break in that layer passed the vectors. Break 21 put the
+These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
 client-shaped fix would land — and **all 39 vectors stayed green** while the
 navigator refused to let an enumerator past an unanswered question. Break 23
@@ -356,7 +361,51 @@ notice. `./scripts/status.sh` section 5 asks locally.
 ## Current phase
 
 **Phase 0 — architecture proof: complete.**
-**Phase 1 — clients: in progress (Android collection app).**
+**Phase 1 — clients: complete enough to move on (Android collection app).**
+**Phase 2 part 1 — usable by one real customer: in progress.**
+
+Phase 2 part 1 is four items, in this order, and nothing else until a real form
+authored by someone other than us is collected on a real phone and exported:
+
+0. **Form delivery — done.** A form now reaches a device from the server rather
+   than from the APK
+1. Configurable server URL + settings screen — not started
+2. XLSForm import — not started
+3. Export: CSV, XLSX, Stata, SPSS — not started
+
+Item 0 was not in the original list and had to be: `FormCatalog` read one form
+out of the app's own resources, so "a form authored by someone other than us,
+collected on a real phone" was not a thing the system could do at all. The other
+three items do not close that on their own.
+
+How it works (sync §5.1): `GET /sync/pull?scope=forms&deviceId=…` returns a
+**manifest** of the versions deployed to that device's environment — ids,
+titles and content checksums, a few hundred bytes — and the device fetches the
+IR for versions it does not hold from `GET /forms/versions/{formVersionId}`. The
+seeded household survey is 36 KB of IR against a 300-byte manifest, which is the
+whole argument for the split on the connections this product exists for.
+
+Three rules are load-bearing and each has a break recorded against it:
+
+- **Publishing is not deploying.** A published version nothing has deployed
+  reaches no device. `POST /forms/versions` takes `deployTo` and the response
+  reports `deployments`, so "published" cannot be misread as "on the phones"
+- **Deployment is per environment.** `form_deployment.environment_id` scopes the
+  manifest, so a staging form cannot reach a production device
+- **A device retains every version it still refers to** (Form IR §9), not just
+  the newest. Withdrawal marks a version undeployed; only "withdrawn AND no
+  local submission refers to it" deletes it. An enumerator holding a v2 draft
+  the morning v3 deploys must still be able to open it — the op log records the
+  answers, never the questions
+
+There is **no bundled form and no fallback to one**. A device that has not
+synced has no forms and says so. `specs/examples/household_survey.json` is the
+seed's input, not the app's.
+
+What item 0 did not close is in `docs/known-defects.md` 3–5: a device's
+environment is derived from its project rather than assigned (so every device
+gets production), nothing retires a deployment, and the environment rule is
+written twice in two modules that agree by inspection rather than construction.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
@@ -375,10 +424,12 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
    test that watched it. CI regenerates both and fails on any difference
 5. Encryption envelope — done; 8 crypto vectors byte-identical on both engines
 6. iOS Compose spike — done: builds and runs on the iPhone 17 Pro simulator;
-   the submission list renders with the SQLDelight native driver and the
-   bundled form compiling on-device (the app supplies SQLite at link time —
-   now SQLCipher rather than `-lsqlite3`, see §14 below and
-   `clients/iosApp/Configuration/Config.xcconfig`)
+   the submission list renders with the SQLDelight native driver and a form
+   compiling on-device (the app supplies SQLite at link time — now SQLCipher
+   rather than `-lsqlite3`, see §14 below and
+   `clients/iosApp/Configuration/Config.xcconfig`). The form was the bundled
+   one when this was verified; forms now arrive over sync (Phase 2 item 0) and
+   the spike has not been re-run on a device since
 
 Media capture is built for image, signature and GPS point (§6, sync §9).
 Capture goes camera buffer → compress in memory → encrypt in memory → write

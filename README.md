@@ -49,14 +49,17 @@ python scripts/seed_dev.py
 
 `scripts/seed_dev.py` creates the minimum a fresh database needs to be usable:
 one organisation, one project with its development, staging and production
-environments, and the `household_survey` form at version 1, loaded from the
-same JSON the app bundles
-(`clients/composeApp/src/commonMain/composeResources/files/household_survey.json`).
+environments, and the `household_survey` form at version 1, loaded from
+`specs/examples/household_survey.json` and deployed to all three environments.
 Nothing else — devices are not seeded, because a client registers itself on
 first sync (`POST /api/v1/devices`, sync protocol §4).
 
+The deployment is the part that makes a device see anything. A published version
+nothing has deployed appears in no device's form manifest (sync §5), so it never
+reaches a phone.
+
 It is idempotent: rows are matched by natural key, so running it twice is safe
-and changes nothing. A published form version is immutable, so if the bundled
+and changes nothing. A published form version is immutable, so if the example
 JSON drifts from the stored version the script warns rather than overwriting
 it — publish a new version deliberately instead.
 

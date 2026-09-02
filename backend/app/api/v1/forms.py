@@ -2,15 +2,21 @@
 
 Compiling and publishing run the same gate (`service.check_publishable`), so
 what the builder is told about a form is what publishing will actually do with
-it. Deployment to environments is still to come.
+it.
+
+Publishing and deploying are separate: publishing stores an immutable version,
+deploying says an environment should run it, and only the second reaches a
+device. `POST /versions` can do both in one call; retiring a deployment has no
+endpoint yet (docs/known-defects.md).
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.schemas import MessageError
 from app.modules.form_engine.expression import CompileError
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
 from app.modules.forms import service
@@ -21,6 +27,7 @@ from app.modules.forms.schemas import (
     EvaluateResponse,
     FieldSnapshot,
     FormListResponse,
+    FormVersionDocument,
     PublishVersionRequest,
     PublishVersionResponse,
 )
@@ -120,6 +127,11 @@ async def publish_version(
     Re-publishing a version number with different content is refused, because a
     device in the field has that exact IR compiled into submissions it has not
     synced yet.
+
+    `deployTo` deploys the version to the named environments in the same call.
+    Publishing without it is legitimate — the version exists and nothing runs
+    it — but it reaches no device, so the response reports `deployments` either
+    way rather than letting "published" be read as "on the phones".
     """
     async with session.begin():
         try:
@@ -129,8 +141,37 @@ async def publish_version(
                 ir=request.form,
                 title=request.title,
                 published_by=request.published_by,
+                deploy_to=request.deploy_to,
             )
         except CompileError as exc:
             raise HTTPException(status_code=422, detail=[str(exc)]) from exc
         except service.PublishRefused as exc:
             raise HTTPException(status_code=422, detail=exc.violations) from exc
+
+
+@router.get(
+    "/versions/{form_version_id}",
+    response_model=FormVersionDocument,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
+async def get_form_version(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    form_version_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> FormVersionDocument:
+    """One published version and its Form IR.
+
+    The second half of form delivery (sync §5). `GET /sync/pull?scope=forms`
+    tells a device which versions its environment runs and what they hash to;
+    this hands over a document the device does not already hold. Splitting the
+    two is what keeps a sync cheap: the manifest is a few hundred bytes and
+    travels on every pull, the IR is tens of kilobytes and travels once.
+
+    A published version is immutable (specs/erd-v0.1.md §4), so the response for
+    a given id can never change and a client may cache it forever.
+    """
+    async with session.begin():
+        document = await service.get_form_version(session, form_version_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="form version not found")
+    return document

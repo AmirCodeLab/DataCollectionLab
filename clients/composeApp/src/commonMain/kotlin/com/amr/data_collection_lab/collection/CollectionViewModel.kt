@@ -115,6 +115,17 @@ data class CollectionState(
     val cameraForPath: String? = null,
     /** A one-line message under the question, for a refusal worth explaining. */
     val captureMessage: String? = null,
+    /**
+     * Names the form version this device does not hold, when a submission
+     * cannot be opened at all (Form IR §9).
+     *
+     * This is reachable only if retention failed: `FormStore.prune` keeps every
+     * version a submission refers to, precisely so that this stays empty. It is
+     * here because the alternative — rendering a form with no questions — is a
+     * submission that looks answered-and-empty, which is indistinguishable from
+     * real data loss and would be reported as such.
+     */
+    val missingFormVersion: String? = null,
 )
 
 sealed interface CollectionAction {
@@ -193,13 +204,34 @@ class CollectionViewModel(
 
     init {
         viewModelScope.launch {
-            val compiled = catalog.compiledForm()
+            val summaryFirst = withContext(Dispatchers.Default) { store.getSubmission(submissionId) }
+            // The version this submission was COLLECTED under, never the newest
+            // (Form IR §9). An enumerator can be holding a v2 draft on the
+            // morning v3 deploys, and reopening it against v3 would evaluate
+            // their answers under rules they were never asked.
+            val compiled = summaryFirst?.let { catalog.compiledForm(it.formId, it.formVersion) }
+            if (compiled == null) {
+                // The device does not hold that version. Nothing useful can be
+                // rendered — the op log has the answers and not the questions —
+                // so say which version is missing rather than showing an empty
+                // form that looks like a submission with nothing in it.
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        formTitle = summaryFirst?.formId ?: "Unknown form",
+                        missingFormVersion = summaryFirst
+                            ?.let { s -> "${s.formId} v${s.formVersion}" }
+                            ?: submissionId,
+                    )
+                }
+                return@launch
+            }
             val (loadedInstance, summary) = withContext(Dispatchers.Default) {
                 val inst = FormInstance(compiled, today = todayIsoDate())
                 val stored = store.materialisedAnswers(submissionId)
                     .filterKeys { it in inst.values }
                 if (stored.isNotEmpty()) inst.setMany(stored)
-                inst to store.getSubmission(submissionId)
+                inst to summaryFirst
             }
             form = compiled
             instance = loadedInstance
@@ -212,7 +244,7 @@ class CollectionViewModel(
                     language = language,
                     languages = compiled.ir.languages,
                     formTitle = compiled.ir.title.resolve(language) ?: compiled.formId,
-                    finalized = summary?.status == SubmissionStatus.FINALIZED,
+                    finalized = summary.status == SubmissionStatus.FINALIZED,
                 )
             }
             rebuild()

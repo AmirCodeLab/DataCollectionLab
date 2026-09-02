@@ -95,6 +95,32 @@ fun CollectionScreen(
                 ) { CircularProgressIndicator() }
                 return@Scaffold
             }
+            if (state.missingFormVersion != null) {
+                // Reachable only if form retention failed (Form IR §9): the
+                // store keeps every version a submission refers to. Rendering
+                // an empty question list instead would be indistinguishable
+                // from a submission whose answers were lost, and would be
+                // reported as exactly that.
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "This submission cannot be opened",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        modifier = Modifier.padding(top = 8.dp),
+                        text = "This device no longer holds ${state.missingFormVersion}, the " +
+                            "form version these answers were collected under. The answers are " +
+                            "safe and will still sync — only the questions are missing. Sync " +
+                            "again, and report this if it persists.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                return@Scaffold
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),

@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.crypto.envelope import NONCE_BYTES
+from app.modules.forms.schemas import DeployedFormVersion
 
 # Sync protocol §4: batches are bounded.
 MAX_BATCH_OPS = 500
@@ -244,5 +245,15 @@ class PullResponse(BaseModel):
 
     ops: list[PulledOp]
     tombstones: list[PulledTombstone]
+    # The form manifest, when the request asked for `scope=forms` and named a
+    # device. Empty otherwise — never absent. A response field the server
+    # sometimes omits forces every client to handle three cases for two, which
+    # is the same reasoning as the encryption fields on PulledOp above.
+    #
+    # Not part of the cursor stream. Ops resume from `nextCursor`; forms are a
+    # full statement of what this device's environment has deployed right now,
+    # because a device has to be able to notice a version being *withdrawn*, and
+    # a stream of additions cannot say that.
+    forms: list[DeployedFormVersion]
     next_cursor: int = Field(serialization_alias="nextCursor")
     has_more: bool = Field(serialization_alias="hasMore")

@@ -321,7 +321,7 @@
           "forms"
         ],
         "summary": "Publish Version",
-        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.",
+        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.\n\n`deployTo` deploys the version to the named environments in the same call.\nPublishing without it is legitimate — the version exists and nothing runs\nit — but it reaches no device, so the response reports `deployments` either\nway rather than letting \"published\" be read as \"on the phones\".",
         "operationId": "publish_version_api_v1_forms_versions_post",
         "requestBody": {
           "content": {
@@ -343,6 +343,61 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/versions/{form_version_id}": {
+      "get": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Get Form Version",
+        "description": "One published version and its Form IR.\n\nThe second half of form delivery (sync §5). `GET /sync/pull?scope=forms`\ntells a device which versions its environment runs and what they hash to;\nthis hands over a document the device does not already hold. Splitting the\ntwo is what keeps a sync cheap: the manifest is a few hundred bytes and\ntravels on every pull, the IR is tens of kilobytes and travels once.\n\nA published version is immutable (specs/erd-v0.1.md §4), so the response for\na given id can never change and a client may cache it forever.",
+        "operationId": "get_form_version_api_v1_forms_versions__form_version_id__get",
+        "parameters": [
+          {
+            "name": "form_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Form Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormVersionDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -1319,7 +1374,7 @@
           "sync"
         ],
         "summary": "Pull",
-        "description": "Resume the op and tombstone streams from a cursor.\n\n`scope` (spec §5: assignments, forms, datasets) selects additional\nresource streams; only the submission stream exists yet, so it is\naccepted and currently ignored.",
+        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`. Only `forms` is implemented; the others are accepted and\nignored, so a newer client asking for all three still works against this\nserver rather than failing on an unknown word.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
         "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
@@ -1359,6 +1414,23 @@
                 }
               ],
               "title": "Scope"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deviceid"
             }
           }
         ],
@@ -1530,6 +1602,46 @@
         "title": "ContentKeyView",
         "description": "A submission's content key, in the only form the server has it: wrapped."
       },
+      "DeployedFormVersion": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "irChecksum": {
+            "type": "string",
+            "title": "Irchecksum"
+          },
+          "deployedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deployedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "formId",
+          "version",
+          "title",
+          "irChecksum",
+          "deployedAt"
+        ],
+        "title": "DeployedFormVersion",
+        "description": "One entry in a device's form manifest (sync §5, `scope=forms`).\n\nDeliberately not the IR. A 52-question form is tens of kilobytes, and a\ndevice re-syncs on whatever connection it has; sending every document on\nevery pull would spend exactly the bandwidth this protocol exists to\nconserve. The manifest says what exists and what it hashes to, and the\ndevice fetches only the versions it does not already hold — the same shape\nresumable upload uses, where the server states what it has and the client\nsends the rest."
+      },
       "DeviceCryptoError": {
         "properties": {
           "reason": {
@@ -1696,6 +1808,14 @@
         ],
         "title": "DeviceRegisterResponse"
       },
+      "EnvironmentKind": {
+        "type": "string",
+        "enum": [
+          "development",
+          "staging",
+          "production"
+        ]
+      },
       "EvaluateRequest": {
         "properties": {
           "form": {
@@ -1848,6 +1968,59 @@
           "archivedAt"
         ],
         "title": "FormSummary"
+      },
+      "FormVersionDocument": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "irChecksum": {
+            "type": "string",
+            "title": "Irchecksum"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "formId",
+          "version",
+          "title",
+          "irChecksum",
+          "publishedAt",
+          "form"
+        ],
+        "title": "FormVersionDocument",
+        "description": "One published version and its Form IR (sync §5).\n\nWhat a device fetches once the manifest names a version it does not hold.\nImmutable: the id addresses a row that can never be rewritten\n(specs/erd-v0.1.md §4), so a client may cache it forever."
       },
       "HTTPValidationError": {
         "properties": {
@@ -2796,6 +2969,13 @@
               }
             ],
             "title": "Publishedby"
+          },
+          "deployTo": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentKind"
+            },
+            "type": "array",
+            "title": "Deployto"
           }
         },
         "type": "object",
@@ -2845,6 +3025,13 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "deployments": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentKind"
+            },
+            "type": "array",
+            "title": "Deployments"
           }
         },
         "type": "object",
@@ -2855,7 +3042,8 @@
           "irChecksum",
           "publishedAt",
           "created",
-          "warnings"
+          "warnings",
+          "deployments"
         ],
         "title": "PublishVersionResponse"
       },
@@ -2875,6 +3063,13 @@
             "type": "array",
             "title": "Tombstones"
           },
+          "forms": {
+            "items": {
+              "$ref": "#/components/schemas/DeployedFormVersion"
+            },
+            "type": "array",
+            "title": "Forms"
+          },
           "nextCursor": {
             "type": "integer",
             "title": "Nextcursor"
@@ -2888,6 +3083,7 @@
         "required": [
           "ops",
           "tombstones",
+          "forms",
           "nextCursor",
           "hasMore"
         ],

@@ -1,8 +1,9 @@
 """Wire types for the forms read API, compilation, evaluation and publishing.
 
-Enough for a console to name a form and populate a filter, and to publish a new
-immutable version through the same gate every other caller uses. The rest of
-form authoring — CRUD, deployment — still lands later with its own schemas.
+Enough for a console to name a form and populate a filter, to publish a new
+immutable version through the same gate every other caller uses, and to tell a
+device which versions its environment has deployed. The rest of form authoring —
+CRUD, retiring a deployment — still lands later with its own schemas.
 
 The compile and evaluate models live here rather than beside the routes so that
 every wire type in the backend is in a `schemas.py` and the OpenAPI document
@@ -10,9 +11,14 @@ has one place it can be traced back to.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Mirrors environment_kind_check in migrations/schema/001_initial.sql. A named
+# PEP 695 alias rather than a plain assignment, so the OpenAPI document states
+# the closed set once and every field refs it (see submissions/schemas.py).
+type EnvironmentKind = Literal["development", "staging", "production"]
 
 
 class FormSummary(BaseModel):
@@ -106,6 +112,11 @@ class PublishVersionRequest(BaseModel):
     form: dict[str, Any]
     title: str | None = None
     published_by: str | None = Field(default=None, alias="publishedBy")
+    # Publishing and deploying are separate acts, and this is the shorthand for
+    # doing both in one call — which is what a single-environment install
+    # actually wants. An empty list publishes without deploying: the version
+    # exists, and no device is told about it.
+    deploy_to: list[EnvironmentKind] = Field(default_factory=list, alias="deployTo")
 
 
 class PublishVersionResponse(BaseModel):
@@ -122,3 +133,55 @@ class PublishVersionResponse(BaseModel):
     # Warnings do not block a publish (Form IR §10); they are returned so the
     # console can show what shipped anyway.
     warnings: list[str]
+    # Every environment this version is deployed to now — what `deployTo` asked
+    # for, plus anything it was already deployed to. Reported because a publish
+    # on its own reaches no device: a version nothing has deployed appears in no
+    # manifest (sync §5), and "published" reads like "shipped" when it is not.
+    deployments: list[EnvironmentKind]
+
+
+class DeployedFormVersion(BaseModel):
+    """One entry in a device's form manifest (sync §5, `scope=forms`).
+
+    Deliberately not the IR. A 52-question form is tens of kilobytes, and a
+    device re-syncs on whatever connection it has; sending every document on
+    every pull would spend exactly the bandwidth this protocol exists to
+    conserve. The manifest says what exists and what it hashes to, and the
+    device fetches only the versions it does not already hold — the same shape
+    resumable upload uses, where the server states what it has and the client
+    sends the rest.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    # The globally unique row id, and what GET /forms/versions/{id} takes.
+    # `formId` and `version` identify a version only within one project.
+    form_version_id: str = Field(serialization_alias="formVersionId")
+    form_id: str = Field(serialization_alias="formId")
+    version: int
+    title: str
+    # What the device compares against to decide whether it already holds this
+    # exact document, so a version whose content drifted cannot pass for the one
+    # already on the phone.
+    ir_checksum: str = Field(serialization_alias="irChecksum")
+    deployed_at: datetime = Field(serialization_alias="deployedAt")
+
+
+class FormVersionDocument(BaseModel):
+    """One published version and its Form IR (sync §5).
+
+    What a device fetches once the manifest names a version it does not hold.
+    Immutable: the id addresses a row that can never be rewritten
+    (specs/erd-v0.1.md §4), so a client may cache it forever.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    form_version_id: str = Field(serialization_alias="formVersionId")
+    form_id: str = Field(serialization_alias="formId")
+    version: int
+    title: str
+    ir_checksum: str = Field(serialization_alias="irChecksum")
+    published_at: datetime | None = Field(serialization_alias="publishedAt")
+    # The Form IR document itself, exactly as it was published.
+    form: dict[str, Any]
