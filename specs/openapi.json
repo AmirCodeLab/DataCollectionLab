@@ -2326,17 +2326,17 @@
       },
       "ImportRecord": {
         "properties": {
-          "source_name": {
+          "sourceName": {
             "type": "string",
-            "title": "Source Name"
+            "title": "Sourcename"
           },
-          "source_sha256": {
+          "sourceSha256": {
             "type": "string",
-            "title": "Source Sha256"
+            "title": "Sourcesha256"
           },
-          "importer_version": {
+          "importerVersion": {
             "type": "string",
-            "title": "Importer Version"
+            "title": "Importerversion"
           },
           "diagnostics": {
             "items": {
@@ -2348,9 +2348,9 @@
         },
         "type": "object",
         "required": [
-          "source_name",
-          "source_sha256",
-          "importer_version",
+          "sourceName",
+          "sourceSha256",
+          "importerVersion",
           "diagnostics"
         ],
         "title": "ImportRecord",

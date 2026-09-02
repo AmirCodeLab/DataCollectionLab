@@ -232,13 +232,19 @@ class ImportRecord(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    source_name: str = Field(serialization_alias="sourceName")
+    # `alias`, like every other request model here. `serialization_alias` sets
+    # the name a response is written with and leaves validation reading the
+    # field name, so this arrived over the wire wanting `source_name` while the
+    # rest of the API takes camelCase. The contract check could not see it: the
+    # document was generated from the model and so agreed with it, and both
+    # were wrong together. Caught by actually posting to the endpoint.
+    source_name: str = Field(alias="sourceName")
     #: SHA-256 of the uploaded bytes. Answers "is this the same spreadsheet?"
     #: without keeping the spreadsheet.
-    source_sha256: str = Field(serialization_alias="sourceSha256")
+    source_sha256: str = Field(alias="sourceSha256")
     #: Which importer produced it. The same warning means something different
     #: before and after a fix, and without this the two cannot be told apart.
-    importer_version: str = Field(serialization_alias="importerVersion")
+    importer_version: str = Field(alias="importerVersion")
     diagnostics: list[ImportDiagnostic]
 
 

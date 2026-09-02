@@ -273,6 +273,28 @@ class _Importer:
                     if language:
                         self.languages.add(language)
                     self.ledger.consume(cell.ref)
+                    # The same check the question labels get, and it was missing
+                    # here. Found on a handset: `xl_date_ambiguous_v1.xlsx` has
+                    # choices labelled `${name1}`, `${name2}`, `${name3}`, the
+                    # form imported as publishable, deployed, and offered a
+                    # respondent three options reading literally "${name1}".
+                    #
+                    # A choice label is read out loud to somebody. That makes it
+                    # exactly as bad as an output in a question label, and there
+                    # is no reason the two checks should have been in different
+                    # places.
+                    outputs = substitutions(cell.value)
+                    if outputs:
+                        inserted = ", ".join("${" + o + "}" for o in outputs)
+                        self.log.error(
+                            "output_in_label",
+                            f"This choice label inserts the answer to {inserted}. The "
+                            "Form IR carries plain text (§7), so a respondent would be "
+                            "offered an option reading literally that.",
+                            ref=cell.ref,
+                            cell_value=cell.value,
+                            remedy="Rewrite the choice label without the ${...} insert.",
+                        )
                 elif base in ("image", "media"):
                     self.log.warning(
                         "choice_media_ignored",

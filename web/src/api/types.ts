@@ -275,9 +275,9 @@ export interface ImportInstrumentation {
  * looks like a whole one.
  */
 export interface ImportRecord {
-  source_name: string;
-  source_sha256: string;
-  importer_version: string;
+  sourceName: string;
+  sourceSha256: string;
+  importerVersion: string;
   diagnostics: ImportDiagnostic[];
 }
 

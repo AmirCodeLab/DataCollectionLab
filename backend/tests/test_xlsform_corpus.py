@@ -163,12 +163,36 @@ def test_the_ucl_form_names_what_it_needed_that_we_lack() -> None:
 
 def test_the_clean_form_is_clean_all_the_way_through() -> None:
     """One real form that goes end to end, so 'importable' is not theoretical."""
-    result = import_workbook((FIXTURES / "xl_date_ambiguous_v1.xlsx").read_bytes())
+    result = import_workbook((FIXTURES / "choice_filter_test.xlsx").read_bytes())
 
     assert result.publishable, [d.message for d in result.diagnostics if d.severity == "error"]
-    assert result.questions == 5
+    assert result.questions == 3
     compiled = check_publishable(result.form)
-    assert len(compiled.fields) == 5
+    assert len(compiled.fields) == 3
+
+
+def test_an_output_in_a_choice_label_is_refused_like_one_in_a_question_label() -> None:
+    """A choice label is read out loud to somebody, so it gets the same check.
+
+    It did not, and a handset found it. `xl_date_ambiguous_v1.xlsx` labels its
+    choices `${name1}`, `${name2}`, `${name3}`; the form imported as
+    publishable, was deployed, reached a Pixel, and offered a respondent three
+    options reading literally "${name1}". Every check passed — the label was
+    valid IR, it compiled, both engines agreed.
+
+    The check existed for question labels and hints the whole time. It was
+    simply not applied to the choices sheet, which is the kind of gap that
+    survives review because the code that has it looks complete.
+    """
+    result = import_workbook((FIXTURES / "xl_date_ambiguous_v1.xlsx").read_bytes())
+
+    outputs = [d for d in result.diagnostics if d.code == "output_in_label"]
+    assert len(outputs) == 3, "one per choice label carrying a ${...}"
+    for diagnostic in outputs:
+        assert diagnostic.severity == "error"
+        assert diagnostic.ref is not None
+        assert diagnostic.ref.sheet == "choices"
+    assert not result.publishable
 
 
 def test_a_sheet_that_lies_about_its_size_does_not_hang_the_import() -> None:
