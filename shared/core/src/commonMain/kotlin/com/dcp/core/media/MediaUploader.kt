@@ -68,7 +68,15 @@ class MediaUploader(
     private val files: MediaFileStore,
     private val staging: MediaStaging,
     private val submissions: SubmissionStore,
-    private val baseUrl: String,
+    /**
+     * Where the server is, asked for rather than held — the same reason as
+     * [com.dcp.core.sync.SyncClient.serverUrl]: the address is configurable on
+     * the device now, and a held copy would need an app restart to follow it.
+     *
+     * Media rides after the ops in one sync pass, so in production this reads
+     * the same value the sync client already snapshotted.
+     */
+    private val serverUrl: () -> String,
     /**
      * Shared with [com.dcp.core.sync.SyncClient] in production so both use one
      * connection pool. Injected in tests so the mock engine can watch exactly
@@ -187,10 +195,11 @@ class MediaUploader(
         }
 
         var sent = 0
+        val chunkBase = "${serverUrl()}/api/v1/media/upload-sessions/${session.uploadId}/chunks"
         for (index in 0 until media.chunkCount) {
             if (index in alreadyThere) continue
             val body = chunkBytes(media, index)
-            http.put("$baseUrl/api/v1/media/upload-sessions/${session.uploadId}/chunks/$index") {
+            http.put("$chunkBase/$index") {
                 contentType(ContentType.Application.OctetStream)
                 setBody(body)
             }
@@ -199,7 +208,7 @@ class MediaUploader(
         }
 
         val completed: WireMediaCompleteResponse = http.post(
-            "$baseUrl/api/v1/media/upload-sessions/${session.uploadId}/complete",
+            "${serverUrl()}/api/v1/media/upload-sessions/${session.uploadId}/complete",
         ) {
             contentType(ContentType.Application.Json)
             setBody(WireMediaCompleteRequest(uploadHash(media)))
@@ -257,7 +266,7 @@ class MediaUploader(
         }
 
     private suspend fun openSession(media: StagedMedia): WireMediaSessionResponse {
-        val response = http.post("$baseUrl/api/v1/media/upload-sessions") {
+        val response = http.post("${serverUrl()}/api/v1/media/upload-sessions") {
             // The refusal body is the point of this call's error path, and
             // expectSuccess would throw before it could be read.
             expectSuccess = false
@@ -319,7 +328,7 @@ class MediaUploader(
      */
     suspend fun refreshPolicy(): MediaPolicy {
         val response = try {
-            http.get("$baseUrl/api/v1/devices/${submissions.deviceId}/media-policy") {
+            http.get("${serverUrl()}/api/v1/devices/${submissions.deviceId}/media-policy") {
                 expectSuccess = false
             }
         } catch (e: CancellationException) {

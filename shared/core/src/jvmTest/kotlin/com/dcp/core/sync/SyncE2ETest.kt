@@ -122,7 +122,7 @@ class SyncE2ETest {
                 }
             }
             val interrupted = SyncClient(
-                store, baseUrl,
+                store, { baseUrl },
                 SyncConfig(batchSize = 25, maxAttempts = 1), httpClient = dying,
             ).syncOnce()
 
@@ -133,7 +133,7 @@ class SyncE2ETest {
 
             // Recovery with a healthy client: the outbox drains completely...
             val recovered = SyncClient(
-                store, baseUrl, SyncConfig(batchSize = 25), httpClient = httpClient(),
+                store, { baseUrl }, SyncConfig(batchSize = 25), httpClient = httpClient(),
             ).syncOnce()
             assertNull(recovered.error)
             assertEquals(60, recovered.pushedOps)
@@ -170,7 +170,7 @@ class SyncE2ETest {
         }
 
         val result = SyncClient(
-            store, baseUrl, SyncConfig(),
+            store, { baseUrl }, SyncConfig(),
             deviceInfo = DeviceInfo("desktop", osVersion = "e2e", appVersion = "e2e"),
             httpClient = httpClient(),
         ).syncOnce()
@@ -195,7 +195,7 @@ class SyncE2ETest {
         val cursorBefore = store.syncStatus().pullCursor
 
         val result = SyncClient(
-            store, "http://localhost:59999", // nothing listens here
+            store, { "http://localhost:59999" }, // nothing listens here
             SyncConfig(maxAttempts = 2, baseDelayMs = 1), httpClient = httpClient(),
         ).syncOnce()
 
@@ -231,7 +231,7 @@ class SyncE2ETest {
 
         assertEquals(emptyList(), forms.all(), "a fresh device starts with no forms at all")
 
-        val result = SyncClient(store, baseUrl, httpClient = httpClient(), forms = forms).syncOnce()
+        val result = SyncClient(store, { baseUrl }, httpClient = httpClient(), forms = forms).syncOnce()
 
         assertNull(result.error)
         assertNull(result.formError)
@@ -257,7 +257,7 @@ class SyncE2ETest {
         // A second sync must fetch nothing: the checksum comparison is what
         // keeps a sync cheap, and it only demonstrably works against a real
         // server's real checksums.
-        val second = SyncClient(store, baseUrl, httpClient = httpClient(), forms = forms).syncOnce()
+        val second = SyncClient(store, { baseUrl }, httpClient = httpClient(), forms = forms).syncOnce()
         assertNull(second.error)
         assertEquals(
             0, second.fetchedForms,

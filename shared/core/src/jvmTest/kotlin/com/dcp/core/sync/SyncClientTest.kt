@@ -66,7 +66,131 @@ class SyncClientTest {
             expectSuccess = true
             install(ContentNegotiation) { json(SyncJson) }
         }
-        return SyncClient(store, "http://test", config, httpClient = http)
+        return SyncClient(store, { "http://test" }, config, httpClient = http)
+    }
+
+    // ------------------------------------------------------------------
+    // The server address is asked for, not held.
+    //
+    // Two properties, and they pull in opposite directions, which is why both
+    // are here. The client must *not* cache the address across syncs — the
+    // settings screen would then need an app restart to take effect, on the one
+    // screen whose whole purpose is to fix an address that is not working. And
+    // it must cache it *within* one sync — see the note in syncOnce.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a changed address is picked up by the next sync, with no new client`() = runBlocking {
+        val store = store()
+        seedOps(store, 1)
+        val hosts = mutableListOf<String>()
+        var address = "http://first.example"
+
+        val http = HttpClient(
+            MockEngine { request ->
+                hosts += request.url.host
+                when {
+                    request.url.encodedPath.endsWith("/devices") ->
+                        jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
+                    request.url.encodedPath.endsWith("/crypto") -> jsonResponse(
+                        """{"deviceId":"dev-test","projectId":"prj","securityMode":"standard",
+                            "projectKeys":[]}"""
+                    )
+                    request.url.encodedPath.endsWith("/push") ->
+                        jsonResponse("""{"accepted":[],"rejected":[]}""")
+                    else -> jsonResponse(emptyPull())
+                }
+            }
+        ) {
+            expectSuccess = true
+            install(ContentNegotiation) { json(SyncJson) }
+        }
+        // The one object, for both syncs — exactly as AppGraph holds it.
+        val client = SyncClient(store, { address }, fastRetry, httpClient = http)
+
+        client.syncOnce()
+        assertTrue(hosts.all { it == "first.example" }, "first sync went to $hosts")
+
+        address = "http://second.example"
+        hosts.clear()
+        client.syncOnce()
+
+        assertTrue(
+            hosts.isNotEmpty() && hosts.all { it == "second.example" },
+            "a saved address must take effect on the next sync, not the next launch: $hosts",
+        )
+    }
+
+    @Test
+    fun `an address changed mid-sync does not split one sync across two servers`() = runBlocking {
+        // The reason the address is read once per pass rather than per request.
+        // refreshCrypto caches the recipient set of the project the server
+        // names and the push encrypts to it, so a sync split across two servers
+        // could wrap content keys to one project and hand the ciphertext to
+        // another — which stores it, reports success, and is holding answers
+        // only a third party can ever open.
+        val store = store()
+        seedOps(store, 1)
+        val hosts = mutableListOf<String>()
+        var address = "http://first.example"
+
+        val http = HttpClient(
+            MockEngine { request ->
+                hosts += request.url.host
+                // Change it under the client, after the very first request.
+                address = "http://second.example"
+                when {
+                    request.url.encodedPath.endsWith("/devices") ->
+                        jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
+                    request.url.encodedPath.endsWith("/crypto") -> jsonResponse(
+                        """{"deviceId":"dev-test","projectId":"prj","securityMode":"standard",
+                            "projectKeys":[]}"""
+                    )
+                    request.url.encodedPath.endsWith("/push") ->
+                        jsonResponse("""{"accepted":[],"rejected":[]}""")
+                    else -> jsonResponse(emptyPull())
+                }
+            }
+        ) {
+            expectSuccess = true
+            install(ContentNegotiation) { json(SyncJson) }
+        }
+
+        SyncClient(store, { address }, fastRetry, httpClient = http).syncOnce()
+
+        assertTrue(hosts.size > 1, "expected several requests in one sync, got $hosts")
+        assertEquals(
+            setOf("first.example"),
+            hosts.toSet(),
+            "one sync must talk to one server",
+        )
+    }
+
+    @Test
+    fun `a failed sync reports the address it tried and the original message`() = runBlocking {
+        // Before SyncFailure this recorded `Connect timeout has expired`, which
+        // names no server and suggests no fix.
+        val store = store()
+        seedOps(store, 1)
+        val http = HttpClient(
+            MockEngine { throw java.net.ConnectException("Connection refused") }
+        ) {
+            expectSuccess = true
+            install(ContentNegotiation) { json(SyncJson) }
+        }
+
+        val result = SyncClient(
+            store,
+            { "http://192.168.1.20:8000" },
+            SyncConfig(maxAttempts = 1),
+            httpClient = http,
+        ).syncOnce()
+
+        val error = assertNotNull(result.error)
+        assertTrue("192.168.1.20:8000" in error, "the address must be named: $error")
+        assertTrue("Connection refused" in error, "the original must survive: $error")
+        // And it is what the screen reads back.
+        assertEquals(error, store.syncStatus().lastError)
     }
 
     private fun MockRequestHandleScope.jsonResponse(body: String): HttpResponseData =

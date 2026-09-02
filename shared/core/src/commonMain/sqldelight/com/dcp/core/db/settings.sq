@@ -1,0 +1,42 @@
+-- Device-local settings a person sets, as opposed to state a protocol keeps.
+--
+-- Everything else single-row in this database — `device_state`, `sync_status`,
+-- `project_crypto`, `media_policy` — is a typed table with one column per
+-- field, because those hold protocol state where a missing or extra field is a
+-- correctness question. This one is deliberately a key/value bag: it holds what
+-- a person typed into a settings screen, the set grows by one row whenever a
+-- screen grows a control, and pretending to a schema would mean a migration per
+-- checkbox.
+--
+-- The keys are named in ServerConfig rather than here. There is no CHECK
+-- constraint listing them, and that is on purpose: an old build reading a
+-- database an new build wrote must ignore a key it does not know, not fail to
+-- open the database. Self-hosted installs run whatever version they run and a
+-- device can be downgraded.
+--
+-- Nothing in here is a secret — a server address is not — but it lives in the
+-- SQLCipher database with everything else (envelope §14) because a second store
+-- would be a second thing to key, back up and migrate for no gain.
+
+-- `setting_value` rather than `value`: SQLDelight escapes a column named for a
+-- Kotlin soft keyword and generates `value_`, which every reader then carries.
+CREATE TABLE app_setting (
+    key TEXT NOT NULL PRIMARY KEY,
+    setting_value TEXT NOT NULL
+);
+
+getSetting:
+SELECT setting_value FROM app_setting WHERE key = ?;
+
+-- Observed by the settings screen, which has to redraw when a save lands.
+allSettings:
+SELECT key, setting_value FROM app_setting;
+
+putSetting:
+INSERT OR REPLACE INTO app_setting(key, setting_value) VALUES (?, ?);
+
+-- Clearing a setting is deleting the row, never writing an empty string. The
+-- absence of a row is what means "use the platform default", and "" would be a
+-- server address of no characters — a different and unusable answer.
+clearSetting:
+DELETE FROM app_setting WHERE key = ?;

@@ -89,7 +89,18 @@ class DeviceRegistrationException(
  */
 class SyncClient(
     private val store: SubmissionStore,
-    private val baseUrl: String,
+    /**
+     * Where the server is, asked for rather than held.
+     *
+     * A function and not a String because the address is now something a person
+     * can change on the device ([ServerConfig]), and a held copy would mean the
+     * app had to be restarted for a new address to take effect — on the screen
+     * whose entire purpose is to fix an address that is not working.
+     *
+     * It is read **once per sync**, not once per request: see [syncOnce]. For a
+     * fixed address, `{ "http://host:8000" }`.
+     */
+    private val serverUrl: () -> String,
     private val config: SyncConfig = SyncConfig(),
     private val deviceInfo: DeviceInfo = DeviceInfo(),
     httpClient: HttpClient? = null,
@@ -119,6 +130,43 @@ class SyncClient(
 
     private val crypto = SyncCrypto(store, formSensitivity)
 
+    /**
+     * Is there a DCP server at [url], and which deployment is it?
+     *
+     * Separate from [syncOnce] because it answers a different question and a
+     * person asking it is in a different situation: they have just typed an
+     * address and want to know whether it is right, before any data moves. A
+     * sync would answer it too, eventually, but it registers the device,
+     * refreshes crypto and pushes the outbox first, and a failure anywhere in
+     * that chain reads as "the address is wrong" whether or not it is.
+     *
+     * `GET /health` and nothing else: it is the one endpoint that needs no
+     * device, no project and no authorisation, so a failure here is about
+     * reachability alone. It also returns the server's environment name, which
+     * is the cheapest way to catch the mistake this cannot otherwise see — an
+     * address that connects perfectly to the wrong server.
+     */
+    suspend fun checkConnection(url: String = serverUrl()): ConnectionCheck = try {
+        val response = http.get("$url/health") { expectSuccess = false }
+        if (!response.status.isSuccess()) {
+            ConnectionCheck.Failed(
+                url,
+                "$url answered with HTTP ${response.status.value}. Something is at that " +
+                    "address, but it is not answering as a DCP server.",
+            )
+        } else {
+            val body: WireHealth = response.body()
+            ConnectionCheck.Reached(url, body.environment)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Any failure, including a body that would not decode: a server that
+        // answers /health with something else is not one this app can use, and
+        // saying so is more useful than a parse error.
+        ConnectionCheck.Failed(url, SyncFailure.describe(url, e))
+    }
+
     suspend fun syncOnce(): SyncResult {
         var pushed = 0
         var rejected = 0
@@ -126,13 +174,27 @@ class SyncClient(
         var uploadedMedia = 0
         var fetchedForms = 0
         var formError: String? = null
+        // Read once, here, and used for every request in this pass.
+        //
+        // Not per request, and the reason is not tidiness. `refreshCrypto`
+        // caches the recipient set of the project the *server* names, and the
+        // push that follows encrypts to it. If the address changed between the
+        // two, this device would wrap content keys to one server's project keys
+        // and hand the ciphertext to a different server — which stores it,
+        // reports success, and is holding answers only a third party's private
+        // key can ever open. Reading once makes that unreachable rather than
+        // unlikely.
+        //
+        // It is also what the failure message reports, so a sync that failed
+        // against the old address cannot name the new one.
+        val base = serverUrl()
         return try {
             // The server rejects every op from a device it has never seen, so
             // an unregistered install must introduce itself before its first
             // push. Registration is idempotent: "already registered" is a 2xx
             // success, and only a server acknowledgement sets the local flag.
             if (!store.isDeviceRegistered()) {
-                withRetry { registerDevice() }
+                withRetry { registerDevice(base) }
                 store.markDeviceRegistered()
             }
 
@@ -140,7 +202,7 @@ class SyncClient(
             // been encrypted cannot be recalled once it has left in the clear.
             // Rotation (envelope §8) also adds recipients, so this is refreshed
             // every sync rather than cached from registration.
-            withRetry { refreshCrypto() }
+            withRetry { refreshCrypto(base) }
 
             // Give ops rejected on an earlier sync another chance — a
             // rejection can be transient (form published late, device
@@ -154,7 +216,7 @@ class SyncClient(
                 // derived from (deviceId, counter), so re-encrypting produces
                 // identical bytes, but doing the work once is simply cheaper.
                 val prepared = crypto.prepare(batch)
-                val response = withRetry { pushBatch(prepared) }
+                val response = withRetry { pushBatch(base, prepared) }
 
                 val batchIds = batch.map { it.opId }.toSet()
                 val accepted = response.accepted.filter { it in batchIds }
@@ -183,7 +245,7 @@ class SyncClient(
             var first = true
             do {
                 val page = withRetry {
-                    pullPage(store.syncStatus().pullCursor, wantForms = first && forms != null)
+                    pullPage(base, store.syncStatus().pullCursor, wantForms = first && forms != null)
                 }
                 if (first) {
                     manifest = page.forms
@@ -200,7 +262,14 @@ class SyncClient(
             // means when the failure is the server's rather than the network's.
             forms?.let { store ->
                 try {
-                    fetchedForms = refreshForms(store, manifest)
+                    val refresh = refreshForms(base, store, manifest)
+                    fetchedForms = refresh.fetched
+                    if (refresh.undelivered.isNotEmpty()) {
+                        formError = "could not download " +
+                            refresh.undelivered.joinToString(", ") +
+                            " from $base — the manifest lists it but the document " +
+                            "would not fetch"
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -234,7 +303,10 @@ class SyncClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val message = e.message ?: "sync failed"
+            // Names the address that was tried and a cause in plain words;
+            // the platform exception text is kept inside it, never instead
+            // of it. See SyncFailure.
+            val message = SyncFailure.describe(base, e)
             store.recordSyncError(message)
             SyncResult(
                 pushed, rejected, pulled,
@@ -254,7 +326,7 @@ class SyncClient(
      * refused: project_not_found — ... Run scripts/seed_dev.py ..." — because
      * "invalid 409" tells a field engineer nothing about what to fix.
      */
-    private suspend fun registerDevice(): WireDeviceRegisterResponse {
+    private suspend fun registerDevice(baseUrl: String): WireDeviceRegisterResponse {
         val response = http.post("$baseUrl/api/v1/devices") {
             // expectSuccess would throw before the body could be read, and the
             // body is the whole point of this call's error path.
@@ -293,9 +365,9 @@ class SyncClient(
      * whether this project encrypts — so it refuses to push rather than risk
      * sending an answer in the clear that the mode says must not be.
      */
-    private suspend fun refreshCrypto() {
+    private suspend fun refreshCrypto(baseUrl: String) {
         val fetched = try {
-            fetchCrypto()
+            fetchCrypto(baseUrl)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -313,7 +385,7 @@ class SyncClient(
      * Neither case can leak an answer, and both are worth surviving — a
      * self-hosted deployment runs whatever version it runs.
      */
-    private suspend fun fetchCrypto(): ProjectCrypto? {
+    private suspend fun fetchCrypto(baseUrl: String): ProjectCrypto? {
         val response = http.get("$baseUrl/api/v1/devices/${store.deviceId}/crypto") {
             expectSuccess = false
         }
@@ -346,13 +418,17 @@ class SyncClient(
             .forEach { store.markContentKeyUploaded(it.contentKeyId) }
     }
 
-    private suspend fun pushBatch(prepared: PreparedBatch): WirePushResponse =
+    private suspend fun pushBatch(baseUrl: String, prepared: PreparedBatch): WirePushResponse =
         http.post("$baseUrl/api/v1/sync/push") {
             contentType(ContentType.Application.Json)
             setBody(WirePushRequest(store.deviceId, prepared.ops, prepared.keys))
         }.body()
 
-    private suspend fun pullPage(cursor: Long, wantForms: Boolean = false): WirePullResponse =
+    private suspend fun pullPage(
+        baseUrl: String,
+        cursor: Long,
+        wantForms: Boolean = false,
+    ): WirePullResponse =
         http.get("$baseUrl/api/v1/sync/pull") {
             parameter("cursor", cursor)
             parameter("limit", config.pullLimit)
@@ -387,10 +463,11 @@ class SyncClient(
      * entirely by a sync that succeeded.
      */
     private suspend fun refreshForms(
+        baseUrl: String,
         store: FormStore,
         manifest: List<WireDeployedFormVersion>?,
-    ): Int {
-        if (manifest == null) return 0
+    ): FormRefresh {
+        if (manifest == null) return FormRefresh(0, emptyList())
 
         val entries = manifest.map {
             FormManifestEntry(
@@ -403,12 +480,24 @@ class SyncClient(
         }
 
         val documents = mutableMapOf<String, String>()
+        val undelivered = mutableListOf<String>()
         for (entry in store.missingFrom(entries)) {
             val document = try {
-                withRetry { fetchFormVersion(entry.formVersionId) }
+                withRetry { fetchFormVersion(baseUrl, entry.formVersionId) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+                // Skipped, so one unreachable form does not cost the device the
+                // others — but RECORDED, which it was not. A manifest entry
+                // whose document will not fetch and which this device does not
+                // already hold simply vanishes: `applyManifest` has nothing to
+                // upsert and `markDeployed` updates no row. The sync then
+                // reports success, the device holds no form, and nothing
+                // anywhere says why — indistinguishable, from the phone, from a
+                // project that has deployed nothing. Found while verifying the
+                // settings screen, which states that diagnosis out loud and so
+                // would have stated it wrongly.
+                undelivered += "${entry.formId} v${entry.version}"
                 continue
             }
             documents[entry.formVersionId] = document
@@ -420,7 +509,7 @@ class SyncClient(
         // applyManifest so a truncated manifest cannot delete a form as a side
         // effect of being applied.
         store.prune()
-        return documents.size
+        return FormRefresh(documents.size, undelivered)
     }
 
     /**
@@ -431,7 +520,7 @@ class SyncClient(
      * same *document*: key order is the only thing that can differ, and the
      * engine compiles a document, not a byte string.
      */
-    private suspend fun fetchFormVersion(formVersionId: String): String {
+    private suspend fun fetchFormVersion(baseUrl: String, formVersionId: String): String {
         val body: WireFormVersionDocument =
             http.get("$baseUrl/api/v1/forms/versions/$formVersionId").body()
         return SyncJson.encodeToString(JsonElement.serializer(), body.form)

@@ -122,7 +122,7 @@ class MediaUploaderTest {
 
         return Harness(
             MediaUploader(
-                store, files, staging, submissions, "http://test", http,
+                store, files, staging, submissions, { "http://test" }, http,
                 deleteAfterUpload = deleteAfterUpload,
             ),
             staging, store, submissions, files,

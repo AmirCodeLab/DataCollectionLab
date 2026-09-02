@@ -1,0 +1,20 @@
+-- v6 -> v7: device-local settings, so the server address can be configured on
+-- the device instead of compiled into it.
+--
+-- Migrated rather than recreated, like every step before it: a device in the
+-- field carries its op log and its logical counter across upgrades, and
+-- operation nonces are derived from (deviceId, counter) (envelope §4.5). A
+-- device that reset its counter and later encrypted would reuse a nonce, which
+-- is the one failure AES-GCM does not tolerate.
+--
+-- Purely additive — no existing table is touched — and it arrives empty, which
+-- is the correct starting state rather than an incomplete one: no row means no
+-- address has been chosen and the platform default is in effect, which is
+-- exactly where a device upgrading from v6 was.
+--
+-- Mirrors the matching CREATE statement in settings.sq; keep the two in step.
+
+CREATE TABLE app_setting (
+    key TEXT NOT NULL PRIMARY KEY,
+    setting_value TEXT NOT NULL
+);

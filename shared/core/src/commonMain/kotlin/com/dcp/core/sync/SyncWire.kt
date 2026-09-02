@@ -198,3 +198,30 @@ data class WireFormVersionDocument(
     val irChecksum: String,
     val form: JsonElement,
 )
+
+/**
+ * GET /health — the one endpoint that needs no device and no project, which is
+ * what makes it the right target for a reachability check (see
+ * [SyncClient.checkConnection]).
+ *
+ * `environment` is the deployment's own name for itself. It is here because the
+ * failure a reachability check cannot otherwise see is the one where everything
+ * works and the address is wrong: a phone pointed at staging syncs perfectly
+ * and files a morning's interviews where nobody is looking for them.
+ */
+@Serializable
+data class WireHealth(
+    val status: String,
+    val environment: String,
+)
+
+/**
+ * What one form refresh managed (sync §5).
+ *
+ * [undelivered] is the half that used to be thrown away. A manifest entry whose
+ * document will not fetch is skipped rather than abandoning the batch — one
+ * unreachable form must not cost the device the others — but a skip that is
+ * not reported leaves the device holding no form, the sync reporting success,
+ * and nothing anywhere saying why.
+ */
+internal data class FormRefresh(val fetched: Int, val undelivered: List<String>)

@@ -85,7 +85,7 @@ class FormDeliveryTest {
             install(ContentNegotiation) { json(SyncJson) }
         }
         return SyncClient(
-            fixture.submissions, "http://test", fastRetry, httpClient = http, forms = fixture.forms,
+            fixture.submissions, { "http://test" }, fastRetry, httpClient = http, forms = fixture.forms,
         )
     }
 
@@ -176,6 +176,20 @@ class FormDeliveryTest {
         assertEquals(1, result.fetchedForms)
         assertNotNull(fixture.forms.find("household", 1))
         assertNull(fixture.forms.find("clinic", 1))
+
+        // ...and the one that did not arrive is REPORTED. Skipping it silently
+        // is what this looked like before: the device holds no `clinic` form,
+        // the sync is green, and nothing anywhere distinguishes that from a
+        // project which has deployed no clinic form at all. `applyManifest` has
+        // no document to upsert and `markDeployed` updates no row, so the entry
+        // simply vanishes. The settings screen states that diagnosis out loud,
+        // which is how this was found.
+        val formError = assertNotNull(
+            result.formError,
+            "a manifest entry whose document would not fetch must be reported",
+        )
+        assertTrue("clinic v1" in formError, "the missing form must be named: $formError")
+        assertTrue("household" !in formError, "the one that arrived is not a failure: $formError")
     }
 
     @Test
