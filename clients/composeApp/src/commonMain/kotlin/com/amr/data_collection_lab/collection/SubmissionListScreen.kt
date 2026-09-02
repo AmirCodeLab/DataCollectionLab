@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SubmissionListRoot(
     viewModel: SubmissionListViewModel,
     onNavigateToCollection: (String) -> Unit,
+    onNavigateToSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -48,13 +49,18 @@ fun SubmissionListRoot(
         }
     }
 
-    SubmissionListScreen(state = state, onAction = viewModel::onAction)
+    SubmissionListScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        onNavigateToSettings = onNavigateToSettings,
+    )
 }
 
 @Composable
 fun SubmissionListScreen(
     state: SubmissionListState,
     onAction: (SubmissionListAction) -> Unit,
+    onNavigateToSettings: () -> Unit = {},
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
@@ -67,11 +73,22 @@ fun SubmissionListScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Text(
-                text = "Submissions",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Submissions",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                // The only route to the settings screen, and it has to be
+                // reachable from the first screen after launch: a device
+                // pointed at the wrong server cannot get past this one.
+                TextButton(onClick = onNavigateToSettings) { Text("Settings") }
+            }
             SyncBar(state = state, onAction = onAction)
             HorizontalDivider()
             if (state.isChoosingForm) {

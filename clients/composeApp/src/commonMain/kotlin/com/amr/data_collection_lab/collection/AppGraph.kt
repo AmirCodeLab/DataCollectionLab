@@ -14,6 +14,7 @@ import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
 import com.dcp.core.sync.FormStore
+import com.dcp.core.sync.ServerConfig
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
 import com.dcp.core.sync.openDatabase
@@ -70,6 +71,17 @@ class AppGraph(
     val formStore: FormStore = FormStore(db)
     val formCatalog: FormCatalog = FormCatalog(formStore, store)
 
+    /**
+     * Which server this device talks to, and the settings screen's subject.
+     *
+     * [defaultSyncBaseUrl] is now a *fallback* rather than the answer: it is
+     * what a fresh install uses until somebody enters an address. That is the
+     * whole of Phase 2 item 1 at this layer — the constant was right for an
+     * emulator and could never be right for a physical phone, which is why one
+     * had never reached a server.
+     */
+    val serverConfig: ServerConfig = ServerConfig(db, defaultSyncBaseUrl())
+
     val media: MediaCaptureGraph? = platform?.let { p ->
         val mediaStore = MediaStore(db)
         MediaCaptureGraph(
@@ -100,7 +112,9 @@ class AppGraph(
 
     val syncClient: SyncClient = SyncClient(
         store,
-        defaultSyncBaseUrl(),
+        // Asked for on each sync rather than captured, so an address saved in
+        // settings takes effect on the next Sync and not on the next launch.
+        serverConfig::baseUrl,
         deviceInfo = platformDeviceInfo(),
         formSensitivity = formSensitivity,
         // Media rides the same sync, after the ops (sync §9). Null here means
@@ -111,7 +125,7 @@ class AppGraph(
                 files = platform!!.files,
                 staging = graph.staging,
                 submissions = store,
-                baseUrl = defaultSyncBaseUrl(),
+                serverUrl = serverConfig::baseUrl,
             )
         },
         // Where delivered forms land. Passed on every client that collects —

@@ -1,9 +1,15 @@
 package com.dcp.core.sync
 
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
 import com.dcp.core.db.DcpDatabase
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
  * One form version held on this device, as it came from the server.
@@ -67,6 +73,26 @@ class FormStore(
 
     /** Every version held, deployed or not. A draft against a withdrawn version still opens. */
     fun all(): List<StoredFormVersion> = queries.allFormVersions(::toStored).executeAsList()
+
+    /**
+     * [all], as a flow that re-emits when the table changes.
+     *
+     * A screen that reports which forms a device holds has to follow the store
+     * rather than read it once, because the moment it is wrong is the moment
+     * that matters: a sync has just delivered a form and the screen still says
+     * there is none. That is not a stale list, it is the screen contradicting
+     * the thing it was opened to explain — and it was found exactly that way,
+     * on a device, with the form sitting in the database underneath it.
+     */
+    fun observeAll(context: CoroutineContext = Dispatchers.Default): Flow<List<StoredFormVersion>> =
+        queries.allFormVersions().asFlow().mapToList(context).map { rows ->
+            rows.map {
+                toStored(
+                    it.form_version_id, it.form_id, it.version, it.title,
+                    it.ir_json, it.ir_checksum, it.deployed, it.fetched_at,
+                )
+            }
+        }
 
     /**
      * What a new submission may be started on: still deployed, highest version

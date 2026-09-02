@@ -6,6 +6,8 @@ import com.dcp.core.sync.SubmissionStore
 import com.dcp.form.CompiledForm
 import com.dcp.form.FormIr
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -15,6 +17,23 @@ data class FormChoice(
     val formId: String,
     val version: Int,
     val title: String,
+)
+
+/**
+ * One form version on this device, as the settings screen reports it.
+ *
+ * [deployed] is the server's word and not this device's: false means the
+ * manifest has stopped listing the version, and it is still here only because a
+ * submission refers to it (Form IR §9). Worth showing, because "withdrawn, kept
+ * for a draft" and "current" look identical otherwise and the first is the one
+ * a supervisor is ringing about.
+ */
+data class HeldForm(
+    val formId: String,
+    val version: Int,
+    val title: String,
+    val deployed: Boolean,
+    val fetchedAt: String,
 )
 
 /**
@@ -46,6 +65,33 @@ class FormCatalog(
     /** Forms a new submission may be started on — current versions only. */
     suspend fun startable(): List<FormChoice> = withContext(Dispatchers.Default) {
         forms.startable().map { FormChoice(it.formId, it.version, it.title) }
+    }
+
+    /**
+     * Every version this device holds, including the ones it may no longer
+     * start — for the settings screen, which answers "what is actually on this
+     * phone".
+     *
+     * Deliberately not [startable]. A device retains every version any local
+     * submission still refers to (Form IR §9), so the two lists differ exactly
+     * when something interesting is true: a version has been withdrawn on the
+     * server and a draft here still needs it. A screen that showed only the
+     * startable ones would report a form as absent while a draft was open
+     * against it, which is the question this screen exists to answer.
+     *
+     * A flow rather than a call, because the screen must not be able to
+     * disagree with the database it is reporting on — see [FormStore.observeAll].
+     */
+    fun observeHeld(): Flow<List<HeldForm>> = forms.observeAll().map { versions ->
+        versions.map {
+            HeldForm(
+                formId = it.formId,
+                version = it.version,
+                title = it.title,
+                deployed = it.deployed,
+                fetchedAt = it.fetchedAt,
+            )
+        }
     }
 
     /**
