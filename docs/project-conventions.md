@@ -236,6 +236,24 @@ Above the line, Kotlin-only and unreachable by any vector:
   writing, media capture wiring, error surfacing.
 - **The UI** — `CollectionScreen` and everything it renders.
 
+And one thing that is **not** Kotlin-only and still cannot be reached, which is
+worth separating because it is the least obvious of the three:
+
+- **Which form version a caller validates against.** A vector hands an engine
+  one compiled form; an engine never chooses. So no vector can catch "it
+  validated against the wrong version" — the choice happens in the caller, and
+  vectors cannot see callers. `choice-008` and `choice-009` make v1 and v2
+  *disagree* about one value, which is what makes the mistake detectable
+  anywhere at all, but neither vector fails when a caller binds wrongly; they
+  fail when the engine gets membership wrong. Break 40 records that as a
+  structural gap rather than a coverage one.
+
+  It has two callers and both need their own test: the client
+  (`FormCatalog.compiledFormForSubmission`, break 30) and the server
+  (`forms.service.compiled_form_for_submission`). In both, the fix was to remove
+  the choice rather than test it — neither takes a version parameter, so the
+  wrong form is not something a caller can ask for.
+
 What watches that layer, and all there is:
 
 | Layer | Watched by | Break |
@@ -246,6 +264,7 @@ What watches that layer, and all there is:
 | Which form version a submission opens against | `FormVersionBindingTest` (`:clients:composeApp:jvmTest`) | 30 |
 | The server address, and what a failed sync says | `ServerConfigTest`, `SyncFailureTest`, `SyncClientTest` (`:shared:core:jvmTest`) | 32 |
 | The settings screen, and which forms it lists | `SettingsScreenTest`, `HeldFormsTest` (`:clients:composeApp:jvmTest`) | 32 |
+| Which form version the **server** validates against | `test_server_version_binding.py` (`backend`, `-m db`) | 40 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a

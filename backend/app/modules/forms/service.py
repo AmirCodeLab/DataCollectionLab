@@ -34,6 +34,7 @@ from app.modules.forms.schemas import (
     PublishVersionResponse,
 )
 from app.modules.projects.models import Device, Environment
+from app.modules.submissions.models import Submission
 
 
 class PublishRefused(Exception):
@@ -474,3 +475,43 @@ async def get_form_version(
         published_at=row.published_at,
         form=row.ir,
     )
+
+
+async def compiled_form_for_submission(
+    session: AsyncSession, submission_id: str
+) -> CompiledForm | None:
+    """The compiled form one submission was collected under.
+
+    **The caller does not choose a version, and that is the point.** Form IR §9
+    binds a submission to the version it was collected under, and §6.3 makes
+    that binding load-bearing now that membership is validated: a value that was
+    in v1's choice list and was removed in v2 is still correct for a submission
+    collected under v1. Validating it against v2 would reject data that was right
+    when it was collected — which is worse than not checking at all, because it
+    destroys good answers instead of admitting bad ones, and it would surface
+    months later as "the server is losing our data".
+
+    This is the server's `FormCatalog.compiledFormForSubmission` (break 30). The
+    client stopped being able to get this wrong by having nothing to pass; the
+    same is done here rather than trusted to whoever writes the enforcement.
+    There is deliberately **no** `version` parameter and no sibling function
+    that takes one.
+
+    Nothing on the push path validates values yet — §6.4's server column is not
+    built. This exists first so that when it is, there is one way to obtain a
+    form and it is already the right one.
+
+    Returns None when the submission is unknown, or when its form version has
+    been deleted; both are the honest answer rather than a fallback to some
+    other version.
+    """
+    row = (
+        await session.execute(
+            select(FormVersion.ir)
+            .join(Submission, Submission.form_version_id == FormVersion.id)
+            .where(Submission.id == submission_id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return CompiledForm(cast(dict[str, Any], row))
