@@ -158,4 +158,26 @@ class CollectableTypesTest {
         onNodeWithText("Option A").assertDoesNotExist()
         onNodeWithText("Option B").assertDoesNotExist()
     }
+
+    @Test
+    fun `the python half of this mirror still exists`() {
+        // Each half asserts the other is there. The suites guard answers "is
+        // this suite run by CI", and both halves live in suites it already
+        // tracks — so a deleted CI step is caught. A deleted test *file* is
+        // not: the suite reports one fewer file and stays green, which is
+        // exactly the quiet way a mirror test stops running.
+        var dir: File? = registry.parentFile.parentFile
+        val python = dir!!.resolve("backend/tests/test_collectable_types.py")
+        assertTrue(
+            python.isFile,
+            "backend/tests/test_collectable_types.py is gone. It is the half of this " +
+                "mirror that checks the importer derives its sets from the registry " +
+                "rather than repeating them.",
+        )
+        assertTrue(
+            registry.name in python.readText(),
+            "${python.name} no longer reads ${registry.name}, so it is not mirroring " +
+                "this registry any more.",
+        )
+    }
 }

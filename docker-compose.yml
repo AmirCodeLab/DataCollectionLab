@@ -39,7 +39,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
     ports: ["8000:8000"]
-    volumes: ["./backend:/app", "./conformance:/conformance:ro"]
+    # specs/ is mounted for the same reason conformance/ is: the app reads
+    # normative files at run time. The XLSForm importer needs
+    # collectable-types-v0.1.json to tell an author whether a question will
+    # work on a phone, and it refuses to import rather than guess if the
+    # file is missing (see xlsform/datatypes.py).
+    volumes: ["./backend:/app", "./conformance:/conformance:ro", "./specs:/specs:ro"]
 
 volumes:
   pgdata:

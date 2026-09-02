@@ -110,7 +110,19 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     inputs.files(
         rootProject.layout.projectDirectory.file("specs/collectable-types-v0.1.json"),
         rootProject.layout.projectDirectory.file("specs/form-ir-v0.1.md"),
+        // The other half of the mirror. CollectableTypesTest asserts this file
+        // exists and still reads the registry, so deleting it must re-run the
+        // test — and this line is the only reason it does.
+        rootProject.layout.projectDirectory.file("backend/tests/test_collectable_types.py"),
     )
-        .withPropertyName("formIrSpecFiles")
+        .withPropertyName("crossModuleTestInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // The hazard this whole block guards against recurs whenever a test learns
+    // to read a new file outside its own module: the read is easy to add and
+    // the input declaration is easy to forget, and the symptom is a green build
+    // that ran nothing. It has now happened twice here — once for the registry
+    // and once, immediately afterwards, for the line above. If a test in this
+    // module starts reading something else from the repository, it belongs in
+    // this list on the same commit.
 }
