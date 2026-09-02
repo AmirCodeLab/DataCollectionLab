@@ -18,6 +18,8 @@ dependencies = [
     "boto3>=1.35",
     "geoalchemy2>=0.15",
     "cryptography>=44.0",
+    # XLSForm import reads .xlsx workbooks.
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
