@@ -311,3 +311,69 @@ def test_a_version_that_was_not_imported_writes_sql_null_not_json_null() -> None
         "that was never imported stores JSON null, which is NOT NULL, and the "
         "all-or-nothing CHECK refuses it."
     )
+
+
+def test_the_ucl_report_separates_our_gaps_from_the_author_s() -> None:
+    """An author must be able to tell what they can fix from what they cannot.
+
+    Read as an author, the first version of this report said "22 problems" for
+    a form whose real content is nine things to change and eight instances of
+    one feature we have not built. Six of the twenty-two were knock-ons of
+    those, and one — `select_one_from_file` — was reported with "check the
+    spelling" for a correctly spelled, real XLSForm type.
+
+    Somebody acting on that spends an evening failing to fix our gap.
+    """
+    result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
+    errors = [d for d in result.diagnostics if d.severity == "error"]
+    roots = [d for d in errors if d.caused_by is None]
+    cascades = [d for d in errors if d.caused_by is not None]
+
+    assert cascades, "the references to dropped questions should hang off their cause"
+    for cascade in cascades:
+        assert any(r.key == cascade.caused_by for r in roots), (
+            f"{cascade.code} points at {cascade.caused_by}, which is not a root"
+        )
+
+    ours = [d for d in roots if d.blame == "platform"]
+    theirs = [d for d in roots if d.blame == "author"]
+    assert ours and theirs, "this form has both kinds; a report that says otherwise is wrong"
+
+    # The specific misdirection that prompted this: a real type, spelled right.
+    for diagnostic in result.diagnostics:
+        if diagnostic.code == "type_not_implemented":
+            assert diagnostic.blame == "platform"
+            assert "spelling" not in (diagnostic.remedy or "").lower()
+            assert "Nothing is wrong with your spreadsheet" in (diagnostic.remedy or "")
+
+    # Nested repeats are deferred by our own spec (§2.3), so they are ours.
+    nested = [d for d in roots if d.code == "nested_repeat_not_supported"]
+    assert nested and nested[0].blame == "platform"
+    assert nested[0].ref is not None, "the author should not have to hunt for the row"
+
+
+def test_every_error_can_be_located_or_is_deliberately_global() -> None:
+    """"Where: —" makes an author hunt. Give a row wherever one exists."""
+    for path in WORKBOOKS:
+        result = import_workbook(path.read_bytes())
+        for diagnostic in result.diagnostics:
+            if diagnostic.severity != "error":
+                continue
+            # `no_questions` is the only finding about a whole workbook.
+            if diagnostic.code == "no_questions":
+                continue
+            assert diagnostic.ref is not None, (
+                f"{path.name}: {diagnostic.code} has no location — {diagnostic.message}"
+            )
+
+
+def test_a_report_leads_with_whose_problem_it_is() -> None:
+    result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
+    markdown = render_markdown(result, source_name="ucl-biomass.xlsx", form_id="ucl")
+
+    assert "Things this platform cannot do yet" in markdown
+    assert "These are not mistakes in your spreadsheet" in markdown
+    assert "Things to change in your form" in markdown
+    assert "knock-on effects" in markdown
+    # The old headline counted consequences as problems.
+    assert "22 problem" not in markdown

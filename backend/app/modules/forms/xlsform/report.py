@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import html
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from .diagnostics import Diagnostic
@@ -57,10 +58,17 @@ def _where(diagnostic: Diagnostic) -> str:
 
 def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> str:
     """The report as Markdown."""
+    diagnostics = result.diagnostics
     counts = {
-        severity: sum(1 for d in result.diagnostics if d.severity == severity)
+        severity: sum(1 for d in diagnostics if d.severity == severity)
         for severity in _SEVERITY_ORDER
     }
+    errors = [d for d in diagnostics if d.severity == "error"]
+    roots = [d for d in errors if d.caused_by is None]
+    cascades = [d for d in errors if d.caused_by is not None]
+    ours = [d for d in roots if d.blame == "platform"]
+    theirs = [d for d in roots if d.blame == "author"]
+
     lines: list[str] = []
     add = lines.append
 
@@ -77,15 +85,40 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
             "published. Anything listed below was not carried over but does not "
             "change what you collect."
         )
-    else:
-        add("## This form cannot be published yet")
         add("")
+    else:
+        add("## What you need to know first")
+        add("")
+        # The distinction that decides whether somebody spends an evening on
+        # this: a platform gap cannot be fixed in the spreadsheet, and telling
+        # an author to try is worse than telling them nothing.
+        if ours and theirs:
+            add(
+                f"**{len(theirs)} thing(s) to change in your form, and "
+                f"{len(ours)} that this platform cannot do yet.** The second "
+                "group is not something you can fix by editing the spreadsheet."
+            )
+        elif ours:
+            add(
+                f"**Nothing in your form is wrong.** All {len(ours)} problem(s) "
+                "below are things this platform has not built yet. Editing the "
+                "spreadsheet will not resolve them."
+            )
+        else:
+            add(f"**{len(theirs)} thing(s) need changing in your form.**")
+        add("")
+        if cascades:
+            add(
+                f"A further {len(cascades)} error(s) are knock-on effects of those "
+                "and are listed underneath the cause, not counted separately — "
+                "fixing the cause resolves them."
+            )
+            add("")
         add(
-            f"{counts['error']} problem(s) below would change what the form asks or "
-            "collects. The form was still imported in full so that you can see "
-            "everything at once, but it cannot be deployed until they are resolved."
+            "The form was imported in full regardless, so you can see everything "
+            "at once. It cannot be published until the errors are resolved."
         )
-    add("")
+        add("")
 
     add("## What came through")
     add("")
@@ -94,66 +127,51 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
     add(f"| Questions imported | {result.questions} |")
     add(f"| Rows read from the `survey` sheet | {result.survey_rows} |")
     add(f"| Languages | {', '.join(result.languages) or '—'} |")
-    add(f"| Errors | {counts['error']} |")
+    add(f"| Problems to fix in the form | {len(theirs)} |")
+    add(f"| Problems this platform must fix | {len(ours)} |")
+    add(f"| Knock-on errors (fixed by the above) | {len(cascades)} |")
     add(f"| Warnings | {counts['warning']} |")
     add(f"| Notes | {counts['info']} |")
     add("")
 
-    grouped = _group(result.diagnostics)
-    for severity in _SEVERITY_ORDER:
-        codes = grouped.get(severity)
-        if not codes:
+    following: dict[str, list[Diagnostic]] = defaultdict(list)
+    for diagnostic in diagnostics:
+        if diagnostic.caused_by:
+            following[diagnostic.caused_by].append(diagnostic)
+
+    if ours:
+        add("## Things this platform cannot do yet")
+        add("")
+        add(
+            "**These are not mistakes in your spreadsheet.** The form is correct "
+            "and this platform has not built the feature. Editing the file will "
+            "not help; either wait, or use one of the substitutes suggested."
+        )
+        add("")
+        _render_group(add, ours, following)
+
+    if theirs:
+        add("## Things to change in your form")
+        add("")
+        add(
+            "Each of these would change what the form asks or what it collects, "
+            "so the form cannot be published until they are resolved."
+        )
+        add("")
+        _render_group(add, theirs, following)
+
+    for severity, heading, blurb in (
+        ("warning", "Warnings", _SEVERITY_BLURB["warning"]),
+        ("info", "Notes", _SEVERITY_BLURB["info"]),
+    ):
+        entries = [d for d in diagnostics if d.severity == severity and d.caused_by is None]
+        if not entries:
             continue
-        heading = {"error": "Errors", "warning": "Warnings", "info": "Notes"}[severity]
         add(f"## {heading}")
         add("")
-        add(_SEVERITY_BLURB[severity])
+        add(blurb)
         add("")
-        for code, entries in sorted(codes.items()):
-            add(f"### {code.replace('_', ' ')} ({len(entries)})")
-            add("")
-            # One remedy per group, not per row: it is the same advice every
-            # time, and repeating it 135 times is how a report stops being read.
-            remedy = next((e.remedy for e in entries if e.remedy), None)
-            # Whether one sentence covers the group decides the shape of the
-            # table. Printing the first entry's message as a heading over rows
-            # that say different things is worse than printing nothing: it
-            # reads as a statement about all of them and is true of one.
-            # `unknown reference` is the case that found this — five rows, five
-            # different missing names.
-            uniform = len({e.message for e in entries}) == 1
-            if uniform:
-                add(f"{entries[0].message}")
-                add("")
-            if len(entries) > 1:
-                if uniform:
-                    add("| Where | In the spreadsheet |")
-                    add("|---|---|")
-                else:
-                    add("| Where | What happened | In the spreadsheet |")
-                    add("|---|---|---|")
-                for entry in entries:
-                    value = (entry.cell_value or "").replace("|", "\\|")
-                    if len(value) > 60:
-                        value = value[:57] + "…"
-                    value_cell = f"`{value}`" if value else ""
-                    if uniform:
-                        add(f"| {_where(entry)} | {value_cell} |")
-                    else:
-                        message = entry.message.replace("|", "\\|")
-                        add(f"| {_where(entry)} | {message} | {value_cell} |")
-                add("")
-            else:
-                if not uniform:
-                    add(f"{entries[0].message}")
-                    add("")
-                add(f"- **Where:** {_where(entries[0])}")
-                if entries[0].cell_value:
-                    add(f"- **Cell contains:** `{entries[0].cell_value}`")
-                add("")
-            if remedy:
-                add(f"**What to do:** {remedy}")
-                add("")
+        _render_group(add, entries, following)
 
     add("## For the platform team")
     add("")
@@ -193,6 +211,72 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
     )
     add("")
     return "\n".join(lines)
+
+
+def _render_group(
+    add: Callable[[str], None],
+    entries: list[Diagnostic],
+    following: dict[str, list[Diagnostic]],
+) -> None:
+    """One heading per code, with any knock-on errors underneath their cause."""
+    grouped: dict[str, list[Diagnostic]] = defaultdict(list)
+    for diagnostic in entries:
+        grouped[diagnostic.code].append(diagnostic)
+
+    for code, items in sorted(grouped.items()):
+        add(f"### {code.replace('_', ' ')} ({len(items)})")
+        add("")
+        remedy = next((e.remedy for e in items if e.remedy), None)
+        uniform = len({e.message for e in items}) == 1
+        if uniform:
+            add(items[0].message)
+            add("")
+        named = any(e.node_id for e in items)
+        if len(items) > 1:
+            # One sentence above the table when it covers every row, and a
+            # "Question" column when the rows are about named questions — a
+            # table that repeats the same 40-word explanation once per row is
+            # how a report stops being read.
+            header = ["Where"]
+            if named:
+                header.append("Question")
+            if not uniform:
+                header.append("What happened")
+            header.append("In the spreadsheet")
+            add("| " + " | ".join(header) + " |")
+            add("|" + "---|" * len(header))
+            for entry in items:
+                value = (entry.cell_value or "").replace("|", "\\|")
+                if len(value) > 60:
+                    value = value[:57] + "…"
+                cells = [_where(entry)]
+                if named:
+                    cells.append(f"`{entry.node_id}`" if entry.node_id else "")
+                if not uniform:
+                    cells.append(entry.message.replace("|", "\\|"))
+                cells.append(f"`{value}`" if value else "")
+                add("| " + " | ".join(cells) + " |")
+            add("")
+        else:
+            if not uniform:
+                add(items[0].message)
+                add("")
+            add(f"- **Where:** {_where(items[0])}")
+            if items[0].cell_value:
+                add(f"- **Cell contains:** `{items[0].cell_value}`")
+            add("")
+        if remedy:
+            add(f"**What to do:** {remedy}")
+            add("")
+
+        # The knock-ons, under the thing that caused them.
+        knock_ons = [k for item in items for k in following.get(item.key or "", [])]
+        if knock_ons:
+            add(f"*Also stopped working because of the above ({len(knock_ons)}):*")
+            add("")
+            for entry in knock_ons:
+                add(f"- {_where(entry)} — {entry.message}")
+            add("")
 
 
 def render_html(result: ImportResult, *, source_name: str, form_id: str) -> str:

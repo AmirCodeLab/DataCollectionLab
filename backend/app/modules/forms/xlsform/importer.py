@@ -86,7 +86,6 @@ _KNOWN_IGNORED_COLUMNS = {
     "choice_filter": "cascading choice filters are not implemented",
     "parameters": "widget parameters are not implemented",
     "trigger": "recalculation triggers are inferred from the dependency graph (§5.1)",
-    "repeat_count": "repeat bounds are not imported yet",
     "instance_name": "instance naming is not implemented",
     "body::accuracythreshold": "GPS accuracy is a project setting, not a form one",
     "autoplay": "media autoplay is not implemented",
@@ -95,6 +94,33 @@ _KNOWN_IGNORED_COLUMNS = {
     "video": "question media is not imported",
     "rows": "textarea sizing is a display hint the IR does not carry",
     "read_only": "handled as `readonly`",
+}
+
+#: Real XLSForm types the Form IR can express and this platform has not built.
+#:
+#: These are **our** gap, not the author's. `select_one_from_file` is spelled
+#: correctly and is a real type; Form IR §3 defines `choices.kind = "dataset"`
+#: for exactly it. Telling somebody to check the spelling of a correctly spelled
+#: word is the same defect as a connect-timeout message asserting something is
+#: at the address: a conclusion the evidence does not support.
+_EXTERNAL_CHOICES = (
+    "external choice lists (Form IR §3 defines them; nothing reads them yet)"
+)
+_NOT_YET_IMPLEMENTED = {
+    "select_one_from_file": _EXTERNAL_CHOICES,
+    "select_multiple_from_file": _EXTERNAL_CHOICES,
+    "select_one_external": _EXTERNAL_CHOICES,
+    "xml-external": "external instance data",
+}
+
+#: Real XLSForm types the Form IR has no way to express. The author has to
+#: rewrite; waiting for us will not help, because there is nothing planned.
+_NOT_IN_THE_IR = {
+    "trigger": "an acknowledgement widget rather than a question",
+    "acknowledge": "an acknowledgement widget rather than a question",
+    "rank": "ordered ranking of choices",
+    "range": "a slider over a numeric range",
+    "osm": "OpenStreetMap feature capture",
 }
 
 _SELECT_ONE = re.compile(r"^select_one\s+(\S+)", re.IGNORECASE)
@@ -200,6 +226,16 @@ class _Importer:
         #: Cells holding an expression, so references can be checked and
         #: rewritten once the full set of ids is known.
         self.expression_cells: list[tuple[dict[str, Any], str, CellRef, str, str]] = []
+        #: Question name -> the key of the diagnostic that dropped it, so a
+        #: reference to it can be reported under its cause rather than as a
+        #: problem of its own.
+        self.dropped_questions: dict[str, str] = {}
+        #: Choice list -> rows defining it, and which questions used it.
+        self.choice_list_rows: dict[str, list[CellRef]] = {}
+        self.choice_list_users: dict[str, list[str]] = {}
+        #: Node id -> the survey row it came from, for diagnostics that only
+        #: know a node.
+        self.node_rows: dict[str, int] = {}
 
     # -- settings ------------------------------------------------------------
 
@@ -313,6 +349,9 @@ class _Importer:
             self.choice_lists.setdefault(list_name, []).append(
                 {"value": name, "label": labels or {"default": name}}
             )
+            self.choice_list_rows.setdefault(list_name, []).append(
+                row.cells[next(iter(row.cells))].ref
+            )
 
     # -- survey --------------------------------------------------------------
 
@@ -410,10 +449,53 @@ class _Importer:
             return {"type": kind, "id": f"{kind}_{row.number}", "children": []}
 
         node: dict[str, Any] = {"type": kind, "id": name, "children": []}
+        self.node_rows[name] = row.number
         labels = self._labels(row, node_id=name)
         if labels:
             node["label"] = labels
-        self._consume_remaining(row, node_id=name, handled={"type", "name"})
+
+        # A group or repeat carries `relevant` too (§2.2, §2.3), and the engine
+        # reads it for the whole subtree — relevance is inherited. This ran only
+        # for questions, so a `relevant` on a `begin repeat` fell through to the
+        # unknown-column branch and was reported as "`relevant` is not a column
+        # this importer understands", which is both wrong and a warning. Four
+        # repeats in the UCL form lost their condition that way, and every
+        # question inside them with it.
+        self._expressions(row, node, name)
+
+        # `repeat_count` is `countExpr` (§2.3): with it the count is computed
+        # and the enumerator cannot add or remove instances; without it they
+        # can. That is a difference in what gets collected, so it is imported
+        # rather than warned about.
+        if kind == "repeat":
+            count_cell = row.cells.get("repeat_count")
+            if count_cell is not None:
+                try:
+                    node["countExpr"] = translate(count_cell.value, self_path=name)
+                    self.ledger.consume(count_cell.ref)
+                    self.expression_cells.append(
+                        (node, "countExpr", count_cell.ref, count_cell.value, name)
+                    )
+                except ExpressionError as failure:
+                    if failure.function:
+                        self.instrumentation.note_function(failure.function)
+                    self.log.error(
+                        "untranslatable_expression",
+                        f"The `repeat_count` of `{name}` could not be translated: "
+                        f"{failure}. Left out, the enumerator would add and remove "
+                        "instances by hand instead of the count being computed.",
+                        ref=count_cell.ref,
+                        cell_value=count_cell.value,
+                        node_id=name,
+                    )
+
+        self._consume_remaining(
+            row,
+            node_id=name,
+            handled={
+                "type", "name", "relevant", "constraint", "calculation", "repeat_count",
+            },
+        )
         return node
 
     def _question(self, row: Row, type_cell: Cell, raw_type: str) -> dict[str, Any] | None:
@@ -477,6 +559,7 @@ class _Importer:
         if name_cell:
             self.ledger.consume(name_cell.ref)
         self.question_ids.add(name)
+        self.node_rows[name] = row.number
 
         node: dict[str, Any] = {"type": "question", "id": name, "dataType": data_type}
 
@@ -489,6 +572,7 @@ class _Importer:
 
         if choice_list is not None:
             self.used_choice_lists.add(choice_list)
+            self.choice_list_users.setdefault(choice_list, []).append(name)
             items = self.choice_lists.get(choice_list)
             if items is None:
                 self.log.error(
@@ -569,16 +653,44 @@ class _Importer:
 
         if lowered in ("calculate", "hidden"):
             return "text", None
-        if lowered in ("trigger", "acknowledge"):
-            self.instrumentation.note_type(lowered)
+        keyword = lowered.split()[0]
+
+        if keyword in _NOT_IN_THE_IR:
+            self.instrumentation.note_type(keyword)
+            key = f"unsupported_type:{name}"
+            self.dropped_questions[name] = key
             self.log.error(
                 "unsupported_type",
-                f"`{raw_type}` has no equivalent in the Form IR, so `{name}` was not "
-                "imported. It is an acknowledgement widget rather than a question.",
+                f"This question is {_NOT_IN_THE_IR[keyword]}, which this platform's "
+                "form format has no way to represent, so it was not imported.",
                 ref=type_cell.ref,
                 cell_value=raw_type,
                 node_id=name,
-                remedy="Use a `select_one` with a single option, or remove the row.",
+                blame="author",
+                key=key,
+                remedy="There is no equivalent planned, so this question needs "
+                "rewriting — a `select_one` with a single option is the usual "
+                "substitute for an acknowledgement.",
+            )
+            return None, None
+
+        if keyword in _NOT_YET_IMPLEMENTED:
+            self.instrumentation.note_type(keyword)
+            key = f"unsupported_type:{name}"
+            self.dropped_questions[name] = key
+            self.log.error(
+                "type_not_implemented",
+                f"This question uses {_NOT_YET_IMPLEMENTED[keyword]}. That is a "
+                "valid XLSForm type; this platform has not built it yet, so the "
+                "question was not imported.",
+                ref=type_cell.ref,
+                cell_value=raw_type,
+                node_id=name,
+                blame="platform",
+                key=key,
+                remedy="Nothing is wrong with your spreadsheet. Either wait for this "
+                "to be supported, or replace the question with a `select_one` and an "
+                "inline choice list.",
             )
             return None, None
 
@@ -587,20 +699,25 @@ class _Importer:
             return simple, None
 
         # Keyed on the construct rather than the whole cell, so the roadmap
-        # aggregates: five rows of `select_one_from_file X.csv` with five
-        # different filenames are one missing feature, not five. Two words when
-        # the first alone is meaningless — `begin loop over toilet_type` is the
-        # deprecated loop construct, and filing it under `begin` says nothing.
+        # aggregates. Two words when the first alone is meaningless — `begin
+        # loop over toilet_type` is the deprecated loop construct, and filing it
+        # under `begin` says nothing.
         words = lowered.split()
-        key = " ".join(words[:2]) if words[0] in ("begin", "end", "select") else words[0]
-        self.instrumentation.note_type(key)
+        roadmap_key = " ".join(words[:2]) if words[0] in ("begin", "end", "select") else words[0]
+        self.instrumentation.note_type(roadmap_key)
+        # Nothing recognised it, so this really may be a typo — and only here is
+        # "check the spelling" an honest thing to say.
+        diagnostic_key = f"unsupported_type:{name}"
+        self.dropped_questions[name] = diagnostic_key
         self.log.error(
-            "unsupported_type",
-            f"`{raw_type}` is not a question type this importer knows, so `{name}` "
+            "unknown_type",
+            f"`{raw_type}` is not a question type this importer recognises, so `{name}` "
             "was not imported.",
             ref=type_cell.ref,
             cell_value=raw_type,
             node_id=name,
+            blame="author",
+            key=diagnostic_key,
             remedy="Check the spelling against the XLSForm type list.",
         )
         return None, None
@@ -850,6 +967,16 @@ class _Importer:
                 )
 
 
+def _is_platform(importer: _Importer, missing: list[str]) -> bool:
+    """True when every dropped target went because *we* cannot do something."""
+    keys = [importer.dropped_questions.get(m) for m in missing]
+    return all(
+        any(d.key == k and d.blame == "platform" for d in importer.log.entries)
+        for k in keys
+        if k
+    )
+
+
 def _rewrite_refs(node: Any, renames: dict[str, str]) -> None:
     """Point every reference at the id its question actually got.
 
@@ -913,22 +1040,61 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
         )
         if missing:
             node.pop(key, None)
+            # Was the target dropped earlier, rather than never existing?
+            #
+            # Five of the UCL form's twenty-two errors were this: a `relevant`
+            # pointing at a `select_one_from_file` question one or two rows
+            # above, which we had refused. Counting those as five more problems
+            # tells an author their form is a disaster when the truth is one
+            # missing feature. They are reported under their cause instead.
+            causes = {
+                importer.dropped_questions[m]
+                for m in missing
+                if m in importer.dropped_questions
+            }
+            root = sorted(causes)[0] if len(causes) == 1 else None
+            cascade = len(causes) == len(set(missing))
             importer.log.error(
                 "unknown_reference",
                 f"The `{key}` of `{owner}` refers to "
                 + ", ".join(f"`{m}`" for m in missing)
-                + ", which no question in this form answers.",
+                + (
+                    ", which was not imported (see above), so this rule was dropped too."
+                    if cascade
+                    else ", which no question in this form answers."
+                ),
                 ref=ref,
                 cell_value=source,
                 node_id=owner,
-                remedy="Check the spelling, or the order of the questions.",
+                blame="platform" if cascade and _is_platform(importer, missing) else "author",
+                caused_by=root if cascade else None,
+                remedy=None
+                if cascade
+                else "Check the spelling, or the order of the questions.",
             )
 
     unused = set(importer.choice_lists) - importer.used_choice_lists
     for list_name in sorted(unused):
+        # Unused because its questions were dropped, or unused on its own?
+        # The UCL form's `plot` list is the first kind, and reporting it as an
+        # independent finding inflates the count with a consequence.
+        users = importer.choice_list_users.get(list_name, [])
+        causes = {importer.dropped_questions[u] for u in users if u in importer.dropped_questions}
+        cascade = bool(users) and len(causes) >= 1 and all(
+            u in importer.dropped_questions for u in users
+        )
+        rows = importer.choice_list_rows.get(list_name) or []
         importer.log.warning(
             "unused_choice_list",
-            f"The choice list `{list_name}` is defined but no question uses it.",
+            f"The choice list `{list_name}` is defined but no question uses it"
+            + (
+                " — the questions that used it were not imported (see above)."
+                if cascade
+                else "."
+            ),
+            ref=rows[0] if rows else None,
+            caused_by=sorted(causes)[0] if cascade and len(causes) == 1 else None,
+            blame="platform" if cascade else "author",
         )
 
     languages = sorted(importer.languages)
@@ -975,6 +1141,31 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
             "this is a filled-in form rather than a blank template.",
         )
 
+    # Nested repeats, named before the engine gets to them.
+    #
+    # The engine refuses these, and its refusal is correct, but it arrives as a
+    # sentence about the IR with no row and no idea whose problem it is. Form IR
+    # §2.3 says nested repeats are "deferred to v0.2" — so the author has
+    # written valid XLSForm and *we* have not built it, which is the opposite
+    # of what a generic compile error implies.
+    for outer, inner in _nested_repeats(children):
+        importer.log.error(
+            "nested_repeat_not_supported",
+            f"`{inner}` is a repeat inside the repeat `{outer}`. That is valid "
+            "XLSForm; this platform's form format defers nested repeats to a "
+            "later version (Form IR §2.3), so the form cannot be imported as it "
+            "stands.",
+            ref=CellRef(SURVEY_SHEET, importer.node_rows[inner], "type")
+            if inner in importer.node_rows
+            else None,
+            node_id=inner,
+            blame="platform",
+            key=f"nested_repeat:{inner}",
+            remedy="Nothing is wrong with your spreadsheet. Until nested repeats "
+            "are supported, the inner repeat has to be flattened into the outer "
+            "one or split into a second form.",
+        )
+
     # Does the IR we just produced actually compile?
     #
     # Enumerating every IR-level rule here would be a second copy of the engine,
@@ -991,12 +1182,33 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
 
         CompiledForm(form)
     except Exception as failure:  # noqa: BLE001 - any refusal is the author's problem
+        # The engine names the node it refused ("repeat 'stems'"), so the row
+        # it came from is knowable — and an author with the file open should
+        # not have to hunt for it.
+        named = re.findall(r"'([A-Za-z_][\w]*)'", str(failure))
+        row_number = next(
+            (importer.node_rows[n] for n in named if n in importer.node_rows), None
+        )
+        # If something above already explained this refusal in specific terms,
+        # this is the same finding in the engine's words. Reported as a
+        # consequence rather than as a second problem.
+        already = next(
+            (
+                d.key
+                for d in importer.log.entries
+                if d.severity == "error" and d.node_id and d.node_id in named and d.key
+            ),
+            None,
+        )
         importer.log.error(
             "does_not_compile",
             "The imported form does not compile: "
-            f"{failure}. This is a limit of the Form IR rather than of the "
+            f"{failure}. This is a limit of the form format rather than of the "
             "importer, so the form needs changing before it can be used.",
-            remedy="Simplify the structure the message names.",
+            ref=CellRef(SURVEY_SHEET, row_number, "type") if row_number else None,
+            caused_by=already,
+            blame="platform" if already else "author",
+            remedy=None if already else "Simplify the structure the message names.",
         )
 
     dropped_rows = ledger.row_residue(SURVEY_SHEET)
@@ -1046,6 +1258,22 @@ def _retag_default_labels(nodes: list[dict[str, Any]], language: str) -> None:
                 value.setdefault(language, text)
         if node.get("children"):
             _retag_default_labels(node["children"], language)
+
+
+def _nested_repeats(
+    nodes: list[dict[str, Any]], inside: str | None = None
+) -> list[tuple[str, str]]:
+    """(outer, inner) for every repeat nested in another (Form IR §2.3)."""
+    found: list[tuple[str, str]] = []
+    for node in nodes:
+        kind = node.get("type")
+        if kind == "repeat":
+            if inside is not None:
+                found.append((inside, str(node.get("id"))))
+            found += _nested_repeats(node.get("children") or [], str(node.get("id")))
+        elif node.get("children"):
+            found += _nested_repeats(node["children"], inside)
+    return found
 
 
 def _count_questions(nodes: list[dict[str, Any]]) -> int:

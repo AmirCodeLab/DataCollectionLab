@@ -236,13 +236,105 @@ def test_a_type_in_the_spec_but_not_collectable_is_an_error() -> None:
 
 
 def test_an_unknown_type_names_the_question_it_lost() -> None:
+    """Nothing recognised it, so "check the spelling" is honest here."""
     result = import_workbook(
         build([["type", "name", "label"], ["holograph", "h", "Wave"], ["text", "a", "A"]])
     )
-    lost = diagnostics_by_code(result, "unsupported_type")
+    lost = diagnostics_by_code(result, "unknown_type")
     assert lost[0].severity == "error"
+    assert lost[0].blame == "author"
     assert "`h` was not imported" in lost[0].message
+    assert "spelling" in (lost[0].remedy or "")
     assert result.questions == 1
+
+
+def test_a_real_xlsform_type_we_have_not_built_is_ours_not_the_author_s() -> None:
+    """`select_one_from_file` is spelled correctly and is a real type.
+
+    Telling somebody to check the spelling of a correctly spelled word is the
+    same defect as a connect-timeout message asserting something is at the
+    address: a conclusion the evidence does not support. Worse here, because
+    acting on it costs an evening they cannot win.
+    """
+    result = import_workbook(
+        build([["type", "name", "label"], ["select_one_from_file places.csv", "p", "Place"]])
+    )
+    lost = diagnostics_by_code(result, "type_not_implemented")
+    assert lost[0].severity == "error"
+    assert lost[0].blame == "platform"
+    assert "valid XLSForm type" in lost[0].message
+    assert "Nothing is wrong with your spreadsheet" in (lost[0].remedy or "")
+    assert not diagnostics_by_code(result, "unknown_type")
+
+
+def test_a_type_the_ir_cannot_express_says_it_needs_rewriting() -> None:
+    # `trigger` has no IR equivalent and none is planned. Waiting for us is the
+    # wrong advice; rewriting is the only advice.
+    result = import_workbook(
+        build([["type", "name", "label"], ["trigger", "t", "Tap to acknowledge"]])
+    )
+    lost = diagnostics_by_code(result, "unsupported_type")
+    assert lost[0].blame == "author"
+    assert "no equivalent planned" in (lost[0].remedy or "")
+
+
+def test_a_reference_to_a_dropped_question_is_reported_under_its_cause() -> None:
+    """One missing feature is one problem, not four.
+
+    The UCL form had five of these — a `relevant` pointing at a
+    `select_one_from_file` question a row or two above. Counting them
+    separately reported one gap as six errors and told an author their form
+    was a disaster.
+    """
+    result = import_workbook(
+        build(
+            [
+                ["type", "name", "label", "relevant"],
+                ["select_one_from_file places.csv", "place", "Place", None],
+                ["text", "other", "Other", "${place} = 'x'"],
+            ]
+        )
+    )
+    cascade = diagnostics_by_code(result, "unknown_reference")
+    assert len(cascade) == 1
+    assert cascade[0].caused_by is not None, "should point at the drop that caused it"
+    assert cascade[0].blame == "platform", "our missing feature, not the author's error"
+    assert "see above" in cascade[0].message
+
+    roots = [d for d in result.diagnostics if d.severity == "error" and d.caused_by is None]
+    assert len(roots) == 1, f"one root cause, got {[d.code for d in roots]}"
+
+
+def test_a_relevant_on_a_repeat_is_imported_not_reported_as_unknown() -> None:
+    """Groups and repeats carry `relevant` too (§2.2, §2.3).
+
+    This ran only for questions, so a `relevant` on a `begin repeat` fell
+    through to the unknown-column branch — reported as "`relevant` is not a
+    column this importer understands", which is false, and as a warning, which
+    understates it. The engine inherits ancestor relevance, so the whole
+    subtree lost its condition.
+    """
+    result = import_workbook(
+        build(
+            [
+                ["type", "name", "label", "relevant"],
+                ["select_one yn", "any", "Any?", None],
+                ["begin repeat", "items", "Items", "${any} = 'y'"],
+                ["text", "n", "Name", None],
+                ["end repeat", None, None, None],
+            ],
+            choices=[["list_name", "name", "label"], ["yn", "y", "Yes"]],
+        )
+    )
+    assert not diagnostics_by_code(result, "unknown_column"), (
+        [d.message for d in diagnostics_by_code(result, "unknown_column")]
+    )
+    repeat = result.form["children"][1]
+    assert repeat["type"] == "repeat"
+    assert repeat["relevant"] == {
+        "op": "eq",
+        "args": [{"op": "ref", "path": "any"}, {"op": "lit", "value": "y"}],
+    }
 
 
 def test_the_legacy_select_spellings_are_read() -> None:

@@ -33,6 +33,15 @@ from .workbook import CellRef, CoverageLedger
 
 Severity = Literal["error", "warning", "info"]
 
+#: Whose problem it is, which is the first thing an author needs to know.
+#:
+#: `platform` means we cannot do this yet: the form is correct XLSForm and the
+#: fix is on our side. `author` means something in the spreadsheet needs
+#: changing. Getting this wrong costs somebody an evening trying to fix
+#: something they cannot fix — `select_one_from_file` is spelled correctly, is
+#: a real XLSForm type, and was being reported with "check the spelling".
+Blame = Literal["platform", "author"]
+
 
 @dataclass
 class Diagnostic:
@@ -48,6 +57,19 @@ class Diagnostic:
     node_id: str | None = None
     #: What to do about it, when there is something specific to say.
     remedy: str | None = None
+    #: Whose problem this is. Defaults to the author's, because most findings
+    #: are, and a platform limitation has to be claimed deliberately.
+    blame: Blame = "author"
+    #: The root this descends from, when it is a knock-on rather than a finding
+    #: of its own.
+    #:
+    #: A reference that fails because its target was dropped two rows earlier is
+    #: not a second problem, and counting it as one is how a form with one
+    #: missing feature is reported as twenty-two problems. The author is told
+    #: about it under its cause, and the headline count is root causes.
+    caused_by: str | None = None
+    #: This diagnostic's own key, for others to point at.
+    key: str | None = None
 
 
 class DiagnosticLog:
@@ -73,6 +95,9 @@ class DiagnosticLog:
         cell_value: str | None = None,
         node_id: str | None = None,
         remedy: str | None = None,
+        blame: Blame = "author",
+        caused_by: str | None = None,
+        key: str | None = None,
     ) -> Diagnostic:
         diagnostic = Diagnostic(
             severity=severity,
@@ -82,6 +107,9 @@ class DiagnosticLog:
             cell_value=cell_value,
             node_id=node_id,
             remedy=remedy,
+            blame=blame,
+            caused_by=caused_by,
+            key=key,
         )
         self.entries.append(diagnostic)
         if ref is not None:
@@ -100,6 +128,16 @@ class DiagnosticLog:
     @property
     def errors(self) -> list[Diagnostic]:
         return [d for d in self.entries if d.severity == "error"]
+
+    @property
+    def root_errors(self) -> list[Diagnostic]:
+        """Errors that are not a knock-on of another error.
+
+        What an author should be told they have to deal with. The cascades are
+        still reported, under their cause, because "and these five stopped
+        working too" is information — it is just not five more problems.
+        """
+        return [d for d in self.entries if d.severity == "error" and d.caused_by is None]
 
     @property
     def has_errors(self) -> bool:
