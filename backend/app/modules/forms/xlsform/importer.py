@@ -344,6 +344,7 @@ class _Importer:
 
             if lowered in ("begin group", "begin_group", "begin repeat", "begin_repeat"):
                 node = self._container(row, type_cell, lowered)
+                self.ledger.produced(row.sheet, row.number)
                 stack[-1].append(node)
                 stack.append(node["children"])
                 open_containers.append((node["id"], type_cell.ref))
@@ -351,6 +352,8 @@ class _Importer:
 
             if lowered in ("end group", "end_group", "end repeat", "end_repeat"):
                 self.ledger.consume(type_cell.ref)
+                # Structural: it produces no node and is not a loss.
+                self.ledger.produced(row.sheet, row.number)
                 for column, cell in row.cells.items():
                     if column != "type":
                         self.log.info(
@@ -374,6 +377,7 @@ class _Importer:
 
             question = self._question(row, type_cell, raw_type)
             if question is not None:
+                self.ledger.produced(row.sheet, row.number)
                 stack[-1].append(question)
 
         for name, ref in open_containers:
@@ -818,9 +822,12 @@ class _Importer:
                 self.ledger.consume(cell.ref)
                 continue
             if quiet:
-                # The row produced no node at all and has already been reported;
-                # naming every one of its columns would bury that under noise.
-                self.ledger.report(cell.ref)
+                # The row produced no node at all and something else has already
+                # said why; naming every one of its columns would bury that under
+                # noise. `suppress`, not `report`: this must not count as an
+                # explanation of the row, or dropping a row silently would be
+                # indistinguishable from explaining it.
+                self.ledger.suppress(cell.ref)
                 continue
             reason = _KNOWN_IGNORED_COLUMNS.get(base) or _KNOWN_IGNORED_COLUMNS.get(column)
             self.instrumentation.note_column(base)
@@ -990,6 +997,15 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
             f"{failure}. This is a limit of the Form IR rather than of the "
             "importer, so the form needs changing before it can be used.",
             remedy="Simplify the structure the message names.",
+        )
+
+    dropped_rows = ledger.row_residue(SURVEY_SHEET)
+    if dropped_rows:
+        raise CoverageHole(
+            f"{len(dropped_rows)} survey row(s) produced no node and no diagnostic, "
+            f"the first being row {dropped_rows[0]}. A question that is neither "
+            "imported nor reported is the silent drop this ledger exists to prevent. "
+            "This is an importer bug, not a problem with the form."
         )
 
     residue = ledger.residue

@@ -131,10 +131,24 @@ class CoverageLedger:
         self._known: set[CellRef] = set()
         self._consumed: set[CellRef] = set()
         self._reported: set[CellRef] = set()
+        # Row-level accounting, alongside the cells.
+        #
+        # Cells alone are not enough, and it took a deliberate break to see it:
+        # dropping a question whose type is unknown does not leave a residue,
+        # because the code that handles a dropped row tidily accounts for its
+        # cells on the way out. The ledger was satisfied and a question was
+        # gone — exactly the failure it exists to prevent, one level up.
+        #
+        # So a survey row must also declare an outcome: it produced a node, or
+        # something said why it did not.
+        self._rows: set[tuple[str, int]] = set()
+        self._rows_produced: set[tuple[str, int]] = set()
+        self._rows_reported: set[tuple[str, int]] = set()
 
     def register(self, ref: CellRef) -> None:
         """Record that the workbook had something here."""
         self._known.add(ref)
+        self._rows.add((ref.sheet, ref.row))
 
     def consume(self, ref: CellRef) -> None:
         """This cell produced IR."""
@@ -143,6 +157,23 @@ class CoverageLedger:
     def report(self, ref: CellRef) -> None:
         """A diagnostic names this cell."""
         self._reported.add(ref)
+        self._rows_reported.add((ref.sheet, ref.row))
+
+    def suppress(self, ref: CellRef) -> None:
+        """This cell is accounted for by a diagnostic about its *row*.
+
+        Deliberately does not mark the row reported. A row that produced no
+        node is suppressed like this only when something else already said why,
+        and if nothing did, the row must still show up as a hole — otherwise
+        tidying up a dropped row's cells is indistinguishable from explaining
+        it, which is how the first version of this ledger let a silently
+        dropped question through.
+        """
+        self._reported.add(ref)
+
+    def produced(self, sheet: str, row: int) -> None:
+        """This row became a node, or is structural (an `end group`)."""
+        self._rows_produced.add((sheet, row))
 
     @property
     def residue(self) -> list[CellRef]:
@@ -153,6 +184,18 @@ class CoverageLedger:
         look different on every run.
         """
         return sorted(self._known - self._consumed - self._reported)
+
+    def row_residue(self, sheet: str) -> list[int]:
+        """Rows of [sheet] that produced nothing and were never mentioned.
+
+        A question quietly gone: no node, no diagnostic, and cells that were
+        tidied away by the code that dropped it.
+        """
+        return sorted(
+            row
+            for (name, row) in self._rows - self._rows_produced - self._rows_reported
+            if name == sheet
+        )
 
     @property
     def counts(self) -> dict[str, int]:

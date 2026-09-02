@@ -224,3 +224,66 @@ def test_a_sheet_that_lies_about_its_size_does_not_hang_the_import() -> None:
         f"reading an 81-row form took {elapsed:.1f}s. The sheet declares "
         "1,048,576 rows; the reader must size itself from the cells that exist."
     )
+
+
+def test_a_version_imported_with_errors_is_refused_by_the_server() -> None:
+    """The block lives on the publish path, not only in the report.
+
+    `publishable: false` and the CLI's exit 1 are advice to whoever ran them.
+    This is the server refusing — the difference between a report somebody may
+    not have read and a version that cannot reach a phone.
+
+    Every error here is something that changes what the form asks or collects,
+    so shipping one is not a smaller version of shipping a good form; it is
+    collecting the wrong data with everything looking healthy.
+    """
+    from app.modules.forms.schemas import ImportDiagnostic, ImportRecord
+
+    result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
+    assert not result.publishable, "the fixture must have errors for this to mean anything"
+
+    record = ImportRecord(
+        sourceName="ucl-biomass.xlsx",
+        sourceSha256="0" * 64,
+        importerVersion="0.1.0",
+        diagnostics=[
+            ImportDiagnostic(
+                severity=d.severity,
+                code=d.code,
+                message=d.message,
+                sheet=d.ref.sheet if d.ref else None,
+                row=d.ref.row if d.ref else None,
+                column=d.ref.column if d.ref else None,
+                cellValue=d.cell_value,
+                nodeId=d.node_id,
+                remedy=d.remedy,
+            )
+            for d in result.diagnostics
+        ],
+    )
+
+    # A clean form with the same record still refuses: it is the record that
+    # blocks, not the IR, because the IR is the part that survived.
+    clean = import_workbook((FIXTURES / "choice_filter_test.xlsx").read_bytes())
+    check_publishable(clean.form)  # fine on its own
+
+    import asyncio
+
+    from app.modules.forms import service
+
+    async def attempt() -> None:
+        await service.publish_version(
+            session=None,  # never reached: the refusal precedes any database work
+            project_id="p",
+            ir=clean.form,
+            import_record=record,
+        )
+
+    with pytest.raises(PublishRefused) as refusal:
+        asyncio.run(attempt())
+    assert len(refusal.value.violations) == len(
+        [d for d in result.diagnostics if d.severity == "error"]
+    )
+    assert any("row" in v for v in refusal.value.violations), (
+        "the refusal should say where, not just what"
+    )

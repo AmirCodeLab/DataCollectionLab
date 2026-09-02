@@ -159,6 +159,32 @@ async def publish_version(
     seed does, so a reseed is stable); both default to fresh ULIDs.
     """
     compiled = check_publishable(ir)
+
+    # A version imported with unresolved errors does not publish.
+    #
+    # The importer already returns `publishable: false` and the CLI already
+    # exits 1, but both of those are advice to whoever ran them. This is the
+    # server refusing, which is the difference between a report somebody may
+    # not have read and a version that cannot reach a phone. Each of these
+    # errors is something that changes what the form asks or collects — a
+    # `relevant` that could not be translated, a question type no client can
+    # present, a choice label that would be read out as `${name1}`.
+    #
+    # Omitting the import record is not a way round it. It is a claim that this
+    # version was not imported, recorded as such in the row, and that claim is
+    # what somebody reads in six months when they ask where the form came from.
+    if import_record is not None:
+        blocking = [d for d in import_record.diagnostics if d.severity == "error"]
+        if blocking:
+            raise PublishRefused(
+                [
+                    f"{d.message} ({d.sheet} row {d.row}, column '{d.column}')"
+                    if d.sheet and d.row
+                    else d.message
+                    for d in blocking
+                ]
+            )
+
     checksum = ir_checksum(ir)
 
     form = (
