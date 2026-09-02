@@ -30,6 +30,23 @@ object UiStrings {
     fun previous(l: String) = if (ar(l)) "السابق" else "Previous"
     fun finalize(l: String) = if (ar(l)) "إنهاء الاستمارة" else "Finalize"
     fun finalized(l: String) = if (ar(l)) "منتهية" else "Finalized"
+    /**
+     * The last line of defence, and the reason the `else` branch exists at all.
+     *
+     * A server can deploy a form built for a newer app version than the phone
+     * is running, and once customers author their own forms that stops being
+     * hypothetical. Before this, such a question drew its label and nothing
+     * else — no control, no message, no disabled state — which is defect 2's
+     * mistake in a different place: an enumerator cannot tell "there is nothing
+     * to do here" from "this app cannot ask you this".
+     *
+     * The message names the app rather than the question, because the question
+     * is fine: it is this build that is behind.
+     */
+    fun unsupportedQuestionType(l: String, dataType: String) =
+        if (ar(l)) "هذا النوع من الأسئلة ($dataType) غير مدعوم في هذا الإصدار من التطبيق"
+        else "This question type ($dataType) is not supported by this app version"
+
     fun invalidRemaining(l: String, n: Int) =
         if (ar(l)) "لا يمكن الإنهاء: $n إجابة تحتاج إلى مراجعة"
         else "Cannot finalize: $n answer(s) need attention"

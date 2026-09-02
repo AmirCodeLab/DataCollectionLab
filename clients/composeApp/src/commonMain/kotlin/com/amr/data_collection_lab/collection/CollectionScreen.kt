@@ -13,8 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -256,15 +258,27 @@ private fun QuestionItem(
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(bottom = 4.dp),
         )
+        // Every branch here must have an entry in specs/collectable-types-v0.1.json
+        // and every entry there must have a branch — CollectableTypesTest drives
+        // this composable in both directions and fails on either drift.
         when (question.dataType) {
             "text" -> TextAnswer(question, enabled, KeyboardType.Text, onAction)
             "integer" -> TextAnswer(question, enabled, KeyboardType.Number, onAction)
             "decimal" -> TextAnswer(question, enabled, KeyboardType.Decimal, onAction)
             "select_one" -> SelectOneAnswer(question, enabled, onAction)
+            "select_multiple" -> SelectMultipleAnswer(question, enabled, onAction)
             "date" -> DateAnswer(question, language, enabled, onAction)
+            "note" -> Unit // Display only (§2.1): the label above is the whole widget.
             "image" -> ImageAnswer(question, language, enabled, onAction)
             "signature" -> SignatureAnswer(question, language, enabled, onAction)
             "geopoint" -> GeoPointAnswer(question, language, enabled, onAction)
+            // The one that matters most, and the one that was missing. A form
+            // deployed for a newer app version than this phone runs reaches
+            // here, and it must be visibly unanswerable rather than blank — an
+            // enumerator cannot otherwise tell "nothing to do" from "this build
+            // cannot ask you this". Never a control that takes input and drops
+            // it, which is defect 2's mistake.
+            else -> UnsupportedAnswer(question, language)
         }
         val supporting = question.error ?: question.hint
         if (supporting != null) {
@@ -295,6 +309,69 @@ private fun TextAnswer(
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * A question this build has no widget for (Form IR §2.1 has more dataTypes
+ * than any one app version implements).
+ *
+ * Drawn as text, deliberately: there is no control, nothing focusable and
+ * nothing that could be mistaken for an input. The alternative that keeps
+ * being reached for — render a text box "so at least they can type something"
+ * — collects a string where a barcode or a time belongs, and that is wrong in
+ * a way nobody notices until fieldwork is over.
+ */
+@Composable
+private fun UnsupportedAnswer(question: QuestionUi, language: String) {
+    Text(
+        text = UiStrings.unsupportedQuestionType(language, question.dataType),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    )
+}
+
+/**
+ * `select_multiple` (§2.1): zero or more choices, stored as a sequence.
+ *
+ * Order-insensitive per the spec, and the order the enumerator tapped in is not
+ * meaningful — so the value is rebuilt in the form's own choice order on every
+ * toggle rather than appended to. Two devices answering the same question the
+ * same way then produce the same value, which matters because these are the
+ * bytes that get encrypted and compared.
+ */
+@Composable
+private fun SelectMultipleAnswer(
+    question: QuestionUi,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        question.choices.forEach { choice ->
+            val checked = choice.value in question.selectedValues
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = checked,
+                        enabled = enabled,
+                        role = Role.Checkbox,
+                        onValueChange = {
+                            onAction(CollectionAction.OnChoiceToggle(question.path, choice.value))
+                        },
+                    )
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+                Text(
+                    text = choice.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -74,6 +74,13 @@ data class QuestionUi(
     val readOnly: Boolean,
     val displayText: String,
     val selectedValue: String?,
+    /**
+     * The chosen values of a `select_multiple` (§2.1), in the form's own choice
+     * order rather than the order they were tapped — the spec calls the value
+     * order-insensitive, and a stable order is what makes two devices answering
+     * alike produce identical bytes to encrypt and compare.
+     */
+    val selectedValues: List<String> = emptyList(),
     val choices: List<ChoiceUi>,
     val dateIso: String?,
     val error: String?,
@@ -148,6 +155,8 @@ sealed interface CollectionAction {
     data class OnCaptureLocation(val path: String) : CollectionAction
     data class OnClearGeoPoint(val path: String) : CollectionAction
     data class OnChoiceSelect(val path: String, val value: String) : CollectionAction
+    /** Add or remove one value of a `select_multiple`. */
+    data class OnChoiceToggle(val path: String, val value: String) : CollectionAction
     data class OnDateSelect(val path: String, val iso: String?) : CollectionAction
     data object OnNextClick : CollectionAction
     data object OnPreviousClick : CollectionAction
@@ -255,6 +264,7 @@ class CollectionViewModel(
         when (action) {
             is CollectionAction.OnTextChange -> onTextChange(action.path, action.text)
             is CollectionAction.OnChoiceSelect -> onChoiceSelect(action.path, action.value)
+            is CollectionAction.OnChoiceToggle -> onChoiceToggle(action.path, action.value)
             is CollectionAction.OnDateSelect ->
                 commit(action.path, action.iso?.let { FormValue.Text(it) } ?: FormValue.Null,
                     debounce = false)
@@ -317,6 +327,35 @@ class CollectionViewModel(
             debounce = false,
         )
     }
+
+    /**
+     * Toggle one value of a `select_multiple`.
+     *
+     * The result is rebuilt from the question's own choice order rather than by
+     * appending or removing in place: §2.1 calls the value order-insensitive, so
+     * two enumerators who tick the same boxes in a different order must produce
+     * the same sequence. An empty selection is [FormValue.Null], not an empty
+     * sequence — "nothing ticked" is an unanswered question, and the two are
+     * different to `required` (§4.4).
+     */
+    private fun onChoiceToggle(path: String, value: String) {
+        val current = (instance.states[path]?.value as? FormValue.Sequence)
+            ?.items.orEmpty()
+            .mapNotNull { (it as? FormValue.Text)?.value }
+            .toSet()
+        val next = if (value in current) current - value else current + value
+        val ordered = choiceOrderFor(path).filter { it in next }
+        commit(
+            path,
+            if (ordered.isEmpty()) FormValue.Null
+            else FormValue.Sequence(ordered.map { FormValue.Text(it) }),
+            debounce = false,
+        )
+    }
+
+    /** The question's choice values, in document order. */
+    private fun choiceOrderFor(path: String): List<String> =
+        instance.form.fields[path]?.node?.choices?.items.orEmpty().map { it.value }
 
     private fun commit(path: String, value: FormValue, debounce: Boolean) {
         if (!ready() || _state.value.finalized) return
@@ -622,6 +661,9 @@ class CollectionViewModel(
             readOnly = fieldState.readOnly,
             displayText = drafts[node.id] ?: formatValue(fieldState.value),
             selectedValue = textValue,
+            selectedValues = (fieldState.value as? FormValue.Sequence)
+                ?.items.orEmpty()
+                .mapNotNull { (it as? FormValue.Text)?.value },
             choices = node.choices?.items.orEmpty().map {
                 ChoiceUi(it.value, it.label.resolve(lang) ?: it.value)
             },

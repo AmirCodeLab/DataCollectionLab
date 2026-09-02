@@ -91,3 +91,26 @@ kotlin {
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
+/*
+ * `CollectableTypesTest` reads two committed files from `specs/` at run time —
+ * the collectable-types registry and the Form IR spec's dataType table. Gradle
+ * cannot see that, so without this the test task is UP-TO-DATE (or FROM-CACHE)
+ * after an edit to either, and the build goes green having run nothing.
+ *
+ * That was observed, not feared: removing `select_multiple` from the registry
+ * and re-running produced `> Task :clients:composeApp:jvmTest FROM-CACHE` and
+ * BUILD SUCCESSFUL, while the same edit with `--rerun-tasks` failed the test it
+ * was supposed to fail. A stale green on a mirror test is the same failure the
+ * suites guard exists for: paperwork over nothing.
+ *
+ * Declaring them as inputs makes an edit to either file re-run the tests that
+ * read it.
+ */
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    inputs.files(
+        rootProject.layout.projectDirectory.file("specs/collectable-types-v0.1.json"),
+        rootProject.layout.projectDirectory.file("specs/form-ir-v0.1.md"),
+    )
+        .withPropertyName("formIrSpecFiles")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
