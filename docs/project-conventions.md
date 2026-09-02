@@ -296,6 +296,11 @@ ruff check . && mypy app
 python scripts/generate_api_contract.py            # openapi.json + console types
 python scripts/generate_api_contract.py --check    # what CI runs
 
+# XLSForm import (never a second code path — this is the API's importer)
+python scripts/import_xlsform.py survey.xlsx --out reports/ --ir form.json
+#   exit 0 clean, 1 has errors, 2 not a readable workbook
+#   real third-party fixtures: backend/tests/fixtures/xlsform/ (+ PROVENANCE.md)
+
 # Conformance — four sets, all of them on both engines
 python conformance/generate_vectors.py     # regenerate the evaluation vectors
 cd backend && pytest tests/test_conformance.py -v
@@ -343,6 +348,10 @@ repository and no CI step runs it:
 ```bash
 python scripts/check_ci_runs_every_suite.py            # local
 python scripts/check_ci_runs_every_suite.py --strict   # what CI runs
+# It also checks every vector on disk was EXECUTED, not merely that the suite
+# is wired up — run the Kotlin conformance suites first or it has nothing to
+# read. Adding nine vectors once left :shared:form-engine:jvmTest UP-TO-DATE
+# reporting 39 tests and BUILD SUCCESSFUL (break 41).
 ```
 
 It is there because the answer has been "yes" three times — this workflow was
@@ -397,8 +406,12 @@ notice. `./scripts/status.sh` section 5 asks locally.
 **Phase 1 — clients: complete enough to move on (Android collection app).**
 **Phase 2 part 1 — usable by one real customer: in progress.**
 
-Phase 2 part 1 is four items, in this order, and nothing else until a real form
-authored by someone other than us is collected on a real phone and exported:
+Phase 2 part 1 is six items, in this order, and nothing else until a real form
+authored by someone other than us is collected on a real phone and exported.
+Items 3 and 4 were not in the original list of four: item 3 because choice
+membership turned out to be unguarded in shipped code, and item 4 because
+external choice lists are their own pipeline rather than an importer feature.
+Both are written up below.
 
 0. **Form delivery — done**, and verified on an emulator and now on a
    **physical Pixel** against a live server: an APK with no form in it syncs,
@@ -416,8 +429,23 @@ authored by someone other than us is collected on a real phone and exported:
 1. **Configurable server URL + settings screen — done**, and verified on a
    physical Pixel 6 Pro over Wi-Fi against a server on the LAN — the first time
    a real handset in this project has reached one. See below
-2. XLSForm import — not started
-3. Export: CSV, XLSX, Stata, SPSS — not started
+2. **XLSForm import — done**, and verified on a physical Pixel: a real
+   third-party form (`choice_filter_test.xlsx`, pyxform, unmodified) imported
+   through `POST /api/v1/forms/import`, published, deployed, delivered, and
+   collected. `scripts/import_xlsform.py` runs the same importer in the same
+   process. Diagnostics carry sheet/row/column/value as fields; the report is a
+   durable .md/.html file grouped by severity and by whose problem it is; the
+   whole report is stored on `form_version` (five columns, all-or-nothing by
+   CHECK) so "how was this imported and what did not survive" is answerable
+   from the database. See below
+3. **Choice membership — done.** Split out of item 4 when it turned out
+   neither engine read `choices` at all: a `select_one` could hold "purple" and
+   both engines called the form valid and finalisable, in production. Form IR
+   §6.3/§6.4, error kind `choice`, nine vectors on both engines. See below
+4. **Datasets and `select_one_from_file` — IN PROGRESS.** The state of this is
+   written out below, because it is the item a fresh session would otherwise
+   have to reconstruct
+5. Export: CSV, XLSX, Stata, SPSS — not started
 
 Item 0 was not in the original list and had to be: `FormCatalog` read one form
 out of the app's own resources, so "a form authored by someone other than us,
@@ -565,6 +593,111 @@ One practical note for whoever repeats this: adb-over-Wi-Fi to this handset
 drops whenever its DHCP lease changes, and it changed twice mid-run
 (`192.168.2.49` → `.12`). Run the sequence as one script rather than as a
 series of calls.
+
+### Item 4 — datasets and `select_one_from_file`: IN PROGRESS
+
+**Read this before touching datasets.** The decisions below are made, with
+reasons; re-deciding them wastes time and the reasons are not obvious from the
+code alone.
+
+Why it is its own item and not an importer fix: external choice lists drag in
+server-side dataset storage, a `datasets` scope on `/sync/pull`, a local store
+inside SQLCipher, engine resolution of `choices.kind = "dataset"`, and
+incremental sync. Folding that into XLSForm import makes both half-done.
+`select_one_from_file` is also the top missing feature measured across 27 real
+forms (16 uses; `atan` was the only missing function), so it is chosen by
+evidence rather than guessed.
+
+**Five parts. Part 1 is landed; part 2 is next.**
+
+1. **Server — DONE** (`f26ab59`, `2f6cf0f`). Migration 0004:
+   `dataset_record.row_hash`, an index on
+   `(dataset_version_id, record_key, row_hash)`, and `form_version_dataset`.
+   `entities/service.publish_dataset_version` publishes immutable versions,
+   idempotent by content, refusing empty datasets and blank or repeated keys.
+2. **Import — NEXT.** An XLSForm's companion CSVs become dataset versions,
+   pinned to the form version at publish. Needs an API change: the import
+   endpoint must accept companion files beside the .xlsx.
+3. **Engine.** `choices.kind = "dataset"` resolution and the `$row` filter,
+   extending §6.3's membership gate rather than inventing a second one.
+   Conformance vectors on both engines **before any client work**. Note
+   `expression.py` already raises "$row reference outside a choice filter", so
+   the AST expects `$row.column` and nothing evaluates it yet.
+4. **Delivery.** A `datasets` scope on `/sync/pull`, a local store in
+   SQLCipher, retention mirroring `FormStore`'s rule one level down.
+5. **Incremental sync.** The hard part; decided below.
+
+**Decision — the delta mechanism.** Per-row content hashes, delivered as a
+diff against the version the device holds.
+
+- `dataset_record.row_hash` is SHA-256 over `canonical_json(data)` — the
+  encryption envelope's serialisation (§5.1), reused rather than reinvented,
+  because two servers must produce identical bytes or every delta is spurious.
+- **Two stages, and this is the part worth not undoing.** The row hash covers
+  the *whole* row and answers "did anything change". It is **not** what decides
+  whether a device is sent anything: a dataset carries columns no form
+  references, and an edit to one must not cost a 50k-row list a transfer over a
+  field connection. Stage two compares the **projection** onto the columns that
+  device's forms actually reference.
+- **Tombstones are explicit.** A deleted village arrives as a key in a
+  `deleted` list. Inferring deletion from absence needs the whole set present
+  to compare against, which is the thing being avoided. The form manifest can
+  be a complete statement because it is 300 bytes; a 50k-row dataset cannot.
+- Diffs are **per version pair, `from → to`**, computed server-side and
+  cacheable. A device on v3 asking for v7 gets one diff, not four.
+- A device holding nothing gets a **full transfer, resumably**, paged with a
+  cursor. First sync is the hardest case and cannot be one response.
+
+**Decision — version binding, made unexpressible.** A form version is pinned to
+dataset *versions* at publish, in `form_version_dataset`, because the IR names
+a dataset by **key** (`"dataset": "districts"`, §3) and a key is not a version.
+Resolving at read time would let a draft opened against form v1 see whatever
+`districts` is newest — the same mistake as validating a v1 answer against v2's
+choice list.
+
+The resolver is `dataset_rows_for(submission_id, dataset_key)`, on both client
+and server, with **no version parameter**, following
+`FormCatalog.compiledFormForSubmission` (break 30) and
+`forms.service.compiled_form_for_submission` (break 40). Retention follows:
+a device keeps a dataset version while any form version it holds references it.
+
+**Decision — size on the Pixel, measured before the item is called done:**
+
+- import time for 50k rows into `dataset_record`
+- first-sync bytes and wall clock over Wi-Fi
+- SQLCipher file growth on device
+- **second-sync delta** — a device on v3 receiving v4 with ~200 changed rows.
+  This is the number that decides field usability: first sync is a one-off at
+  enrolment, the delta path is what happens every week for the life of the
+  project
+- **filter latency per keystroke** at district → village, which is what §12
+  flags as the open performance contract
+
+If per-keystroke filtering is not viable on 2GB RAM, the honest outcome is a
+stated limit in §12, not a slow form.
+
+**Item 5 (the mistake that passes every test) — a stale dataset.** The device
+holds v1, the server has v2, the sync silently no-ops, and an enumerator picks
+from a village list that no longer matches. A diff mechanism makes this *more*
+likely, not less: "no changes" and "I failed to ask" look identical.
+
+The guard: the device states the `dataset_version_id` it holds and the server
+states the one it expects. **A mismatch refuses loudly and says so — it does
+not silently send a full transfer.** A silent 50k-row re-send over a field
+connection is its own failure, and the mismatch means something is wrong that a
+re-send papers over. Same shape as `WirePullResponse.forms` being nullable:
+silence and "nothing deployed" must not collapse into one answer (break 28).
+
+**Acceptance:** the UCL biomass form imports cleanly, deploys, and its
+cascading region → district → village selects work on the Pixel. Its five CSVs
+do not exist — XLSForm companion files ship beside the workbook and none is in
+any corpus — so they are generated **adversarially**: real Tanzanian scale
+(~25 regions, ~180 districts, tens of thousands of villages), Swahili
+diacritics, names repeating across parents, embedded commas and quotes, blank
+and whitespace-only cells, more columns than the form uses, and keys differing
+only by case or surrounding whitespace (§3.1). Documented as synthetic in
+`PROVENANCE.md`, and the report must say the acceptance proved the pipeline
+works with data *shaped like* the real thing — not with UCL's actual files.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
