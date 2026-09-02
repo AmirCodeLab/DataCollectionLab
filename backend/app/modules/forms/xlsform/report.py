@@ -176,7 +176,20 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
     add("")
     add(
         f"Coverage: {result.coverage['cells']} non-empty cells read; every one either "
-        "produced part of the form or is named above."
+        "produced part of the form or is named above. A cell that produced nothing "
+        "and went unmentioned fails the import outright rather than reaching this "
+        "report as silence."
+    )
+    add("")
+    add(
+        "**What that check cannot tell you.** It accounts for everything that was "
+        "present; it is blind to nothing being present at all. An empty `survey` "
+        "sheet has no cells to account for, so the coverage check is perfectly "
+        "satisfied by a workbook containing no questions — the official ODK "
+        "XLSForm Template imported to a valid, compilable form with zero questions "
+        "and passed every check there was. Emptiness is therefore asked about "
+        "separately, and a form with no questions is refused at publish rather "
+        "than merely noted here."
     )
     add("")
     return "\n".join(lines)

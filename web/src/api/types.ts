@@ -10,6 +10,11 @@
  * in the meantime it says something about the API that is not true.
  */
 
+export interface Body_import_xlsform_api_v1_forms_import_post {
+  /** An XLSForm .xlsx workbook */
+  file: string;
+}
+
 /** A Form IR document to compile. Its own formId and version are authoritative. */
 export interface CompileRequest {
   form: Record<string, unknown>;
@@ -115,6 +120,10 @@ export interface DeviceRegisterResponse {
   status: RegisterStatus;
 }
 
+export const DIAGNOSTIC_SEVERITYS = ["error", "warning", "info"] as const;
+
+export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITYS)[number];
+
 export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
 
 export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
@@ -190,6 +199,108 @@ export interface HTTPValidationError {
 export interface Health {
   status: string;
   environment: string;
+}
+
+/**
+ * Proof that nothing was dropped in silence.
+ *
+ * Every non-empty cell in the workbook either produced part of the form or is
+ * named by a diagnostic above. A cell in neither fails the import outright
+ * rather than reaching this response — see the coverage ledger.
+ *
+ * It cannot tell you the workbook had anything in it. An empty sheet has no
+ * cells to account for, so `cells: 0` satisfies the check perfectly; that is
+ * why a form with no questions is refused at publish rather than merely noted.
+ */
+export interface ImportCoverage {
+  cells: number;
+  consumed: number;
+  reported: number;
+}
+
+export interface ImportDiagnostic-Input {
+  severity: DiagnosticSeverity;
+  code: string;
+  message: string;
+  sheet?: string | null;
+  row?: number | null;
+  column?: string | null;
+  cell_value?: string | null;
+  node_id?: string | null;
+  remedy?: string | null;
+}
+
+export interface ImportDiagnostic-Output {
+  severity: DiagnosticSeverity;
+  code: string;
+  message: string;
+  sheet?: string | null;
+  row?: number | null;
+  column?: string | null;
+  cellValue?: string | null;
+  nodeId?: string | null;
+  remedy?: string | null;
+}
+
+/**
+ * The IR, and everything that did not survive the trip.
+ *
+ * The form is returned even when it cannot be published, deliberately: an
+ * author needs every problem in one pass rather than one per round trip, and
+ * a form they can look at is how they find the next one.
+ */
+export interface ImportFormResponse {
+  publishable: boolean;
+  form: Record<string, unknown>;
+  summary: ImportSummary;
+  diagnostics: ImportDiagnostic-Output[];
+  coverage: ImportCoverage;
+  instrumentation: ImportInstrumentation;
+  reportMarkdown: string;
+}
+
+/**
+ * What this form needed that the platform does not have.
+ *
+ * Separate from the diagnostics because it answers a different question: a
+ * diagnostic tells one author about one form, and this says which XPath
+ * functions and question types real forms reach for. That is the priority
+ * order for what to build next, and counting it beats guessing it.
+ */
+export interface ImportInstrumentation {
+  unsupportedFunctions?: Record<string, number>;
+  unsupportedTypes?: Record<string, number>;
+  uncollectableTypes?: Record<string, number>;
+}
+
+/**
+ * How a version got here, stored with it and never recomputed.
+ *
+ * Sent by whoever imported the spreadsheet and published the result, so the
+ * question "why does this form not have the question I put in row 40?" is
+ * answerable six months later from the database rather than from an email
+ * somebody may still have.
+ *
+ * Optional on a publish: a form written as IR by hand was not imported, and
+ * recording nothing is the honest answer for it. Half a record is refused by
+ * the database (`form_version_import_complete_check`), because a partial one
+ * looks like a whole one.
+ */
+export interface ImportRecord {
+  source_name: string;
+  source_sha256: string;
+  importer_version: string;
+  diagnostics: ImportDiagnostic-Input[];
+}
+
+export interface ImportSummary {
+  questions: number;
+  nodes: number;
+  surveyRows: number;
+  languages: string[];
+  errors: number;
+  warnings: number;
+  notes: number;
 }
 
 export const KEY_REGISTRATION_FAILURES = [
@@ -468,6 +579,7 @@ export interface PublishVersionRequest {
   title?: string | null;
   publishedBy?: string | null;
   deployTo?: EnvironmentKind[];
+  importRecord?: ImportRecord | null;
 }
 
 export interface PublishVersionResponse {

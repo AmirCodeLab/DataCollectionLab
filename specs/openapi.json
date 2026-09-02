@@ -273,6 +273,68 @@
         }
       }
     },
+    "/api/v1/forms/import": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Import Xlsform",
+        "description": "Import an XLSForm .xlsx and return the Form IR with a full account of everything that did not survive.\n\nThe form is returned even when it cannot be published — an author needs every problem in one pass, not one per round trip. `publishable` is false when any diagnostic is an error; publishing is refused server-side as well, so the flag is for greying a button rather than being the gate.\n\nNothing is stored. This endpoint answers 'what would this become?'; POST /forms/versions is what commits it.",
+        "operationId": "import_xlsform_api_v1_forms_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_xlsform_api_v1_forms_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportFormResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms/evaluate": {
       "post": {
         "tags": [
@@ -1483,6 +1545,21 @@
   },
   "components": {
     "schemas": {
+      "Body_import_xlsform_api_v1_forms_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "An XLSForm .xlsx workbook"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_xlsform_api_v1_forms_import_post"
+      },
       "CompileRequest": {
         "properties": {
           "form": {
@@ -1808,6 +1885,14 @@
         ],
         "title": "DeviceRegisterResponse"
       },
+      "DiagnosticSeverity": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warning",
+          "info"
+        ]
+      },
       "EnvironmentKind": {
         "type": "string",
         "enum": [
@@ -2053,6 +2138,357 @@
         ],
         "title": "Health",
         "description": "The liveness probe.\n\nThe console polls this to tell \"the API is down\" apart from \"the API is up\nand there is no data\", which are the same empty screen otherwise."
+      },
+      "ImportCoverage": {
+        "properties": {
+          "cells": {
+            "type": "integer",
+            "title": "Cells"
+          },
+          "consumed": {
+            "type": "integer",
+            "title": "Consumed"
+          },
+          "reported": {
+            "type": "integer",
+            "title": "Reported"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cells",
+          "consumed",
+          "reported"
+        ],
+        "title": "ImportCoverage",
+        "description": "Proof that nothing was dropped in silence.\n\nEvery non-empty cell in the workbook either produced part of the form or is\nnamed by a diagnostic above. A cell in neither fails the import outright\nrather than reaching this response — see the coverage ledger.\n\nIt cannot tell you the workbook had anything in it. An empty sheet has no\ncells to account for, so `cells: 0` satisfies the check perfectly; that is\nwhy a form with no questions is refused at publish rather than merely noted."
+      },
+      "ImportDiagnostic-Input": {
+        "properties": {
+          "severity": {
+            "$ref": "#/components/schemas/DiagnosticSeverity"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "cell_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell Value"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "remedy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remedy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "ImportDiagnostic"
+      },
+      "ImportDiagnostic-Output": {
+        "properties": {
+          "severity": {
+            "$ref": "#/components/schemas/DiagnosticSeverity"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "cellValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cellvalue"
+          },
+          "nodeId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodeid"
+          },
+          "remedy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remedy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "ImportDiagnostic"
+      },
+      "ImportFormResponse": {
+        "properties": {
+          "publishable": {
+            "type": "boolean",
+            "title": "Publishable"
+          },
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ImportSummary"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDiagnostic-Output"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ImportCoverage"
+          },
+          "instrumentation": {
+            "$ref": "#/components/schemas/ImportInstrumentation"
+          },
+          "reportMarkdown": {
+            "type": "string",
+            "title": "Reportmarkdown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "publishable",
+          "form",
+          "summary",
+          "diagnostics",
+          "coverage",
+          "instrumentation",
+          "reportMarkdown"
+        ],
+        "title": "ImportFormResponse",
+        "description": "The IR, and everything that did not survive the trip.\n\nThe form is returned even when it cannot be published, deliberately: an\nauthor needs every problem in one pass rather than one per round trip, and\na form they can look at is how they find the next one."
+      },
+      "ImportInstrumentation": {
+        "properties": {
+          "unsupportedFunctions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Unsupportedfunctions"
+          },
+          "unsupportedTypes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Unsupportedtypes"
+          },
+          "uncollectableTypes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Uncollectabletypes"
+          }
+        },
+        "type": "object",
+        "title": "ImportInstrumentation",
+        "description": "What this form needed that the platform does not have.\n\nSeparate from the diagnostics because it answers a different question: a\ndiagnostic tells one author about one form, and this says which XPath\nfunctions and question types real forms reach for. That is the priority\norder for what to build next, and counting it beats guessing it."
+      },
+      "ImportRecord": {
+        "properties": {
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_sha256": {
+            "type": "string",
+            "title": "Source Sha256"
+          },
+          "importer_version": {
+            "type": "string",
+            "title": "Importer Version"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDiagnostic-Input"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_name",
+          "source_sha256",
+          "importer_version",
+          "diagnostics"
+        ],
+        "title": "ImportRecord",
+        "description": "How a version got here, stored with it and never recomputed.\n\nSent by whoever imported the spreadsheet and published the result, so the\nquestion \"why does this form not have the question I put in row 40?\" is\nanswerable six months later from the database rather than from an email\nsomebody may still have.\n\nOptional on a publish: a form written as IR by hand was not imported, and\nrecording nothing is the honest answer for it. Half a record is refused by\nthe database (`form_version_import_complete_check`), because a partial one\nlooks like a whole one."
+      },
+      "ImportSummary": {
+        "properties": {
+          "questions": {
+            "type": "integer",
+            "title": "Questions"
+          },
+          "nodes": {
+            "type": "integer",
+            "title": "Nodes"
+          },
+          "surveyRows": {
+            "type": "integer",
+            "title": "Surveyrows"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Languages"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          },
+          "warnings": {
+            "type": "integer",
+            "title": "Warnings"
+          },
+          "notes": {
+            "type": "integer",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "questions",
+          "nodes",
+          "surveyRows",
+          "languages",
+          "errors",
+          "warnings",
+          "notes"
+        ],
+        "title": "ImportSummary"
       },
       "KeyRegistrationFailure": {
         "type": "string",
@@ -2976,6 +3412,16 @@
             },
             "type": "array",
             "title": "Deployto"
+          },
+          "importRecord": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

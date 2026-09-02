@@ -12,7 +12,7 @@ endpoint yet (docs/known-defects.md).
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -28,9 +28,17 @@ from app.modules.forms.schemas import (
     FieldSnapshot,
     FormListResponse,
     FormVersionDocument,
+    ImportCoverage,
+    ImportDiagnostic,
+    ImportFormResponse,
+    ImportInstrumentation,
+    ImportSummary,
     PublishVersionRequest,
     PublishVersionResponse,
 )
+from app.modules.forms.xlsform.datatypes import SpecsUnavailable
+from app.modules.forms.xlsform.importer import CoverageHole, ImportFailed, import_workbook
+from app.modules.forms.xlsform.report import render_markdown
 
 router = APIRouter()
 
@@ -69,6 +77,91 @@ async def compile_form(request: CompileRequest) -> CompileResponse:
         field_count=len(compiled.fields),
         evaluation_order=compiled.topo_order,
         warnings=compiled.warnings,
+    )
+
+
+
+@router.post(
+    "/import",
+    response_model=ImportFormResponse,
+    response_model_by_alias=True,
+    responses={400: {"model": MessageError}, 500: {"model": MessageError}},
+    description=(
+        "Import an XLSForm .xlsx and return the Form IR with a full account of "
+        "everything that did not survive.\n\n"
+        "The form is returned even when it cannot be published — an author needs "
+        "every problem in one pass, not one per round trip. `publishable` is "
+        "false when any diagnostic is an error; publishing is refused "
+        "server-side as well, so the flag is for greying a button rather than "
+        "being the gate.\n\n"
+        "Nothing is stored. This endpoint answers 'what would this become?'; "
+        "POST /forms/versions is what commits it."
+    ),
+)
+async def import_xlsform(
+    file: Annotated[UploadFile, File(description="An XLSForm .xlsx workbook")],
+) -> ImportFormResponse:
+    """Turn a spreadsheet into a form, and say what was lost doing it."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="the uploaded file is empty")
+
+    try:
+        result = import_workbook(data)
+    except ImportFailed as failure:
+        # Not a diagnostic: a diagnostic is something *about* a form, and this
+        # is the absence of one. There is no row to point at.
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    except SpecsUnavailable as failure:
+        # The importer cannot say which question types a device can collect, so
+        # it refuses rather than guessing — both defaults are a lie an author
+        # would act on. See xlsform/datatypes.py.
+        raise HTTPException(status_code=500, detail=str(failure)) from failure
+    except CoverageHole as failure:
+        # A cell produced nothing and was never reported. That is an importer
+        # bug, and returning a form that quietly lost something is the exact
+        # failure the coverage ledger exists to prevent.
+        raise HTTPException(status_code=500, detail=str(failure)) from failure
+
+    counts = {
+        severity: sum(1 for d in result.diagnostics if d.severity == severity)
+        for severity in ("error", "warning", "info")
+    }
+    return ImportFormResponse(
+        publishable=result.publishable,
+        form=result.form,
+        summary=ImportSummary(
+            questions=result.questions,
+            nodes=result.nodes,
+            survey_rows=result.survey_rows,
+            languages=result.languages,
+            errors=counts["error"],
+            warnings=counts["warning"],
+            notes=counts["info"],
+        ),
+        diagnostics=[
+            ImportDiagnostic(
+                severity=d.severity,
+                code=d.code,
+                message=d.message,
+                sheet=d.ref.sheet if d.ref else None,
+                row=d.ref.row if d.ref else None,
+                column=d.ref.column if d.ref else None,
+                cell_value=d.cell_value,
+                node_id=d.node_id,
+                remedy=d.remedy,
+            )
+            for d in result.diagnostics
+        ],
+        coverage=ImportCoverage(**result.coverage),
+        instrumentation=ImportInstrumentation(
+            unsupported_functions=result.instrumentation.unsupported_functions,
+            unsupported_types=result.instrumentation.unsupported_types,
+            uncollectable_types=result.instrumentation.uncollectable_types,
+        ),
+        report_markdown=render_markdown(
+            result, source_name=file.filename or "workbook.xlsx", form_id=result.form["formId"]
+        ),
     )
 
 
@@ -142,6 +235,7 @@ async def publish_version(
                 title=request.title,
                 published_by=request.published_by,
                 deploy_to=request.deploy_to,
+            import_record=request.import_record,
             )
         except CompileError as exc:
             raise HTTPException(status_code=422, detail=[str(exc)]) from exc

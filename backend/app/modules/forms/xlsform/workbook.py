@@ -28,6 +28,20 @@ That is the same move as `ServerConfig` and `FormCatalog.compiledFormForSubmissi
 (breaks 30, 35): the way to stop something being got wrong is to stop it being
 expressible, not to test that it was got right this time.
 
+## What the ledger is blind to, and it is worth saying
+
+It answers "was everything present accounted for". It cannot answer "was
+anything present at all", and the two are not the same question: an empty
+`survey` sheet registers no cells, so the residue is empty and the invariant is
+perfectly satisfied by a workbook containing nothing.
+
+That is not hypothetical. The official ODK XLSForm Template — a blank template,
+499 rows by Excel's reckoning and not one with content — imported to a valid,
+compilable form with zero questions, and every check in this repository passed
+it. So emptiness is asked about directly instead, and a form with no questions
+is refused by `forms.service.check_publishable` rather than only noted in a
+report somebody may not read.
+
 ## Why cells and not rows
 
 Row-level accounting would miss the commonest real loss, which is not a dropped
@@ -259,8 +273,36 @@ def read(data: bytes, ledger: CoverageLedger) -> Workbook:
     return Workbook(sheets=sheets, extra_sheets=extra, ledger=ledger)
 
 
+#: Rows and columns beyond which a sheet is not a form any more.
+#:
+#: Both are defences against the declared dimension rather than the data. A
+#: workbook's XML states its own size and openpyxl's read-only mode believes it,
+#: so a sheet claiming three million rows yields three million tuples of empty
+#: cells — the UCL biomass form, 81 real rows, took 37 seconds and made a
+#: billion calls before this existed. On an endpoint that accepts uploads that
+#: is not only slow, it is a way to keep a worker busy with a small file.
+_MAX_ROWS = 20_000
+_MAX_COLUMNS = 500
+
+
 def _read_sheet(worksheet: Any, name: str, ledger: CoverageLedger) -> Sheet:
-    raw = list(worksheet.iter_rows(values_only=True))
+    # Ignore the dimension the file declares and let openpyxl work it out from
+    # the cells that are actually there. Without this the loop below is sized
+    # by a number the uploader chose.
+    if hasattr(worksheet, "reset_dimensions"):
+        worksheet.reset_dimensions()
+
+    raw: list[tuple[Any, ...]] = []
+    blank_run = 0
+    for row in worksheet.iter_rows(values_only=True):
+        raw.append(row[:_MAX_COLUMNS])
+        # A long tail of empty rows is what a spreadsheet looks like after
+        # somebody deletes content; the sheet keeps the size it once had.
+        blank_run = 0 if any(c is not None for c in row[:_MAX_COLUMNS]) else blank_run + 1
+        if blank_run >= 200 or len(raw) >= _MAX_ROWS:
+            break
+    while raw and not any(c is not None for c in raw[-1]):
+        raw.pop()
     if not raw:
         return Sheet(name=name, columns=[], rows=[])
 

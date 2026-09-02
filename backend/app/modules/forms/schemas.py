@@ -101,6 +101,139 @@ class EvaluateResponse(BaseModel):
     answers: dict[str, Any]
 
 
+# --- XLSForm import -------------------------------------------------------
+#
+# The diagnostic carries its location as separate fields rather than baked into
+# the message. A console links to a row, a report groups by sheet, a test
+# asserts on a code, and a person reads the sentence — a string that says
+# "row 14, column relevant: ..." serves exactly one of those and has to be
+# parsed to serve the rest.
+
+type DiagnosticSeverity = Literal["error", "warning", "info"]
+
+
+class ImportDiagnostic(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    severity: DiagnosticSeverity
+    #: Stable and machine-readable. The wording of `message` may improve; this
+    #: is what a console groups on and what a roadmap is counted from.
+    code: str
+    message: str
+    #: Where, in the terms the author sees in their spreadsheet. `row` is
+    #: 1-based and counts the header, so it is the number in Excel's margin.
+    sheet: str | None = None
+    row: int | None = None
+    column: str | None = None
+    #: What was actually in the cell, so the reader need not go and look.
+    cell_value: str | None = Field(default=None, serialization_alias="cellValue")
+    #: Where this would have landed in the form, when that is known.
+    node_id: str | None = Field(default=None, serialization_alias="nodeId")
+    remedy: str | None = None
+
+
+class ImportCoverage(BaseModel):
+    """Proof that nothing was dropped in silence.
+
+    Every non-empty cell in the workbook either produced part of the form or is
+    named by a diagnostic above. A cell in neither fails the import outright
+    rather than reaching this response — see the coverage ledger.
+
+    It cannot tell you the workbook had anything in it. An empty sheet has no
+    cells to account for, so `cells: 0` satisfies the check perfectly; that is
+    why a form with no questions is refused at publish rather than merely noted.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    cells: int
+    consumed: int
+    reported: int
+
+
+class ImportInstrumentation(BaseModel):
+    """What this form needed that the platform does not have.
+
+    Separate from the diagnostics because it answers a different question: a
+    diagnostic tells one author about one form, and this says which XPath
+    functions and question types real forms reach for. That is the priority
+    order for what to build next, and counting it beats guessing it.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    unsupported_functions: dict[str, int] = Field(
+        default_factory=dict, serialization_alias="unsupportedFunctions"
+    )
+    unsupported_types: dict[str, int] = Field(
+        default_factory=dict, serialization_alias="unsupportedTypes"
+    )
+    uncollectable_types: dict[str, int] = Field(
+        default_factory=dict, serialization_alias="uncollectableTypes"
+    )
+
+
+class ImportSummary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    questions: int
+    nodes: int
+    survey_rows: int = Field(serialization_alias="surveyRows")
+    languages: list[str]
+    errors: int
+    warnings: int
+    notes: int
+
+
+class ImportFormResponse(BaseModel):
+    """The IR, and everything that did not survive the trip.
+
+    The form is returned even when it cannot be published, deliberately: an
+    author needs every problem in one pass rather than one per round trip, and
+    a form they can look at is how they find the next one.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    #: False when any diagnostic is an error. Publishing is refused server-side
+    #: as well — this flag is for a console to grey a button, not the gate.
+    publishable: bool
+    form: dict[str, Any]
+    summary: ImportSummary
+    diagnostics: list[ImportDiagnostic]
+    coverage: ImportCoverage
+    instrumentation: ImportInstrumentation
+    #: The whole report as Markdown, ready to be written to a file and sent to
+    #: the person who wrote the spreadsheet.
+    report_markdown: str = Field(serialization_alias="reportMarkdown")
+
+
+class ImportRecord(BaseModel):
+    """How a version got here, stored with it and never recomputed.
+
+    Sent by whoever imported the spreadsheet and published the result, so the
+    question "why does this form not have the question I put in row 40?" is
+    answerable six months later from the database rather than from an email
+    somebody may still have.
+
+    Optional on a publish: a form written as IR by hand was not imported, and
+    recording nothing is the honest answer for it. Half a record is refused by
+    the database (`form_version_import_complete_check`), because a partial one
+    looks like a whole one.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_name: str = Field(serialization_alias="sourceName")
+    #: SHA-256 of the uploaded bytes. Answers "is this the same spreadsheet?"
+    #: without keeping the spreadsheet.
+    source_sha256: str = Field(serialization_alias="sourceSha256")
+    #: Which importer produced it. The same warning means something different
+    #: before and after a fix, and without this the two cannot be told apart.
+    importer_version: str = Field(serialization_alias="importerVersion")
+    diagnostics: list[ImportDiagnostic]
+
+
 class PublishVersionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -117,6 +250,10 @@ class PublishVersionRequest(BaseModel):
     # actually wants. An empty list publishes without deploying: the version
     # exists, and no device is told about it.
     deploy_to: list[EnvironmentKind] = Field(default_factory=list, alias="deployTo")
+    # Present when this version came from a spreadsheet. Stored verbatim on the
+    # row so "how was this imported and what did not survive" is answerable
+    # from the database rather than from an emailed report.
+    import_record: ImportRecord | None = Field(default=None, alias="importRecord")
 
 
 class PublishVersionResponse(BaseModel):

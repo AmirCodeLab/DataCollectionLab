@@ -153,6 +153,23 @@ def test_every_request_body_names_a_schema(schema):
                 f"stream ({json.dumps(binary['schema'])[:120]})."
             )
             continue
+        # A file upload is multipart by definition — an .xlsx cannot be a
+        # field of a JSON object without base64, and the rule this test
+        # enforces is "the body names a schema", not "the body is JSON".
+        # FastAPI generates a named model for the form fields, so the check is
+        # the same one; only the media type differs.
+        upload = content.get("multipart/form-data")
+        if upload is not None:
+            assert set(content) == {"multipart/form-data"}, (
+                f"{method} {path} offers both a multipart and a JSON body "
+                f"({sorted(content)}). One request, one shape."
+            )
+            assert "$ref" in upload["schema"], (
+                f"{method} {path} takes an inline multipart schema "
+                f"({json.dumps(upload['schema'])[:120]}). Declare a model for it."
+            )
+            continue
+
         body = content["application/json"]["schema"]
         assert "$ref" in body, (
             f"{method} {path} takes an inline request schema "

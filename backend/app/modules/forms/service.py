@@ -30,6 +30,7 @@ from app.modules.forms.schemas import (
     FormListResponse,
     FormSummary,
     FormVersionDocument,
+    ImportRecord,
     PublishVersionResponse,
 )
 from app.modules.projects.models import Device, Environment
@@ -69,6 +70,29 @@ def check_publishable(ir: dict[str, Any]) -> CompiledForm:
     a leak that ships.
     """
     compiled = CompiledForm(ir)
+
+    # A form with no questions in it.
+    #
+    # Checked here rather than in the importer because it is true of any form
+    # however it arrived, and because *reporting* it is not enough — the blank
+    # ODK XLSForm Template imported to a valid, compilable form with zero
+    # questions and passed every check there was. It compiled, both engines
+    # agreed, the vectors were green, and it would have deployed to a phone as
+    # an interview with nothing to ask.
+    #
+    # The lesson generalises past this one case. The importer's coverage ledger
+    # answers "was everything present accounted for", and is structurally blind
+    # to "was anything present at all": an empty sheet has no cells to account
+    # for, so the ledger is perfectly satisfied by nothing. Emptiness needs
+    # asking about directly, at the gate that matters.
+    if not compiled.fields:
+        raise PublishRefused(
+            [
+                "this form has no questions, so there would be nothing to collect. "
+                "A form must have at least one question to be published."
+            ]
+        )
+
     violations = check_sensitivity_propagation(compiled)
     if violations:
         raise PublishRefused(violations)
@@ -116,6 +140,7 @@ async def publish_version(
     form_id: str | None = None,
     form_version_id: str | None = None,
     deploy_to: list[EnvironmentKind] | None = None,
+    import_record: ImportRecord | None = None,
 ) -> PublishVersionResponse:
     """Publish one immutable form version, or explain why it cannot be.
 
@@ -192,6 +217,23 @@ async def publish_version(
         ir_checksum=checksum,
         published_at=func.now(),
         published_by=published_by,
+        # All five together or all five NULL — the database enforces it. A
+        # version published from hand-written IR was not imported, and NULL is
+        # the honest record of that rather than an empty report claiming an
+        # import that found nothing wrong.
+        import_source_name=import_record.source_name if import_record else None,
+        import_source_sha256=import_record.source_sha256 if import_record else None,
+        import_report=(
+            {
+                "diagnostics": [
+                    d.model_dump(by_alias=True) for d in import_record.diagnostics
+                ]
+            }
+            if import_record
+            else None
+        ),
+        import_importer_version=import_record.importer_version if import_record else None,
+        imported_at=func.now() if import_record else None,
     )
     session.add(version)
     await session.flush()
