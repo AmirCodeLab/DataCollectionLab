@@ -146,6 +146,19 @@ jobs:
       - name: shared UI tests
         run: ./gradlew :clients:composeApp:jvmTest
 
+      # Assembles the APK, which is what runs `verifyNoBundledFormDebug` — the
+      # guard is a dependency of `assembleDebug`, not a separate invocation, so
+      # there is no way to build the APK here and not check it.
+      #
+      # Form delivery's central claim is a claim about this binary: no form is
+      # in it, so a form on a phone came from the server. It had been checked
+      # once, by hand. It is not a hypothesis that an incremental build breaks
+      # it — writing this guard caught it happening: deleting the bundled form
+      # from the source tree left three stale copies under `build/`, and the
+      # next `assembleDebug` packaged one. Break 31 in docs/known-breaks.md.
+      - name: no form bundled in the APK
+        run: ./gradlew :clients:androidApp:assembleDebug
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
