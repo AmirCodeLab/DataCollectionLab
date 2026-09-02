@@ -87,10 +87,21 @@ object SyncFailure {
                 "$baseUrl was blocked before it was tried: this build does not allow " +
                     "plain http. Use an https address, or a build that permits http."
 
+            // A connect timeout is silence, and silence has two causes this
+            // client cannot tell apart: nothing is at that address (the device
+            // is on a different network from the server, or the address is
+            // simply wrong), or something is and a firewall is dropping the
+            // packets rather than refusing them. Naming one of them would be
+            // guessing — an earlier version of this message asserted "something
+            // is at that address but it is not replying", and the case that
+            // found it was a device on 192.168.2.0/24 pointed at 10.77.77.5,
+            // where nothing is at that address at all. Both are named, the
+            // network first, because in the field it is the commoner of the two.
             "timeout" in signature || "timedout" in signature ->
-                "$baseUrl did not answer in time. Something is at that address but it is " +
-                    "not replying — check the server is running and that a firewall is " +
-                    "not blocking the port." + hint
+                "$baseUrl did not answer. Nothing refused the connection either — it was " +
+                    "simply silence, which usually means this device is not on the same " +
+                    "network as the server, and sometimes means a firewall is dropping " +
+                    "the connection." + hint
 
             "ssl" in signature || "certificate" in signature || "handshake" in signature ->
                 "The secure connection to $baseUrl could not be set up. If this server " +

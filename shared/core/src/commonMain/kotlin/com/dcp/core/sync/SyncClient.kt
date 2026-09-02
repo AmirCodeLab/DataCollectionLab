@@ -90,17 +90,26 @@ class DeviceRegistrationException(
 class SyncClient(
     private val store: SubmissionStore,
     /**
-     * Where the server is, asked for rather than held.
+     * Where the server is — the configuration itself, not an address and not a
+     * supplier of one.
      *
-     * A function and not a String because the address is now something a person
-     * can change on the device ([ServerConfig]), and a held copy would mean the
-     * app had to be restarted for a new address to take effect — on the screen
-     * whose entire purpose is to fix an address that is not working.
+     * **The caller does not get to say what the address is, and that is the
+     * point.** This took `() -> String` first, and the lambda is exactly wide
+     * enough to express the mistake it was meant to prevent: the app's own
+     * wiring passed `{ defaultSyncBaseUrl() }` — the compile-time constant —
+     * and every one of the 264 tests in this repository passed while the
+     * settings screen said "Saved. The next sync will use this address" and
+     * the sync went somewhere else. On a handset that meant zero requests
+     * reaching the server whose address had just been entered.
      *
-     * It is read **once per sync**, not once per request: see [syncOnce]. For a
-     * fixed address, `{ "http://host:8000" }`.
+     * The same shape as the form-version fix (`FormCatalog`, break 30): the way
+     * to stop a caller choosing wrongly is to stop it choosing. There is now
+     * one object that knows the address, and passing anything else means
+     * constructing a second [ServerConfig] beside the real one.
+     *
+     * Read **once per sync**, not once per request — see [syncOnce].
      */
-    private val serverUrl: () -> String,
+    private val serverConfig: ServerConfig,
     private val config: SyncConfig = SyncConfig(),
     private val deviceInfo: DeviceInfo = DeviceInfo(),
     httpClient: HttpClient? = null,
@@ -146,7 +155,7 @@ class SyncClient(
      * is the cheapest way to catch the mistake this cannot otherwise see — an
      * address that connects perfectly to the wrong server.
      */
-    suspend fun checkConnection(url: String = serverUrl()): ConnectionCheck = try {
+    suspend fun checkConnection(url: String = serverConfig.baseUrl()): ConnectionCheck = try {
         val response = http.get("$url/health") { expectSuccess = false }
         if (!response.status.isSuccess()) {
             ConnectionCheck.Failed(
@@ -187,7 +196,7 @@ class SyncClient(
         //
         // It is also what the failure message reports, so a sync that failed
         // against the old address cannot name the new one.
-        val base = serverUrl()
+        val base = serverConfig.baseUrl()
         return try {
             // The server rejects every op from a device it has never seen, so
             // an unregistered install must introduce itself before its first

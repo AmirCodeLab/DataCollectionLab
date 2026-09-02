@@ -85,7 +85,7 @@ class FormDeliveryTest {
             install(ContentNegotiation) { json(SyncJson) }
         }
         return SyncClient(
-            fixture.submissions, { "http://test" }, fastRetry, httpClient = http, forms = fixture.forms,
+            fixture.submissions, fixedServerConfig("http://test"), fastRetry, httpClient = http, forms = fixture.forms,
         )
     }
 

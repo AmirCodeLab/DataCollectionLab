@@ -66,7 +66,7 @@ class SyncClientTest {
             expectSuccess = true
             install(ContentNegotiation) { json(SyncJson) }
         }
-        return SyncClient(store, { "http://test" }, config, httpClient = http)
+        return SyncClient(store, fixedServerConfig("http://test"), config, httpClient = http)
     }
 
     // ------------------------------------------------------------------
@@ -84,7 +84,8 @@ class SyncClientTest {
         val store = store()
         seedOps(store, 1)
         val hosts = mutableListOf<String>()
-        var address = "http://first.example"
+        // A real ServerConfig, changed the way the settings screen changes it.
+        val config = fixedServerConfig("http://first.example")
 
         val http = HttpClient(
             MockEngine { request ->
@@ -106,12 +107,13 @@ class SyncClientTest {
             install(ContentNegotiation) { json(SyncJson) }
         }
         // The one object, for both syncs — exactly as AppGraph holds it.
-        val client = SyncClient(store, { address }, fastRetry, httpClient = http)
+        val client = SyncClient(store, config, fastRetry, httpClient = http)
 
         client.syncOnce()
         assertTrue(hosts.all { it == "first.example" }, "first sync went to $hosts")
 
-        address = "http://second.example"
+        // What pressing Save does. No new SyncClient, no relaunch.
+        assertTrue(config.setBaseUrl("http://second.example") is ServerUrlResult.Valid)
         hosts.clear()
         client.syncOnce()
 
@@ -132,13 +134,14 @@ class SyncClientTest {
         val store = store()
         seedOps(store, 1)
         val hosts = mutableListOf<String>()
-        var address = "http://first.example"
+        val config = fixedServerConfig("http://first.example")
 
         val http = HttpClient(
             MockEngine { request ->
                 hosts += request.url.host
-                // Change it under the client, after the very first request.
-                address = "http://second.example"
+                // Change it under the client, after the very first request —
+                // as if somebody hit Save on the settings screen mid-sync.
+                config.setBaseUrl("http://second.example")
                 when {
                     request.url.encodedPath.endsWith("/devices") ->
                         jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
@@ -156,7 +159,7 @@ class SyncClientTest {
             install(ContentNegotiation) { json(SyncJson) }
         }
 
-        SyncClient(store, { address }, fastRetry, httpClient = http).syncOnce()
+        SyncClient(store, config, fastRetry, httpClient = http).syncOnce()
 
         assertTrue(hosts.size > 1, "expected several requests in one sync, got $hosts")
         assertEquals(
@@ -181,7 +184,7 @@ class SyncClientTest {
 
         val result = SyncClient(
             store,
-            { "http://192.168.1.20:8000" },
+            fixedServerConfig("http://192.168.1.20:8000"),
             SyncConfig(maxAttempts = 1),
             httpClient = http,
         ).syncOnce()

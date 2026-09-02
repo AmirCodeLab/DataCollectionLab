@@ -112,9 +112,11 @@ class AppGraph(
 
     val syncClient: SyncClient = SyncClient(
         store,
-        // Asked for on each sync rather than captured, so an address saved in
-        // settings takes effect on the next Sync and not on the next launch.
-        serverConfig::baseUrl,
+        // The configuration itself. There is deliberately no way to hand this
+        // an address: passing `{ defaultSyncBaseUrl() }` here is the mistake
+        // that every test in the repository once missed, and it is now a type
+        // error rather than a silent one.
+        serverConfig,
         deviceInfo = platformDeviceInfo(),
         formSensitivity = formSensitivity,
         // Media rides the same sync, after the ops (sync §9). Null here means
@@ -125,7 +127,7 @@ class AppGraph(
                 files = platform!!.files,
                 staging = graph.staging,
                 submissions = store,
-                serverUrl = serverConfig::baseUrl,
+                serverConfig = serverConfig,
             )
         },
         // Where delivered forms land. Passed on every client that collects —

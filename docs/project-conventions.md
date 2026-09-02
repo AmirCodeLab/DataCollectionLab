@@ -437,10 +437,15 @@ and `defaultSyncBaseUrl()` is the **fallback** a fresh install uses until
 somebody saves one. Three things about it are load-bearing, and break 32 covers
 all of them:
 
-- **The address is asked for, not held.** `SyncClient` and `MediaUploader` take
-  `() -> String`. A cached copy would mean the settings screen needed an app
-  restart to take effect — on the one screen whose purpose is to fix an address
-  that is not working
+- **The address is asked for, not held, and the caller cannot choose it.**
+  `SyncClient` and `MediaUploader` take the `ServerConfig` itself — not a
+  `String`, and not a `() -> String`. The lambda was tried first and it is
+  exactly wide enough to express the mistake it existed to prevent: the app's
+  own wiring passed `{ defaultSyncBaseUrl() }`, all 264 tests passed, and on a
+  handset the settings screen reported an address saved while the sync went to
+  the compile-time constant and nothing reached the server. It is a compile
+  error now (break 35), on the same principle as the form-version fix — the way
+  to stop a caller choosing wrongly is to stop it choosing
 - **…and read once per sync, not once per request.** `refreshCrypto` caches the
   recipient set of the project the *server* names and the push encrypts to it,
   so a sync split across two servers would wrap content keys to one project and

@@ -67,9 +67,22 @@ class SyncFailureTest {
     }
 
     @Test
-    fun `a timeout says the address is probably right`() {
+    fun `a timeout does not claim to know whether anything is there`() {
+        // A connect timeout is silence, and silence has two causes this client
+        // cannot tell apart: nothing at that address, or a firewall dropping
+        // the packets. An earlier version asserted "something is at that
+        // address but it is not replying", and the case that found it was a
+        // handset on 192.168.2.0/24 pointed at 10.77.77.5 — where there is
+        // nothing at all. A message that sends somebody to check a server that
+        // does not exist is worse than one that says it does not know.
         val message = SyncFailure.describe(url, HttpRequestTimeoutException(url, 15_000))
+
         assertTrue("did not answer" in message, message)
+        assertTrue("same network" in message, "the likelier cause must be named: $message")
+        assertFalse(
+            "Something is at that address" in message,
+            "a timeout cannot establish that anything is listening: $message",
+        )
     }
 
     @Test

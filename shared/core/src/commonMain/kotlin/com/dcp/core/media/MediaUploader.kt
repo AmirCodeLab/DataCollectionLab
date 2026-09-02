@@ -69,14 +69,15 @@ class MediaUploader(
     private val staging: MediaStaging,
     private val submissions: SubmissionStore,
     /**
-     * Where the server is, asked for rather than held — the same reason as
-     * [com.dcp.core.sync.SyncClient.serverUrl]: the address is configurable on
-     * the device now, and a held copy would need an app restart to follow it.
+     * Where the server is — the configuration, for the same reason as
+     * [com.dcp.core.sync.SyncClient.serverConfig]: a caller that can be handed
+     * an address is a caller that can be handed the wrong one, and that mistake
+     * passed every test in this repository once already.
      *
      * Media rides after the ops in one sync pass, so in production this reads
-     * the same value the sync client already snapshotted.
+     * the same value the sync client already used.
      */
-    private val serverUrl: () -> String,
+    private val serverConfig: com.dcp.core.sync.ServerConfig,
     /**
      * Shared with [com.dcp.core.sync.SyncClient] in production so both use one
      * connection pool. Injected in tests so the mock engine can watch exactly
@@ -195,7 +196,7 @@ class MediaUploader(
         }
 
         var sent = 0
-        val chunkBase = "${serverUrl()}/api/v1/media/upload-sessions/${session.uploadId}/chunks"
+        val chunkBase = "${serverConfig.baseUrl()}/api/v1/media/upload-sessions/${session.uploadId}/chunks"
         for (index in 0 until media.chunkCount) {
             if (index in alreadyThere) continue
             val body = chunkBytes(media, index)
@@ -208,7 +209,7 @@ class MediaUploader(
         }
 
         val completed: WireMediaCompleteResponse = http.post(
-            "${serverUrl()}/api/v1/media/upload-sessions/${session.uploadId}/complete",
+            "${serverConfig.baseUrl()}/api/v1/media/upload-sessions/${session.uploadId}/complete",
         ) {
             contentType(ContentType.Application.Json)
             setBody(WireMediaCompleteRequest(uploadHash(media)))
@@ -266,7 +267,7 @@ class MediaUploader(
         }
 
     private suspend fun openSession(media: StagedMedia): WireMediaSessionResponse {
-        val response = http.post("${serverUrl()}/api/v1/media/upload-sessions") {
+        val response = http.post("${serverConfig.baseUrl()}/api/v1/media/upload-sessions") {
             // The refusal body is the point of this call's error path, and
             // expectSuccess would throw before it could be read.
             expectSuccess = false
@@ -328,7 +329,7 @@ class MediaUploader(
      */
     suspend fun refreshPolicy(): MediaPolicy {
         val response = try {
-            http.get("${serverUrl()}/api/v1/devices/${submissions.deviceId}/media-policy") {
+            http.get("${serverConfig.baseUrl()}/api/v1/devices/${submissions.deviceId}/media-policy") {
                 expectSuccess = false
             }
         } catch (e: CancellationException) {

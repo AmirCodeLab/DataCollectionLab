@@ -166,7 +166,7 @@ class EncryptedSyncTest {
         store.appendOp(submission, FORM, 1, OpKind.FINALIZE)
 
         val result = SyncClient(
-            store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+            store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
         ).syncOnce()
 
         assertNull(result.error)
@@ -239,7 +239,7 @@ class EncryptedSyncTest {
 
         assertNull(
             SyncClient(
-                store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+                store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
             ).syncOnce().error
         )
 
@@ -283,7 +283,7 @@ class EncryptedSyncTest {
             val repeatAware = FormSensitivity { _, _ -> setOf("income") }
             assertNull(
                 SyncClient(
-                    store, { "http://test" }, httpClient = server.client(),
+                    store, fixedServerConfig("http://test"), httpClient = server.client(),
                     formSensitivity = repeatAware,
                 ).syncOnce().error
             )
@@ -306,7 +306,7 @@ class EncryptedSyncTest {
         // clear exactly once, which is once more than the mode allows.
         assertNull(
             SyncClient(
-                store, { "http://test" }, httpClient = server.client(),
+                store, fixedServerConfig("http://test"), httpClient = server.client(),
                 formSensitivity = FormSensitivity { _, _ -> null },
             ).syncOnce().error
         )
@@ -323,7 +323,7 @@ class EncryptedSyncTest {
 
         assertNull(
             SyncClient(
-                store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+                store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
             ).syncOnce().error
         )
 
@@ -344,7 +344,7 @@ class EncryptedSyncTest {
             store.appendOp(submission, FORM, 1, OpKind.SET, "hiv_status", FormValue.Text("positive"))
 
             val result = SyncClient(
-                store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+                store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
             ).syncOnce()
 
             assertNotNull(result.error)
@@ -369,7 +369,7 @@ class EncryptedSyncTest {
 
         val crypto = SyncCrypto(store, sensitive)
         SyncClient(
-            store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+            store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
         ).syncOnce()
 
         // As if the server had never answered: the op is pending again.
@@ -398,7 +398,7 @@ class EncryptedSyncTest {
         store.appendOp(submission, FORM, 1, OpKind.SET, "hiv_status", FormValue.Text("positive"))
 
         val client = SyncClient(
-            store, { "http://test" }, httpClient = server.client(), formSensitivity = sensitive,
+            store, fixedServerConfig("http://test"), httpClient = server.client(), formSensitivity = sensitive,
         )
         client.syncOnce()
         assertEquals(1, server.keys.size)
