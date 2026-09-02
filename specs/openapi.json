@@ -2163,95 +2163,7 @@
         "title": "ImportCoverage",
         "description": "Proof that nothing was dropped in silence.\n\nEvery non-empty cell in the workbook either produced part of the form or is\nnamed by a diagnostic above. A cell in neither fails the import outright\nrather than reaching this response — see the coverage ledger.\n\nIt cannot tell you the workbook had anything in it. An empty sheet has no\ncells to account for, so `cells: 0` satisfies the check perfectly; that is\nwhy a form with no questions is refused at publish rather than merely noted."
       },
-      "ImportDiagnostic-Input": {
-        "properties": {
-          "severity": {
-            "$ref": "#/components/schemas/DiagnosticSeverity"
-          },
-          "code": {
-            "type": "string",
-            "title": "Code"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          },
-          "sheet": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sheet"
-          },
-          "row": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Row"
-          },
-          "column": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Column"
-          },
-          "cell_value": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cell Value"
-          },
-          "node_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Node Id"
-          },
-          "remedy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Remedy"
-          }
-        },
-        "type": "object",
-        "required": [
-          "severity",
-          "code",
-          "message"
-        ],
-        "title": "ImportDiagnostic"
-      },
-      "ImportDiagnostic-Output": {
+      "ImportDiagnostic": {
         "properties": {
           "severity": {
             "$ref": "#/components/schemas/DiagnosticSeverity"
@@ -2355,7 +2267,7 @@
           },
           "diagnostics": {
             "items": {
-              "$ref": "#/components/schemas/ImportDiagnostic-Output"
+              "$ref": "#/components/schemas/ImportDiagnostic"
             },
             "type": "array",
             "title": "Diagnostics"
@@ -2428,7 +2340,7 @@
           },
           "diagnostics": {
             "items": {
-              "$ref": "#/components/schemas/ImportDiagnostic-Input"
+              "$ref": "#/components/schemas/ImportDiagnostic"
             },
             "type": "array",
             "title": "Diagnostics"

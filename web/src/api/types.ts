@@ -218,19 +218,7 @@ export interface ImportCoverage {
   reported: number;
 }
 
-export interface ImportDiagnostic-Input {
-  severity: DiagnosticSeverity;
-  code: string;
-  message: string;
-  sheet?: string | null;
-  row?: number | null;
-  column?: string | null;
-  cell_value?: string | null;
-  node_id?: string | null;
-  remedy?: string | null;
-}
-
-export interface ImportDiagnostic-Output {
+export interface ImportDiagnostic {
   severity: DiagnosticSeverity;
   code: string;
   message: string;
@@ -253,7 +241,7 @@ export interface ImportFormResponse {
   publishable: boolean;
   form: Record<string, unknown>;
   summary: ImportSummary;
-  diagnostics: ImportDiagnostic-Output[];
+  diagnostics: ImportDiagnostic[];
   coverage: ImportCoverage;
   instrumentation: ImportInstrumentation;
   reportMarkdown: string;
@@ -290,7 +278,7 @@ export interface ImportRecord {
   source_name: string;
   source_sha256: string;
   importer_version: string;
-  diagnostics: ImportDiagnostic-Input[];
+  diagnostics: ImportDiagnostic[];
 }
 
 export interface ImportSummary {

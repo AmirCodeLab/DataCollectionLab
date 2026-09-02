@@ -125,10 +125,18 @@ class ImportDiagnostic(BaseModel):
     sheet: str | None = None
     row: int | None = None
     column: str | None = None
+    # `alias`, not `serialization_alias`, and that is load-bearing here rather
+    # than a style choice. This model is the only one in the API used as both a
+    # request field (ImportRecord) and a response field (ImportFormResponse).
+    # With a serialization-only alias the two directions have different
+    # schemas, so Pydantic emits `ImportDiagnostic-Input` and
+    # `-Output` — and a hyphen is not a legal TypeScript identifier, so the
+    # generated console types did not compile. One alias for both directions
+    # keeps it one schema.
     #: What was actually in the cell, so the reader need not go and look.
-    cell_value: str | None = Field(default=None, serialization_alias="cellValue")
+    cell_value: str | None = Field(default=None, alias="cellValue")
     #: Where this would have landed in the form, when that is known.
-    node_id: str | None = Field(default=None, serialization_alias="nodeId")
+    node_id: str | None = Field(default=None, alias="nodeId")
     remedy: str | None = None
 
 
