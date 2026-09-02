@@ -322,7 +322,7 @@ Each field reports:
 }
 ```
 
-Error kinds: `constraint`, `required`, `type`, `evaluation`.
+Error kinds: `constraint`, `required`, `type`, `choice`, `evaluation`.
 
 A field is `valid` when it reports no errors. A field that is not relevant is
 always `valid` and reports no errors: relevance is decided first, and a question
@@ -333,8 +333,8 @@ retained (§5.3).
 
 `severity` is declared on the **question** (§2.1) and qualifies that question's
 `constraint` error only. It is `error` unless the question says
-`"severity": "warning"`. `required`, `type` and `evaluation` errors are always
-`error`.
+`"severity": "warning"`. `required`, `type`, `choice` and `evaluation` errors are
+always `error`.
 
 A soft constraint — `"severity": "warning"` — makes the field invalid and is
 shown to the enumerator like any other error, but it does not block finalisation
@@ -391,6 +391,68 @@ only fault is a soft constraint is invalid and still finalisable.
 A runtime that refuses to finalise SHOULD say how many fields are blocking, show
 each one's error, and navigate to `firstBlockingScreen`. A refusal that does not
 lead anywhere is a dead end an enumerator cannot get out of in the field.
+
+### 6.3 Choice membership
+
+The value of a `select_one` must be one of its question's choices. Every value
+of a `select_multiple` must be. A value that is not produces **one** `choice`
+error on the field — one error, not one per offending value, because the field
+is what is invalid.
+
+**Matching is exact.** Byte-for-byte on the choice `value`, with no trimming, no
+case folding and no Unicode normalisation. `"Male"` does not match `"male"` and
+`"fever "` does not match `"fever"`.
+
+That is a decision rather than a consequence of how strings happen to compare,
+and it is made this way because the alternative is worse in a specific way: a
+device that accepted `"Male"` for `"male"` would **store** `"Male"`, and every
+later comparison — a `selected()` call, a choice filter, an export column, a
+cross-form reference — would have to make the same allowance or disagree with
+it. One lenient boundary produces a value the rest of the system treats as
+different. Where leniency is wanted it belongs at import, where a CSV's
+whitespace can be cleaned once and reported, not at every comparison forever.
+
+**An unanswered question is not a membership failure.** `null` produces no
+`choice` error; a required unanswered question produces `required` as it always
+did. An empty `select_multiple` is unanswered, not "a list containing nothing
+valid" (§4.4).
+
+**A submission is validated against the form version it was collected under**
+(§9). An answer that was in v1's list and was removed in v2 stays valid for a
+submission collected under v1. Engines do not choose a version — they are given
+one — so what an engine must get right is that v1 accepts the value and v2
+rejects it. Choosing correctly between them is the caller's, and is tested above
+the engine.
+
+### 6.4 Where membership is enforced
+
+Membership is not enforced in the same places as the rest of §6, and the
+difference is a property of the encryption mode rather than of the form.
+
+| | `standard` | `field_level` | `project_e2e` |
+|---|---|---|---|
+| Client, before the op is written | yes | yes | yes |
+| Server, on push | yes | non-sensitive fields only | **no** |
+| Console, after decryption | n/a | sensitive fields | yes |
+
+The client always validates: it holds the compiled form and the plaintext, and
+this is where an enumerator is told. The server validates whatever it can read.
+In `project_e2e` it can read nothing — it stores `value_ciphertext` and holds no
+private key (Encryption Envelope §7), so it cannot check membership and does not
+pretend to.
+
+**What a `project_e2e` project therefore gets is a client that validates and a
+server that cannot.** A hand-crafted push carrying a value outside the choice
+list will be stored. This is inherent to end-to-end encryption — the property
+that the server cannot read the data is the same property that stops it checking
+the data — and it is stated here rather than left to be discovered, because it
+is a real difference between the modes and a customer choosing `project_e2e` is
+choosing it.
+
+The remaining check belongs in the console, at the point where a key holder
+decrypts a submission and can see the values. That is **not implemented**; it is
+recorded in `docs/known-defects.md` so the gap is visible rather than assumed
+closed by this section.
 
 ## 7. Internationalised strings
 

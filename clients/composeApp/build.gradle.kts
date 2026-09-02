@@ -107,9 +107,13 @@ dependencies {
  * read it.
  */
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    // The whole directory rather than named files: a new spec file must not
+    // need a build change before a test that reads it is re-run, which is the
+    // same mistake one level up.
+    inputs.dir(rootProject.layout.projectDirectory.dir("specs"))
+        .withPropertyName("normativeSpecs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
-        rootProject.layout.projectDirectory.file("specs/collectable-types-v0.1.json"),
-        rootProject.layout.projectDirectory.file("specs/form-ir-v0.1.md"),
         // The other half of the mirror. CollectableTypesTest asserts this file
         // exists and still reads the registry, so deleting it must re-run the
         // test — and this line is the only reason it does.

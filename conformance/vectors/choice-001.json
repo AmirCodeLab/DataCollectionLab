@@ -1,0 +1,101 @@
+{
+  "id": "choice-001",
+  "description": "A value that is in the list is valid — the control for the rest of the set",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "choice1",
+    "version": 1,
+    "title": {
+      "en": "choice1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "gender",
+        "dataType": "select_one",
+        "label": {
+          "en": "Gender"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "male",
+              "label": {
+                "en": "Male"
+              }
+            },
+            {
+              "value": "female",
+              "label": {
+                "en": "Female"
+              }
+            }
+          ]
+        },
+        "required": true
+      },
+      {
+        "type": "question",
+        "id": "symptoms",
+        "dataType": "select_multiple",
+        "label": {
+          "en": "Symptoms"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "fever",
+              "label": {
+                "en": "Fever"
+              }
+            },
+            {
+              "value": "cough",
+              "label": {
+                "en": "Cough"
+              }
+            },
+            {
+              "value": "rash",
+              "label": {
+                "en": "Rash"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "gender": "male",
+        "symptoms": [
+          "fever",
+          "rash"
+        ]
+      },
+      "expect": {
+        "valid": {
+          "gender": true,
+          "symptoms": true
+        },
+        "errors": {
+          "gender": [],
+          "symptoms": []
+        },
+        "formValid": true
+      }
+    }
+  ]
+}

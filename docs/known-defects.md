@@ -230,3 +230,36 @@ The fix is `sync_status.last_form_error`, written where `recordSyncSuccess` and
 `recordSyncError` already write, and read by both screens. Until then the screen
 overstates a correct conclusion, which is a smaller fault than the silent skip
 it replaced and is still a fault.
+
+### 8. In a project_e2e project, nothing checks choice membership after the client
+
+| | |
+|---|---|
+| **Where** | The console's decryption path (`web/src/lib/decryptSubmission.ts`), and Form IR §6.4 |
+| **Status** | Open — named in the spec so the gap is visible |
+| **Why not fixed** | It belongs to the console's decryption work, not to the engine change that created the question. Building it inside the membership item would have meant a half-done console feature attached to a finished engine one |
+
+§6.3 says a `select_one` value must be one of its question's choices. §6.4 says
+where that is enforced, and the honest answer differs by security mode:
+
+| | `standard` | `field_level` | `project_e2e` |
+|---|---|---|---|
+| Client | yes | yes | yes |
+| Server, on push | yes | non-sensitive only | **no** |
+| Console, after decryption | n/a | sensitive fields | **not built** |
+
+In `project_e2e` the server stores `value_ciphertext` and holds no private key,
+so it cannot check membership and does not pretend to. The only party that can
+is a key holder in the browser, and the console does not check.
+
+**So a `project_e2e` project today gets a client that validates and nothing
+else.** A hand-crafted push carrying `gender = "purple"` is stored, syncs, and
+appears in the console as an answer. Nothing is wrong with the encryption — the
+property that the server cannot read the data is the same property that stops it
+checking the data — but the check that should compensate is missing.
+
+The fix is a membership pass in `decryptSubmission`, where the plaintext and the
+form version are both available, surfacing a submission whose values are not in
+their lists. Until then, §6.4's console column is a description of what should
+happen rather than what does.
+

@@ -976,6 +976,165 @@ vector(
 )
 
 
+# --------------------------------------------------------------------------
+# Choice membership (spec 6.3)
+#
+# Before these existed, neither engine read `choices` at all: a select_one
+# could hold "purple", a select_multiple could hold "unicorn", and both
+# engines called the form valid and finalisable. Thirty-nine vectors never
+# saw it because not one of them ever set a value outside its list — the gate
+# was untested because nothing had ever knocked on it.
+# --------------------------------------------------------------------------
+
+_GENDER = {"kind": "inline", "items": [
+    {"value": "male", "label": {"en": "Male"}},
+    {"value": "female", "label": {"en": "Female"}}]}
+_SYMPTOMS = {"kind": "inline", "items": [
+    {"value": "fever", "label": {"en": "Fever"}},
+    {"value": "cough", "label": {"en": "Cough"}},
+    {"value": "rash", "label": {"en": "Rash"}}]}
+
+
+def _membership_form(fid):
+    return form(fid, [
+        q("gender", "select_one", choices=_GENDER, required=True),
+        q("symptoms", "select_multiple", choices=_SYMPTOMS),
+    ])
+
+
+vector(
+    "choice-001",
+    "A value that is in the list is valid — the control for the rest of the set",
+    "6.3",
+    _membership_form("choice1"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever", "rash"]},
+         "expect": {"valid": {"gender": True, "symptoms": True},
+                    "errors": {"gender": [], "symptoms": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-002",
+    "A select_one value outside its list is a `choice` error",
+    "6.3",
+    _membership_form("choice2"),
+    [
+        {"set": {"gender": "purple"},
+         "expect": {"valid": {"gender": False},
+                    "errors": {"gender": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-003",
+    "Unanswered is not a membership failure: a required blank is `required`, never `choice`",
+    "6.3",
+    _membership_form("choice3"),
+    [
+        {"expect": {"valid": {"gender": False, "symptoms": True},
+                    "errors": {"gender": ["required"], "symptoms": []},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-004",
+    "An empty select_multiple is unanswered, not a list in which nothing matched",
+    "6.3",
+    _membership_form("choice4"),
+    [
+        {"set": {"gender": "male", "symptoms": []},
+         "expect": {"valid": {"symptoms": True},
+                    "errors": {"symptoms": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-005",
+    "One bad value among three makes the field invalid exactly once, not once per value",
+    "6.3",
+    _membership_form("choice5"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever", "unicorn", "rash"]},
+         "expect": {"valid": {"symptoms": False},
+                    "errors": {"symptoms": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-006",
+    "Matching is exact: 'Male' does not match the choice 'male'",
+    "6.3",
+    _membership_form("choice6"),
+    [
+        {"set": {"gender": "Male"},
+         "expect": {"valid": {"gender": False},
+                    "errors": {"gender": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-007",
+    "Matching is exact: 'fever ' does not match the choice 'fever'",
+    "6.3",
+    _membership_form("choice7"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever "]},
+         "expect": {"valid": {"symptoms": False},
+                    "errors": {"symptoms": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+# 008 and 009 are a pair and only mean anything together.
+#
+# A vector hands an engine one compiled form; an engine never chooses a
+# version. So no vector can catch "it validated against the wrong version" —
+# that binding lives above the engine, the same structural boundary as break
+# 30. What the pair does is make the two versions DISAGREE about one value, so
+# that a caller binding to the wrong one produces a visibly wrong result
+# instead of the same result either way. Without it, wrong binding is
+# undetectable anywhere.
+
+_ROSTER_V1 = {"kind": "inline", "items": [
+    {"value": "alice", "label": {"en": "Alice"}},
+    {"value": "bob", "label": {"en": "Bob"}},
+    {"value": "carol", "label": {"en": "Carol"}}]}
+_ROSTER_V2 = {"kind": "inline", "items": [
+    {"value": "alice", "label": {"en": "Alice"}},
+    {"value": "bob", "label": {"en": "Bob"}}]}
+
+vector(
+    "choice-008",
+    "Form v1 lists carol, so an answer of carol is valid under v1 (pairs with choice-009)",
+    "6.3",
+    form("roster", [q("member", "select_one", choices=_ROSTER_V1)], version=1),
+    [
+        {"set": {"member": "carol"},
+         "expect": {"valid": {"member": True}, "errors": {"member": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-009",
+    "Form v2 dropped carol, so the same answer is invalid under v2 (pairs with choice-008)",
+    "6.3",
+    form("roster", [q("member", "select_one", choices=_ROSTER_V2)], version=2),
+    [
+        {"set": {"member": "carol"},
+         "expect": {"valid": {"member": False}, "errors": {"member": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):

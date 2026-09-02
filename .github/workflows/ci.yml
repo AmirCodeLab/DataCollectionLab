@@ -211,7 +211,24 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Every suite is run by CI
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The vector check reads what the Kotlin runners actually reported, so
+      # they have to have run. Reading their results rather than asking Gradle
+      # is the point: a stale result file is the symptom being guarded against,
+      # and comparing stale ids against the files on disk is what makes the
+      # staleness visible.
+      - name: Run the conformance suites so their results exist
+        run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
+
+      - name: Every suite is run by CI, and every vector was executed
         run: python scripts/check_ci_runs_every_suite.py --strict
 
   web:

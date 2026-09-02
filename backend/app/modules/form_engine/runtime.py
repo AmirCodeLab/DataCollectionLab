@@ -194,6 +194,32 @@ class CompiledForm:
                     )
 
 
+def _values_outside_choices(node: dict[str, Any], value: Any) -> list[Any]:
+    """Values not present in the question's choice list (spec 6.3).
+
+    Empty when the question has no choices, when the list is dataset-backed
+    (not resolvable here yet), or when everything matches.
+
+    Matching is **exact** — no trimming, no case folding, no normalisation.
+    That is §6.3's decision, not an accident of `==`: a device that accepted
+    "Male" for "male" would store "Male", and every later comparison would have
+    to make the same allowance or disagree with it.
+    """
+    choices = node.get("choices")
+    if not choices or choices.get("kind") != "inline":
+        return []
+    permitted = {item.get("value") for item in choices.get("items", [])}
+
+    if node.get("dataType") == "select_multiple":
+        # An empty list is an unanswered question, not a list in which nothing
+        # matched. Iterating it and concluding failure is the mistake §6.3 names.
+        if not isinstance(value, list):
+            return [value] if value not in permitted else []
+        return [v for v in value if v not in permitted]
+
+    return [] if value in permitted else [value]
+
+
 class FormInstance:
     """Live answer state for one compiled form.
 
@@ -374,6 +400,23 @@ class FormInstance:
             if state.required and state.value is None:
                 state.valid = False
                 state.errors.append({"kind": "required"})
+            # Choice membership (spec 6.3), before the constraint.
+            #
+            # Neither engine read `choices` at all before this: a select_one
+            # could hold "purple" and both engines called the form valid and
+            # finalisable. Thirty-nine vectors never saw it, because not one
+            # of them ever set a value outside its list.
+            #
+            # `null` is deliberately excluded — an unanswered question is not a
+            # membership failure, it is `required`'s business (§4.4, §6.3).
+            if state.value is not None:
+                offending = _values_outside_choices(node, state.value)
+                if offending:
+                    state.valid = False
+                    # One error on the field, not one per offending value: the
+                    # field is what is invalid, and two engines that disagree
+                    # about the count would both look correct.
+                    state.errors.append({"kind": "choice"})
             if state.value is not None and node.get("constraint") is not None:
                 if not coerce_boolean(evaluate(node["constraint"], ctx), null_is=True):
                     state.valid = False

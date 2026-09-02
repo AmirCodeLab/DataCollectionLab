@@ -440,6 +440,120 @@ def check_npm_scripts(commands: list[CiCommand], report: Report) -> None:
 # --------------------------------------------------------------------------
 
 
+
+# --------------------------------------------------------------------------
+# Conformance vectors
+#
+# The suite checks above ask "is this suite run by CI". They cannot ask "did
+# the run actually execute the vectors on disk", and that turns out to be a
+# different question with a different answer.
+#
+# Adding nine vectors to conformance/vectors left `:shared:form-engine:jvmTest`
+# UP-TO-DATE, reporting 39 tests, BUILD SUCCESSFUL — because the Kotlin suite
+# reads the vector files at run time and Gradle could not see them as inputs.
+# The same hazard had already been found twice elsewhere. The only thing that
+# caught it was somebody reading the test count.
+#
+# That matters more here than anywhere else in the repository. Rule 2 — every
+# vector passes identically on both engines — is the strongest guarantee this
+# project makes, and it rests entirely on the vectors being executed. **A
+# vector that is not run is indistinguishable from a vector that passes.**
+#
+# So: count the vectors on disk, ask each runner what it actually executed, and
+# fail when a vector exists that nothing ran.
+# --------------------------------------------------------------------------
+
+#: Vector directory -> (the runner's own name, where its results land).
+#:
+#: The Kotlin side is read from the JUnit XML of the last run rather than by
+#: asking Gradle, and that is deliberate: a stale result file is exactly the
+#: symptom being guarded against, and comparing a stale file's ids against the
+#: files on disk is what makes the staleness visible.
+VECTOR_SETS: dict[str, tuple[str, str, str]] = {
+    "vectors": (
+        "evaluation",
+        "shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.ConformanceTest.xml",
+        "backend/tests/test_conformance.py",
+    ),
+    "crypto": (
+        "crypto envelope",
+        "shared/core/build/test-results/jvmTest/"
+        "TEST-com.dcp.core.crypto.CryptoConformanceTest.xml",
+        "backend/tests/test_crypto_conformance.py",
+    ),
+    "sensitivity": (
+        "publish-time sensitivity",
+        "shared/form-engine/build/test-results/jvmTest/"
+        "TEST-com.dcp.form.SensitivityConformanceTest.xml",
+        "backend/tests/test_sensitivity_conformance.py",
+    ),
+    "malformed": (
+        "document shape",
+        "shared/form-engine/build/test-results/jvmTest/"
+        "TEST-com.dcp.form.MalformedConformanceTest.xml",
+        "backend/tests/test_malformed_conformance.py",
+    ),
+}
+
+#: Vector ids appear in a JUnit test name as `vector[choice-002][jvm]`, or as
+#: bare ids for the sets whose runners name cases differently.
+_VECTOR_ID = re.compile(r"[\[\(]([A-Za-z][\w.-]*)[\]\)]")
+
+
+def kotlin_executed_ids(results: Path) -> set[str] | None:
+    """Vector ids the last Kotlin run actually reported, or None if it never ran."""
+    if not results.is_file():
+        return None
+    names = re.findall(r'<testcase name="([^"]+)"', results.read_text())
+    found: set[str] = set()
+    for name in names:
+        found.update(_VECTOR_ID.findall(name))
+    # `jvm` is the target suffix on every name, not a vector.
+    return {i for i in found if i != "jvm"}
+
+
+def check_vectors(report: Report, strict: bool) -> None:
+    for directory, (label, kotlin_results, python_runner) in VECTOR_SETS.items():
+        vector_dir = ROOT / "conformance" / directory
+        if not vector_dir.is_dir():
+            continue
+        on_disk = {path.stem for path in vector_dir.glob("*.json")}
+        if not on_disk:
+            report.fail(
+                f"conformance/{directory} holds no vectors. An empty set passes "
+                "every check and proves nothing."
+            )
+            continue
+
+        executed = kotlin_executed_ids(ROOT / kotlin_results)
+        if executed is None:
+            message = (
+                f"cannot tell whether the {label} vectors ran: no results at "
+                f"{kotlin_results}. Run ./gradlew :shared:form-engine:jvmTest "
+                ":shared:core:jvmTest first."
+            )
+            report.fail(message) if strict else report.skip(message)
+            continue
+
+        missed = sorted(on_disk - executed)
+        if missed:
+            report.fail(
+                f"{len(missed)} {label} vector(s) exist and the Kotlin run did not "
+                f"execute them: {', '.join(missed[:6])}"
+                + (f" (+{len(missed) - 6} more)" if len(missed) > 6 else "")
+                + ". Either the suite is stale — a vector file changed and the task "
+                "was UP-TO-DATE — or the runner is not reading this directory. "
+                "A vector that is not run is indistinguishable from one that passes."
+            )
+            continue
+
+        report.ok(
+            f"conformance/{directory}",
+            f"{len(on_disk)} vectors",
+            f"{label}, both engines ({python_runner})",
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -456,6 +570,7 @@ def main() -> int:
     check_pytest(commands, report, args.strict)
     check_vitest(commands, report, args.strict)
     check_npm_scripts(commands, report)
+    check_vectors(report, args.strict)
 
     if report.rows:
         width = max(len(row[0]) for row in report.rows)
@@ -477,7 +592,9 @@ def main() -> int:
         print()
         return 1
 
-    print(f"Every suite found is run by CI ({len(report.rows)} suites).")
+    print(
+        f"Every suite found is run by CI, and every vector on disk was "
+        f"executed ({len(report.rows)} suites).")
     return 0
 
 

@@ -1,0 +1,102 @@
+{
+  "id": "choice-005",
+  "description": "One bad value among three makes the field invalid exactly once, not once per value",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "choice5",
+    "version": 1,
+    "title": {
+      "en": "choice5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "gender",
+        "dataType": "select_one",
+        "label": {
+          "en": "Gender"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "male",
+              "label": {
+                "en": "Male"
+              }
+            },
+            {
+              "value": "female",
+              "label": {
+                "en": "Female"
+              }
+            }
+          ]
+        },
+        "required": true
+      },
+      {
+        "type": "question",
+        "id": "symptoms",
+        "dataType": "select_multiple",
+        "label": {
+          "en": "Symptoms"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "fever",
+              "label": {
+                "en": "Fever"
+              }
+            },
+            {
+              "value": "cough",
+              "label": {
+                "en": "Cough"
+              }
+            },
+            {
+              "value": "rash",
+              "label": {
+                "en": "Rash"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "gender": "male",
+        "symptoms": [
+          "fever",
+          "unicorn",
+          "rash"
+        ]
+      },
+      "expect": {
+        "valid": {
+          "symptoms": false
+        },
+        "errors": {
+          "symptoms": [
+            "choice"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

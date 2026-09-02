@@ -214,6 +214,36 @@ class CompiledForm(val ir: FormIr) {
  * storage (spec 5.4). Positional addressing (`members[0].age`) resolves against
  * the current ordered list at evaluation time.
  */
+/**
+ * Values not present in the question's choice list (spec 6.3).
+ *
+ * Empty when the question has no choices, when the list is dataset-backed (not
+ * resolvable here yet), or when everything matches.
+ *
+ * Matching is **exact** — no trimming, no case folding, no normalisation. That
+ * is §6.3's decision rather than an accident of `==`: a device that accepted
+ * "Male" for "male" would store "Male", and every later comparison — a
+ * `selected()` call, a choice filter, an export column — would have to make the
+ * same allowance or disagree with it.
+ */
+internal fun valuesOutsideChoices(node: QuestionNode, value: FormValue): List<String> {
+    val choices = node.choices ?: return emptyList()
+    if (choices.kind != "inline") return emptyList()
+    val permitted = choices.items.map { it.value }.toSet()
+
+    return when (value) {
+        // An empty sequence is an unanswered question, not a list in which
+        // nothing matched. Iterating it and concluding failure is the mistake
+        // §6.3 names.
+        is FormValue.Sequence ->
+            value.items.mapNotNull { (it as? FormValue.Text)?.value }
+                .filter { it !in permitted }
+        is FormValue.Text -> if (value.value in permitted) emptyList() else listOf(value.value)
+        else -> emptyList()
+    }
+}
+
+
 class FormInstance(
     val form: CompiledForm,
     private val today: String,
@@ -383,6 +413,22 @@ class FormInstance(
             if (state.required && state.value.isNull) {
                 state.valid = false
                 errors.add(FieldError(kind = "required"))
+            }
+            // Choice membership (spec 6.3), before the constraint.
+            //
+            // Neither engine read `choices` at all before this: a select_one
+            // could hold "purple" and both engines called the form valid and
+            // finalisable. Thirty-nine vectors never saw it, because not one
+            // of them ever set a value outside its list.
+            //
+            // `null` is deliberately excluded — an unanswered question is not
+            // a membership failure, it is `required`'s business (§4.4, §6.3).
+            if (!state.value.isNull && valuesOutsideChoices(node, state.value).isNotEmpty()) {
+                state.valid = false
+                // One error on the field, not one per offending value: the
+                // field is what is invalid, and two engines that disagreed
+                // about the count would both look correct.
+                errors.add(FieldError(kind = "choice"))
             }
             if (!state.value.isNull && node.constraint != null) {
                 val ok = Evaluator.coerceBoolean(Evaluator.evaluate(node.constraint, ctx), nullIs = true)
