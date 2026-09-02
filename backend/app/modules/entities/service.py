@@ -125,20 +125,28 @@ async def publish_dataset_version(
             ]
         )
 
-    keys: list[str] = []
+    # The key is the cell's value, EXACTLY — Form IR §3.1. Not trimmed, not
+    # case-folded.
+    #
+    # It has to be the same rule as choice matching (§6.3) and this is the
+    # reason: a dataset-backed select stores a value taken from `valueColumn`,
+    # and §6.3 then validates that value against the resolved list by exact
+    # match. Trimming the key here while the stored answer kept its whitespace
+    # would make a legitimate answer fail membership against the very row it
+    # came from, and the report would say the value is not in a list that
+    # visibly contains it.
+    #
+    # Emptiness is still decided after stripping — "   " is no identity at all —
+    # but what gets stored is what was in the cell.
     duplicates: dict[str, int] = {}
     missing = 0
     for row in rows:
         raw = row.get(key_column)
-        key = "" if raw is None else str(raw).strip()
-        if not key:
+        key = "" if raw is None else str(raw)
+        if not key.strip():
             missing += 1
             continue
-        if key in duplicates:
-            duplicates[key] += 1
-        else:
-            duplicates[key] = 1
-        keys.append(key)
+        duplicates[key] = duplicates.get(key, 0) + 1
 
     problems: list[str] = []
     if missing:
@@ -159,6 +167,27 @@ async def publish_dataset_version(
     if problems:
         raise DatasetRefused(problems)
 
+    # Keys that differ only by whitespace or case are DIFFERENT rows (§3.1) and
+    # are reported rather than merged. They are almost always the same village
+    # entered twice — but merging them would be the platform deciding that two
+    # rows a customer supplied are one, which is not the platform's decision.
+    warnings: list[str] = []
+    folded: dict[str, list[str]] = {}
+    for key in duplicates:
+        folded.setdefault(key.strip().casefold(), []).append(key)
+    confusable = {k: v for k, v in folded.items() if len(v) > 1}
+    if confusable:
+        shown = "; ".join(
+            " vs ".join(repr(k) for k in sorted(group)) for group in list(confusable.values())[:3]
+        )
+        warnings.append(
+            f"{len(confusable)} key(s) differ only by case or surrounding whitespace "
+            f"and are stored as separate rows: {shown}. Form IR §3.1 matches keys "
+            "exactly, so these are distinct choices an enumerator will see twice. "
+            "They were not merged — that would be this platform deciding two of "
+            "your rows are one."
+        )
+
     dataset = (
         await session.execute(
             select(Dataset).where(
@@ -176,7 +205,7 @@ async def publish_dataset_version(
         session.add(dataset)
         await session.flush()
 
-    hashed = [(str(row[key_column]).strip(), row_hash(row)) for row in rows]
+    hashed = [(str(row[key_column]), row_hash(row)) for row in rows]
     checksum = version_checksum(hashed)
 
     if version is None:
@@ -209,6 +238,7 @@ async def publish_dataset_version(
                 row_count=existing.row_count,
                 checksum=checksum,
                 created=False,
+                warnings=warnings,
             )
         raise DatasetRefused(
             [
@@ -251,4 +281,5 @@ async def publish_dataset_version(
         version=version,
         row_count=len(rows),
         checksum=checksum,
+        warnings=warnings,
     )

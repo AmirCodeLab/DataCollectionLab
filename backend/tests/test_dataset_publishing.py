@@ -272,3 +272,76 @@ def dataset_db():  # noqa: ANN201 - pytest fixture
 
     asyncio.run(seed())
     return _dataset_db_url()
+
+
+@pytest.mark.db
+def test_a_key_is_stored_exactly_and_never_trimmed(dataset_db: str) -> None:
+    """Form IR §3.1, and its agreement with §6.3 is the whole reason.
+
+    A dataset-backed select stores a value taken from `valueColumn`, and §6.3
+    validates that value against the resolved list by exact match. If the key
+    were trimmed here while the stored answer kept its whitespace, a legitimate
+    answer would fail membership against the very row it came from — and the
+    report would say the value is not in a list that visibly contains it.
+
+    "Moshi" and "moshi " are therefore two rows, and the publisher is told.
+    """
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.modules.entities.models import DatasetRecord
+    from app.modules.entities.service import publish_dataset_version
+
+    async def run() -> tuple[list[str], list[str]]:
+        async with _session(dataset_db) as session:
+            published = await publish_dataset_version(
+                session,
+                project_id=PROJECT_ID,
+                dataset_key="villages",
+                rows=[
+                    {"code": "Moshi", "name": "Moshi town"},
+                    {"code": "moshi ", "name": "Moshi rural"},
+                ],
+                key_column="code",
+            )
+            keys = (
+                await session.execute(
+                    select(DatasetRecord.record_key).where(
+                        DatasetRecord.dataset_version_id == published.dataset_version_id
+                    )
+                )
+            ).scalars().all()
+            return sorted(keys), published.warnings
+
+    keys, warnings = asyncio.run(run())
+
+    assert keys == ["Moshi", "moshi "], (
+        f"keys were altered on the way in: {keys}. A trimmed or folded key stops "
+        "matching the answer that was collected from it."
+    )
+    assert warnings, "differing only by case or whitespace must be reported"
+    assert "not merged" in warnings[0]
+
+
+@pytest.mark.db
+def test_a_key_that_is_only_whitespace_is_still_refused(dataset_db: str) -> None:
+    """Exactness is not the same as accepting anything.
+
+    "   " is no identity at all — it cannot be selected, referred to, or deleted
+    in a later version — so emptiness is decided after stripping even though
+    what gets *stored* never is.
+    """
+    import asyncio
+
+    from app.modules.entities.service import DatasetRefused, publish_dataset_version
+
+    async def run() -> None:
+        async with _session(dataset_db) as session:
+            with pytest.raises(DatasetRefused, match="no value in the key column"):
+                await publish_dataset_version(
+                    session, project_id=PROJECT_ID, dataset_key="ws",
+                    rows=[{"code": "a"}, {"code": "   "}], key_column="code",
+                )
+
+    asyncio.run(run())

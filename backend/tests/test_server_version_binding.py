@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -115,14 +116,28 @@ def binding_db() -> Any:
     return _binding_db_url()
 
 
+@asynccontextmanager
 async def _session(url: str) -> AsyncIterator[Any]:
+    """A session, as a context manager rather than a generator.
+
+    `async for session in _session(...)` with a `break` or a `return` in the
+    body leaves the generator suspended at its yield, so nothing after it runs:
+    no commit, no dispose. It is the shape that made a seed silently not commit
+    in `test_dataset_publishing`, surfacing three files away as a foreign-key
+    violation on a project that had apparently been inserted.
+
+    A context manager cannot be exited without its `__aexit__`.
+    `test_no_async_for_over_a_session_generator` keeps it that way.
+    """
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     engine = create_async_engine(url, future=True)
     maker = async_sessionmaker(engine, expire_on_commit=False)
-    async with maker() as session:
-        yield session
-    await engine.dispose()
+    try:
+        async with maker() as session:
+            yield session
+    finally:
+        await engine.dispose()
 
 
 async def _seed(url: str) -> tuple[str, str]:
@@ -189,7 +204,7 @@ def test_a_v1_answer_is_accepted_where_v2_would_reject_it(binding_db: str) -> No
     async def run() -> tuple[bool, bool]:
         on_v1, on_v2 = await _seed(binding_db)
         results = []
-        async for session in _session(binding_db):
+        async with _session(binding_db) as session:
             for submission_id in (on_v1, on_v2):
                 compiled = await compiled_form_for_submission(session, submission_id)
                 assert compiled is not None, f"{submission_id} resolved to no form"
@@ -197,7 +212,6 @@ def test_a_v1_answer_is_accepted_where_v2_would_reject_it(binding_db: str) -> No
                 instance.set("member", "carol")
                 instance.recalculate()
                 results.append(instance.states["member"].valid)
-            break
         return results[0], results[1]
 
     v1_valid, v2_valid = asyncio.run(run())
@@ -244,8 +258,7 @@ def test_an_unknown_submission_resolves_to_nothing_rather_than_something(
     from app.modules.forms.service import compiled_form_for_submission
 
     async def run() -> Any:
-        async for session in _session(binding_db):
+        async with _session(binding_db) as session:
             return await compiled_form_for_submission(session, "sub_that_does_not_exist")
-        raise AssertionError("unreachable")
 
     assert asyncio.run(run()) is None

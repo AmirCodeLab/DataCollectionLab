@@ -375,6 +375,15 @@ notice. `./scripts/status.sh` section 5 asks locally.
 - Commits: imperative mood, scope prefix — `engine: add null coercion at boundary`
 - Every behavioural change to the engine ships with a conformance vector
 - Migrations must be reversible; self-hosted users run old versions
+- **A helper that hands out a database session is an `@asynccontextmanager`,
+  never a bare async generator you iterate.** `async for session in _session(…)`
+  with a `break` or `return` leaves the generator parked at its `yield`: the
+  `async with` never exits, nothing commits, and the write is discarded with no
+  error. It cost a fixture's insert once and surfaced as a foreign-key
+  violation in a different test in a different file.
+  `backend/tests/test_no_session_generator_loops.py` is the lint; the FastAPI
+  dependencies in `api/deps.py` are the one exception, because FastAPI drives
+  the generator to completion itself
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
 - A defect left unfixed on purpose goes in `docs/known-defects.md` with the

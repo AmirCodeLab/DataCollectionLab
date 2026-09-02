@@ -173,6 +173,35 @@ Dataset-backed:
 
 Choice filters evaluate per candidate row. The row's columns are addressable as `$row.column_name`.
 
+### 3.1 Dataset row identity
+
+Every dataset row has a **key**: the value of the column a dataset is published
+against. It is what a later version names when a row is changed or deleted, and
+it is what `valueColumn` selects when that column is the key.
+
+**The key is the cell's value, exactly.** No trimming, no case folding, no
+normalisation — the same rule as choice matching (§6.3), and it has to be the
+same rule for a reason that is easy to miss:
+
+> A dataset-backed `select_one` stores a value taken from `valueColumn`. §6.3
+> then validates that value against the resolved choice list by exact match. If
+> a dataset row's key were trimmed on import while the stored answer kept its
+> whitespace, a legitimate answer would fail membership against the very row it
+> came from — and the report would say the value is not in the list while the
+> list visibly contains it.
+
+So the two are one decision, not two. A key of `"moshi "` and a key of
+`"moshi"` are **different rows**, as are `"Moshi"` and `"moshi"`.
+
+A key that is empty, or contains only whitespace, is refused: a row with no
+identity cannot be selected, referred to, or deleted in a later version.
+
+Keys that differ from one another *only* by surrounding whitespace or by case
+are **reported at publish and not merged**. They are almost always a data
+error — the same village entered twice — but merging them would be the platform
+deciding that two rows a customer supplied are one, which is not a decision the
+platform can make. The report names them; the publisher decides.
+
 ## 4. Expressions
 
 Expressions are a **typed AST**, never strings. The builder produces the AST; importers compile XPath into it; runtimes evaluate it directly.
