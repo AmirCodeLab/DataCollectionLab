@@ -244,6 +244,8 @@ What watches that layer, and all there is:
 | The collection screen's date question | `DateQuestionTest` (`:clients:composeApp:jvmTest`) | 23 |
 | `FormStore` retention and the manifest | `FormStoreTest`, `FormDeliveryTest` (`:shared:core:jvmTest`) | 25, 28, 29 |
 | Which form version a submission opens against | `FormVersionBindingTest` (`:clients:composeApp:jvmTest`) | 30 |
+| The server address, and what a failed sync says | `ServerConfigTest`, `SyncFailureTest`, `SyncClientTest` (`:shared:core:jvmTest`) | 32 |
+| The settings screen, and which forms it lists | `SettingsScreenTest`, `HeldFormsTest` (`:clients:composeApp:jvmTest`) | 32 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -283,6 +285,8 @@ cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, 
 
 # Kotlin engine (from the repo root — one build)
 ./gradlew :shared:form-engine:jvmTest
+# assembleDebug depends on verifyNoBundledFormDebug, which fails if any APK
+# entry carries a Form IR document. Forms come from the server, not the binary.
 ./gradlew :clients:androidApp:assembleDebug
 ./gradlew :clients:desktopApp:run
 
@@ -368,10 +372,22 @@ notice. `./scripts/status.sh` section 5 asks locally.
 Phase 2 part 1 is four items, in this order, and nothing else until a real form
 authored by someone other than us is collected on a real phone and exported:
 
-0. **Form delivery — done**, and verified on an emulator against a live server:
-   an APK with no form in it (checked: zero occurrences of `household_survey`
-   in its bytes) syncs, receives the form, opens it and finalises a submission
-1. Configurable server URL + settings screen — not started
+0. **Form delivery — done**, and verified on an emulator and now on a
+   **physical Pixel** against a live server: an APK with no form in it syncs,
+   receives the form, opens it, collects answers and pushes them back (see
+   item 1's hardware run below, which exercises this end of it too).
+   "No form in it" is now a **build guard** rather than a hand check: `:clients:androidApp:verifyNoBundledFormDebug`, which `assembleDebug`
+   and `installDebug` both depend on, fails if any APK entry carries a Form IR
+   document. It looks for the document (`"irVersion"` and a colon, mandatory
+   per §10.1) and not for the seed form's name — the name check does not hold
+   on this tree, because `SubmissionListScreenPreview` puts `household_survey`
+   in a `@Preview` literal and previews compile into the APK. Writing the guard
+   immediately caught the failure it was written for: deleting a bundled form
+   from the source tree leaves stale copies under `build/` and the next
+   incremental `assembleDebug` packages one. Break 31
+1. **Configurable server URL + settings screen — done**, and verified on a
+   physical Pixel 6 Pro over Wi-Fi against a server on the LAN — the first time
+   a real handset in this project has reached one. See below
 2. XLSForm import — not started
 3. Export: CSV, XLSX, Stata, SPSS — not started
 
@@ -408,6 +424,114 @@ What item 0 did not close is in `docs/known-defects.md` 3–5: a device's
 environment is derived from its project rather than assigned (so every device
 gets production), nothing retires a deployment, and the environment rule is
 written twice in two modules that agree by inspection rather than construction.
+
+### Item 1 — the server address, and the settings screen
+
+The address was a compile-time constant per platform (`defaultSyncBaseUrl`), so
+pointing a phone at a server meant rebuilding the app. That is workable for an
+emulator, whose host is always `10.0.2.2`, and it is the reason a **physical
+device had never once reached a server**: no constant is right for one.
+
+`ServerConfig` (`shared/core`) now holds the address in the SQLCipher database
+and `defaultSyncBaseUrl()` is the **fallback** a fresh install uses until
+somebody saves one. Three things about it are load-bearing, and break 32 covers
+all of them:
+
+- **The address is asked for, not held.** `SyncClient` and `MediaUploader` take
+  `() -> String`. A cached copy would mean the settings screen needed an app
+  restart to take effect — on the one screen whose purpose is to fix an address
+  that is not working
+- **…and read once per sync, not once per request.** `refreshCrypto` caches the
+  recipient set of the project the *server* names and the push encrypts to it,
+  so a sync split across two servers would wrap content keys to one project and
+  hand the ciphertext to another. The second server stores it, reports success,
+  and holds answers only a third party's private key can open
+- **"Nobody has configured this" is a distinct state.** No row means the
+  platform default is in effect, and the screen says so. Seeding the row with
+  the default at first launch collapses that into "configured", and the two
+  need different next steps
+
+`parseServerUrl` reads what a person types rather than a URL: a missing scheme
+becomes `http://`, trailing slashes go (they produce `//api/v1` on every
+request, which some servers route and some 404). It **refuses** rather than
+guesses on a non-http scheme, a bad port, and — worth naming — an address
+ending in `/api/v1`, which is what copying out of the API docs gives you and
+which produces a perfectly reachable server on which every request 404s.
+
+**A connection failure names the address and a cause in plain words.**
+`SyncFailure.describe` turns `Connect timeout has expired` into a sentence that
+says which server was tried, distinguishes a wrong address from a stopped
+server from a wrong network, and keeps the platform's original text in
+parentheses — the sentence is a guess about a class of failure, the original is
+the fact. It matches on class names and message text across the whole cause
+chain because there is no common exception type: Ktor CIO raises
+`java.net.ConnectException` on the JVM and Android and a `PosixException` on
+Native, and `UnresolvedAddressException` has no message at all. It also
+explains `10.0.2.2` and `localhost` by name, because those are the two wrong
+answers *the app itself supplies*.
+
+The settings screen (`SettingsScreen`, `SettingsViewModel`) answers the three
+forms of "why is this phone not working": which server, how the last sync went,
+and which form versions are actually here. Two things about the form list, both
+found the hard way:
+
+- it is `FormCatalog.observeHeld()` and **not** `startable()` — a device retains
+  every version a local submission still refers to (Form IR §9), and answering
+  with the narrower list would report a form as absent while a draft was open
+  against it. Withdrawn versions carry a chip saying so
+- it is **observed, not read once**. Read at construction, it reported "no
+  forms" after a successful sync had just delivered one — with the form in the
+  database underneath it and no error anywhere. Relaunching the app cleared it,
+  which is the worst symptom available: it reads as an intermittent sync fault.
+  Break 33, and it was found on a device rather than constructed
+
+**Test connection** asks `GET /health` and moves no data, which is what makes
+it safe to press against an address you are not sure of yet. It reports the
+server's `environment`, because the failure a reachability check cannot
+otherwise see is the one where everything works and the address is wrong: a
+phone on staging syncs perfectly and files a morning's interviews where nobody
+will look for them.
+
+There is deliberately **no Sync button on the settings screen**. Sync belongs to
+the submission list, where the outbox is.
+
+### The run on real hardware, 2026-09-02
+
+The reason this item existed: a physical device had never reached a server. It
+has now. Pixel 6 Pro, Wi-Fi, a server on the LAN — not `10.0.2.2`, which is a
+loopback alias the emulator resolves to its own host and therefore cannot stand
+in for a network hop.
+
+Fresh install (`pm clear`, device `dev_aecfb103`), then, entirely from the
+phone:
+
+1. Settings showed `http://10.0.2.2:8000` and *"Using this build's default
+   address. No address has been set on this device."*
+2. Typed `192.168.2.44:8001`; stored as `http://192.168.2.44:8001` — scheme
+   added, and on the emulator run a trailing `/` was dropped
+3. **Test connection:** *"Reached http://192.168.2.44:8001 — this is the
+   development server."* Save greyed out (draft equals what is in effect),
+   Reset appeared
+4. **Sync:** manifest, then the document. Settings then listed *"Household
+   Survey — household_survey · v2 · fetched 2026-09-02 09:25"*
+5. Started a submission on it. The form opened at 1/3; answering the consent
+   question expanded the screen plan to 25 — live relevance on a handset
+6. Navigation past an unanswered required date was **allowed** and the button
+   only offered Finalize on the last screen (§6.2: navigation is never gated,
+   finalisation always is)
+7. Synced the answers back. `submission_op` on the server holds
+   `set enumerator_name` and `set consent` from `dev_aecfb103`, both as
+   **ciphertext** (32 and 21 bytes) — the project is `project_e2e` and the
+   server stored what it cannot read
+
+So the whole chain is closed on real hardware: a form published on a server,
+deployed to an environment, delivered to a phone that had never held it,
+opened, answered, and pushed back encrypted.
+
+One practical note for whoever repeats this: adb-over-Wi-Fi to this handset
+drops whenever its DHCP lease changes, and it changed twice mid-run
+(`192.168.2.49` → `.12`). Run the sequence as one script rather than as a
+series of calls.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 

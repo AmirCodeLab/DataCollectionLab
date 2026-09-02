@@ -195,3 +195,38 @@ drift. It was left as two because moving it means moving `_ENVIRONMENT_PREFERENC
 out of the push path, and that is a change to the code that decides where every
 submission is recorded, which does not belong in the same commit as form
 delivery.
+
+### 6. The settings screen can state the wrong reason a device has no forms
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/.../SettingsScreen.kt` → `FormsSection`; `SyncResult.formError` |
+| **Status** | Open — narrowed, not closed |
+| **Why not fixed** | The remaining case needs `formError` persisted beside `last_sync_at` and `last_error` in `sync_status`, which is a migration and a change to the record of what a sync did. That belongs on its own, not appended to the settings screen |
+
+With no forms on the device and a successful sync behind it, the screen says:
+
+> None. This device has synced, so its project has no form deployed to this
+> device's environment.
+
+That is a **conclusion**, and it is the right one almost always — publishing is
+not deploying, and this is the single most common reason a phone comes up empty.
+But it is stated with more confidence than the screen can support: it is also
+what appears when the manifest arrived and a document did not.
+
+That path is no longer silent — `refreshForms` now reports an entry whose
+document would not fetch (break 34), and the submission list shows it as
+"Forms not refreshed: …". Two things still make the settings screen the wrong
+place to read it:
+
+- **`formError` is not persisted.** It lives on the `SyncResult` handed to
+  whoever called `syncOnce`, which is `SubmissionListViewModel`. The settings
+  screen never sees it, and neither screen has it after a relaunch — the
+  explanation of a failure outlives the app by less time than the failure does
+- **so the two screens disagree**, and the one an enumerator is sent to for an
+  explanation is the one holding the weaker information
+
+The fix is `sync_status.last_form_error`, written where `recordSyncSuccess` and
+`recordSyncError` already write, and read by both screens. Until then the screen
+overstates a correct conclusion, which is a smaller fault than the silent skip
+it replaced and is still a fault.
