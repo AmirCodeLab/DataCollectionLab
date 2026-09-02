@@ -113,3 +113,40 @@ class DatasetRecord(Base):
     )
     record_key: Mapped[str] = mapped_column(Text, nullable=False)
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # SHA-256 over canonical_json(data) — the encryption envelope's
+    # serialisation (§5.1), not a second one invented here, because two servers
+    # must produce identical bytes for the same row or every delta is spurious.
+    #
+    # Over the WHOLE row on purpose. It answers "did anything about this row
+    # change", cheaply and version-independently. It does not decide whether a
+    # device is sent anything: an edit to a column no form references must not
+    # cost a 50k-row list a transfer, and that is settled by comparing the
+    # projection onto the columns the device's forms actually use.
+    row_hash: Mapped[str] = mapped_column(Text, nullable=False, server_default=text(""))
+
+
+class FormVersionDataset(Base):
+    """Which dataset version a form version was published against.
+
+    The IR names a dataset by key — `"dataset": "districts"` (Form IR §3) — and a
+    key is not a version. Resolving it at read time would let a draft opened
+    against form v1 see whatever `districts` happens to be newest, which is the
+    same mistake as validating a v1 answer against v2's choice list: answers
+    given against a list that no longer exists, with nothing saying so.
+
+    So the key is resolved once, at publish, and pinned. A form version is
+    immutable and so is its view of its data.
+    """
+
+    __tablename__ = "form_version_dataset"
+
+    form_version_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("form_version.id", ondelete="CASCADE"), primary_key=True
+    )
+    dataset_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    # RESTRICT, not CASCADE: a dataset version a published form still references
+    # must not be deletable, or the form's choice lists stop resolving and its
+    # collected answers stop being explicable.
+    dataset_version_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("dataset_version.id", ondelete="RESTRICT"), nullable=False
+    )
