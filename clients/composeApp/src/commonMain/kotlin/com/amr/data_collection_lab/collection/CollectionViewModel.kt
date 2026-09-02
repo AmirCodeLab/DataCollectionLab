@@ -205,11 +205,11 @@ class CollectionViewModel(
     init {
         viewModelScope.launch {
             val summaryFirst = withContext(Dispatchers.Default) { store.getSubmission(submissionId) }
-            // The version this submission was COLLECTED under, never the newest
-            // (Form IR §9). An enumerator can be holding a v2 draft on the
-            // morning v3 deploys, and reopening it against v3 would evaluate
-            // their answers under rules they were never asked.
-            val compiled = summaryFirst?.let { catalog.compiledForm(it.formId, it.formVersion) }
+            // Resolved from the submission by the catalog, never chosen here.
+            // Form IR §9 binds a submission to the version it was collected
+            // under, and this ViewModel is deliberately given no version it
+            // could get wrong — see FormCatalog.compiledFormForSubmission.
+            val compiled = catalog.compiledFormForSubmission(submissionId)
             if (compiled == null) {
                 // The device does not hold that version. Nothing useful can be
                 // rendered — the op log has the answers and not the questions —
@@ -244,7 +244,7 @@ class CollectionViewModel(
                     language = language,
                     languages = compiled.ir.languages,
                     formTitle = compiled.ir.title.resolve(language) ?: compiled.formId,
-                    finalized = summary.status == SubmissionStatus.FINALIZED,
+                    finalized = summary?.status == SubmissionStatus.FINALIZED,
                 )
             }
             rebuild()

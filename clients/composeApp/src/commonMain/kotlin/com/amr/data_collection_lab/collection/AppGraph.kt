@@ -68,7 +68,7 @@ class AppGraph(
      * entitled to collect on a form nobody deployed to it.
      */
     val formStore: FormStore = FormStore(db)
-    val formCatalog: FormCatalog = FormCatalog(formStore)
+    val formCatalog: FormCatalog = FormCatalog(formStore, store)
 
     val media: MediaCaptureGraph? = platform?.let { p ->
         val mediaStore = MediaStore(db)

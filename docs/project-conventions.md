@@ -243,6 +243,7 @@ What watches that layer, and all there is:
 | `FormNavigator` | `NavigatorTest` (`:shared:form-engine:jvmTest`) | 21 |
 | The collection screen's date question | `DateQuestionTest` (`:clients:composeApp:jvmTest`) | 23 |
 | `FormStore` retention and the manifest | `FormStoreTest`, `FormDeliveryTest` (`:shared:core:jvmTest`) | 25, 28, 29 |
+| Which form version a submission opens against | `FormVersionBindingTest` (`:clients:composeApp:jvmTest`) | 30 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -367,8 +368,9 @@ notice. `./scripts/status.sh` section 5 asks locally.
 Phase 2 part 1 is four items, in this order, and nothing else until a real form
 authored by someone other than us is collected on a real phone and exported:
 
-0. **Form delivery — done.** A form now reaches a device from the server rather
-   than from the APK
+0. **Form delivery — done**, and verified on an emulator against a live server:
+   an APK with no form in it (checked: zero occurrences of `household_survey`
+   in its bytes) syncs, receives the form, opens it and finalises a submission
 1. Configurable server URL + settings screen — not started
 2. XLSForm import — not started
 3. Export: CSV, XLSX, Stata, SPSS — not started
@@ -417,7 +419,7 @@ Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 3. ERD / database schema — done; Alembic migration 0001 in
    `backend/migrations/versions/`, migration tests green against Postgres
 4. OpenAPI contract — done; `specs/openapi.json`, generated from the app by
-   `scripts/generate_api_contract.py` and never hand-written. 16 operations,
+   `scripts/generate_api_contract.py` and never hand-written. 24 operations,
    every one with a `response_model` and a typed request body. The console's
    wire types are generated from it too, so the last hand-mirrored copy —
    `SUBMISSION_STATUSES` in `web/src/api/types.ts` — is gone along with the

@@ -80,6 +80,10 @@ kotlin {
             @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
             implementation(compose.uiTest)
             implementation(compose.desktop.currentOs)
+            // A real local database, so the form-version binding can be tested
+            // against the same stores the app builds rather than against fakes
+            // that would agree with whatever the code does.
+            implementation(libs.sqldelight.sqlite.driver)
         }
     }
 }
