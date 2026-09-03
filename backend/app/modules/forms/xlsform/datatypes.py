@@ -93,6 +93,24 @@ def collectable_types() -> frozenset[str]:
 
 
 @lru_cache(maxsize=1)
+def collectable_choice_sources() -> frozenset[str]:
+    """`choices.kind` values a collection client can actually present (§3).
+
+    The second axis, and it needs to be asked separately from the first for the
+    reason the registry spells out: `select_one` is a collectable dataType and a
+    *dataset-backed* `select_one` is not a collectable question, because the
+    collection screen reads `choices.items` and a dataset-backed list has none.
+    A form using one would import, publish, deploy, and arrive as a label with
+    empty space under it — defect 7 exactly, one axis over.
+    """
+    document = json.loads((specs_dir() / COLLECTABLE_TYPES_FILE).read_text())
+    listed = document.get("choiceSources")
+    if not listed:
+        raise SpecsUnavailable(f"{COLLECTABLE_TYPES_FILE} lists no collectable choice sources")
+    return frozenset(listed)
+
+
+@lru_cache(maxsize=1)
 def collectable_types_version() -> str:
     """The registry's version — a fact about an app version, not a permanent one."""
     return str(json.loads((specs_dir() / COLLECTABLE_TYPES_FILE).read_text())["version"])
@@ -124,6 +142,16 @@ def spec_data_types() -> frozenset[str]:
     if not found:
         raise SpecsUnavailable(f"parsed no dataTypes out of {FORM_IR_SPEC_FILE} §2.1")
     return frozenset(found)
+
+
+def classify_choice_source(kind: str) -> str:
+    """`collectable` or `in_spec_only` for a `choices.kind` (§3).
+
+    There is no `unknown` third case here the way there is for dataTypes: §3
+    defines exactly two kinds, and anything else never reaches this — the
+    importer only ever produces one of the two.
+    """
+    return "collectable" if kind in collectable_choice_sources() else "in_spec_only"
 
 
 def classify(data_type: str) -> str:

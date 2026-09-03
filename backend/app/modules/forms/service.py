@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ulid import new_ulid
 from app.modules.crypto.envelope import check_sensitivity_propagation
+from app.modules.entities.models import Dataset, DatasetVersion, FormVersionDataset
 from app.modules.form_engine.runtime import CompiledForm
 from app.modules.forms.models import Form, FormDeployment, FormVersion
 from app.modules.forms.schemas import (
+    DatasetPin,
     DeployedFormVersion,
     EnvironmentKind,
     FormListResponse,
@@ -58,6 +60,24 @@ def ir_checksum(ir: dict[str, Any]) -> str:
     """
     canonical = json.dumps(ir, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def dataset_keys(compiled: CompiledForm) -> list[str]:
+    """Every `choices.dataset` key the form names (Form IR §3), in field order.
+
+    Read off the compiled form rather than by walking the raw document, so that
+    a question the engine did not compile cannot contribute a key — a pin for a
+    list nothing selects from would be a claim about the form that is not true.
+    """
+    found: list[str] = []
+    for field_id in compiled.order:
+        choices = compiled.fields[field_id].node.get("choices")
+        if not isinstance(choices, dict) or choices.get("kind") != "dataset":
+            continue
+        key = choices.get("dataset")
+        if isinstance(key, str) and key not in found:
+            found.append(key)
+    return found
 
 
 def check_publishable(ir: dict[str, Any]) -> CompiledForm:
@@ -131,6 +151,127 @@ async def list_forms(session: AsyncSession, *, include_archived: bool) -> FormLi
     )
 
 
+async def _stored_dataset_pins(session: AsyncSession, form_version_id: str) -> dict[str, str]:
+    """Dataset key -> dataset version id, as this form version was published."""
+    rows = await session.execute(
+        select(FormVersionDataset.dataset_key, FormVersionDataset.dataset_version_id).where(
+            FormVersionDataset.form_version_id == form_version_id
+        )
+    )
+    return {key: version_id for key, version_id in rows}
+
+
+async def _resolve_dataset_pins(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    compiled: CompiledForm,
+    requested: list[DatasetPin],
+) -> list[DatasetPin]:
+    """Which dataset version each `choices.dataset` key resolves to, forever.
+
+    Refuses rather than resolves in all four ways it can go wrong, because each
+    of them produces a form that works today and cannot be explained later:
+
+      a key with no pin      the list would have to be resolved at read time,
+                             against whatever is newest — the same mistake as
+                             validating a v1 answer against v2's choice list
+      a pin with no key      a claim about this form that is not true. Usually
+                             the caller published the wrong form's datasets
+      a pin twice            two answers to one question, and no way to say
+                             which one the answers were collected against
+      another project's      reference data crossing a project boundary, which
+                             is a disclosure and not a mistake in ordering
+
+    Nothing here defaults. A publish with no pins for a form that names no
+    datasets is the ordinary case and returns an empty list; a publish with no
+    pins for a form that names three is refused with all three named.
+    """
+    keys = dataset_keys(compiled)
+    by_key: dict[str, DatasetPin] = {}
+    violations: list[str] = []
+
+    for pin in requested:
+        if pin.key in by_key:
+            violations.append(
+                f"the dataset `{pin.key}` is pinned twice, to "
+                f"{by_key[pin.key].dataset_version_id} and {pin.dataset_version_id}. "
+                "A form version has one view of each list and there is no way to "
+                "say which of these the answers were collected against."
+            )
+            continue
+        by_key[pin.key] = pin
+
+    missing = [key for key in keys if key not in by_key]
+    if missing:
+        violations.append(
+            "this form chooses from "
+            + ", ".join(f"`{k}`" for k in missing)
+            + " and nothing says which version of "
+            + ("those lists" if len(missing) > 1 else "that list")
+            + " it was published against. A form version is pinned to its "
+            "reference data at publish (Form IR §3), because resolving a key "
+            "later would let a draft see whatever is newest — publish the "
+            "dataset first and pass its `datasetVersionId`."
+        )
+
+    extra = sorted(set(by_key) - set(keys))
+    if extra:
+        violations.append(
+            "pinned "
+            + ", ".join(f"`{k}`" for k in extra)
+            + ", which no question in this form chooses from. A pin that nothing "
+            "references says this version depends on data it does not."
+        )
+
+    # One query for all of them: a form with five lists should not cost five
+    # round trips, and the checks below need the rows anyway.
+    wanted = [pin.dataset_version_id for key, pin in by_key.items() if key in keys]
+    rows: dict[str, tuple[str, str]] = {}
+    if wanted:
+        found = await session.execute(
+            select(DatasetVersion.id, DatasetVersion.dataset_id, Dataset.dataset_key,
+                   Dataset.project_id)
+            .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+            .where(DatasetVersion.id.in_(wanted))
+        )
+        for version_id, _dataset_id, dataset_key, owner in found:
+            rows[version_id] = (dataset_key, owner)
+
+    for key in keys:
+        found_pin = by_key.get(key)
+        if found_pin is None:
+            continue
+        pin = found_pin
+        row = rows.get(pin.dataset_version_id)
+        if row is None:
+            violations.append(
+                f"`{key}` is pinned to dataset version {pin.dataset_version_id}, "
+                "which does not exist. Publish the dataset before the form that "
+                "chooses from it."
+            )
+            continue
+        dataset_key, owner = row
+        if owner != project_id:
+            # Not an ordering mistake. Reference data belongs to a project, and
+            # a form in one project pinned to another's would deliver that
+            # project's villages to these devices.
+            violations.append(
+                f"`{key}` is pinned to a dataset version belonging to a different "
+                "project. Reference data does not cross a project boundary."
+            )
+        elif dataset_key != key:
+            violations.append(
+                f"`{key}` is pinned to a version of `{dataset_key}`. The form asks "
+                f"for `{key}`, so this pin would give the question a different "
+                "list from the one it names."
+            )
+
+    if violations:
+        raise PublishRefused(violations)
+    return [by_key[key] for key in keys]
+
+
 async def publish_version(
     session: AsyncSession,
     *,
@@ -142,6 +283,7 @@ async def publish_version(
     form_version_id: str | None = None,
     deploy_to: list[EnvironmentKind] | None = None,
     import_record: ImportRecord | None = None,
+    datasets: list[DatasetPin] | None = None,
 ) -> PublishVersionResponse:
     """Publish one immutable form version, or explain why it cannot be.
 
@@ -160,6 +302,9 @@ async def publish_version(
     seed does, so a reseed is stable); both default to fresh ULIDs.
     """
     compiled = check_publishable(ir)
+    pins = await _resolve_dataset_pins(
+        session, project_id=project_id, compiled=compiled, requested=datasets or []
+    )
 
     # A version imported with unresolved errors does not publish.
     #
@@ -220,6 +365,25 @@ async def publish_version(
                     "Published versions are immutable — publish a new version."
                 ]
             )
+        # Same IR, and it must be the same view of the same reference data.
+        # Identical questions over a different village list is a different form
+        # in every way that matters to somebody reading the answers back.
+        stored = await _stored_dataset_pins(session, existing.id)
+        moved = [
+            f"`{pin.key}` was published against dataset version "
+            f"{stored[pin.key]} and this call pins it to {pin.dataset_version_id}"
+            for pin in pins
+            if pin.key in stored and stored[pin.key] != pin.dataset_version_id
+        ]
+        if moved:
+            raise PublishRefused(
+                [
+                    f"{compiled.form_id} v{compiled.version} is already published and "
+                    + "; ".join(moved)
+                    + ". A published version's choice lists cannot move underneath "
+                    "the answers collected against them — publish a new version."
+                ]
+            )
         return PublishVersionResponse(
             id=existing.id,
             form_id=form.form_key,
@@ -234,6 +398,7 @@ async def publish_version(
             deployments=await deploy_version(
                 session, project_id=project_id, form_version_id=existing.id, kinds=deploy_to
             ),
+            datasets=pins,
         )
 
     version = FormVersion(
@@ -265,6 +430,21 @@ async def publish_version(
     session.add(version)
     await session.flush()
 
+    # Pinned in the same transaction as the version itself. A version that
+    # exists without its pins is a form whose lists resolve to nothing, and it
+    # would be reachable by any reader between the two commits.
+    session.add_all(
+        [
+            FormVersionDataset(
+                form_version_id=version.id,
+                dataset_key=pin.key,
+                dataset_version_id=pin.dataset_version_id,
+            )
+            for pin in pins
+        ]
+    )
+    await session.flush()
+
     return PublishVersionResponse(
         id=version.id,
         form_id=form.form_key,
@@ -278,6 +458,7 @@ async def publish_version(
         deployments=await deploy_version(
             session, project_id=project_id, form_version_id=version.id, kinds=deploy_to
         ),
+        datasets=pins,
     )
 
 

@@ -50,6 +50,27 @@
     "signature",
     "geopoint"
   ],
+  "$choiceSourcesComment": [
+    "Form IR §3 gives a select two ways to get its options, and a client has to",
+    "implement each of them separately. `inline` is the items in the document;",
+    "`dataset` names a key resolved against reference data the device holds.",
+    "",
+    "The same defect-7 shape as the type list, one axis over: `select_one` is a",
+    "collectable dataType, and a *dataset-backed* select_one is not collectable",
+    "at all today — CollectionViewModel reads `node.choices?.items`, which is",
+    "empty for a dataset-backed list, so the question renders with no options",
+    "and the enumerator has a label with empty space under it. Reporting it as",
+    "collectable because `select_one` is in the list above would be exactly the",
+    "conflation this file exists to prevent.",
+    "",
+    "`dataset` joins this list when item 4 parts 3 and 4 land — engine",
+    "resolution and a local dataset store — and the XLSForm importer stops",
+    "reporting those questions as unpresentable on the same day, from this one",
+    "line, with no code change on either side."
+  ],
+  "choiceSources": [
+    "inline"
+  ],
   "notes": {
     "note": "Display only — it has no value (§2.1), so it is 'collectable' in the sense that a client can present it correctly, not in the sense that it stores an answer.",
     "boolean": "In §2.1 and deliberately absent here: no widget yet. XLSForm has no boolean type of its own — yes/no questions arrive as select_one — so nothing imported needs it today.",
@@ -61,6 +82,7 @@
     "file": "In §2.1 as a media reference. No picker built.",
     "drawing": "In §2.1 as a media reference. The signature canvas is the same widget and could serve it; not wired.",
     "geotrace": "In §2.1, no widget yet.",
-    "geoshape": "In §2.1, no widget yet."
+    "geoshape": "In §2.1, no widget yet.",
+    "dataset choices": "Form IR §3 defines them and the server stores them (item 4 part 1). Nothing resolves a `choices.kind = \"dataset\"` list yet — not the engines (part 3) and not a device (part 4) — so a form using one imports, pins its data, and still cannot be collected."
   }
 }

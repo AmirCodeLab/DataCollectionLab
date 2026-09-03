@@ -82,8 +82,15 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
         add("")
         add(
             f"All {result.questions} questions were imported and the form can be "
-            "published. Anything listed below was not carried over but does not "
-            "change what you collect."
+            "published as it stands."
+        )
+        add("")
+        _render_what_worked(add, result)
+        add(
+            "Anything listed further down was not carried over and does not change "
+            "what you collect. It is listed anyway, because a report that prints "
+            "only problems cannot be checked: there is no way to tell *nothing was "
+            "dropped* from *nothing was looked at*."
         )
         add("")
     else:
@@ -119,6 +126,11 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
             "at once. It cannot be published until the errors are resolved."
         )
         add("")
+        # What worked, before what did not — including here, and especially
+        # here. A report that only itemises failure cannot tell an author
+        # whether the half they care about survived, and a form with one
+        # unsupported question reads like a form that did not import at all.
+        _render_what_worked(add, result)
 
     add("## What came through")
     add("")
@@ -127,12 +139,20 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
     add(f"| Questions imported | {result.questions} |")
     add(f"| Rows read from the `survey` sheet | {result.survey_rows} |")
     add(f"| Languages | {', '.join(result.languages) or '—'} |")
+    if result.datasets:
+        rows = sum(d.row_count for d in result.datasets)
+        add(
+            f"| Reference data | {len(result.datasets)} file(s), "
+            f"{rows:,} row(s) |"
+        )
     add(f"| Problems to fix in the form | {len(theirs)} |")
     add(f"| Problems this platform must fix | {len(ours)} |")
     add(f"| Knock-on errors (fixed by the above) | {len(cascades)} |")
     add(f"| Warnings | {counts['warning']} |")
     add(f"| Notes | {counts['info']} |")
     add("")
+
+    _render_reference_data(add, result)
 
     following: dict[str, list[Diagnostic]] = defaultdict(list)
     for diagnostic in diagnostics:
@@ -211,6 +231,115 @@ def render_markdown(result: ImportResult, *, source_name: str, form_id: str) -> 
     )
     add("")
     return "\n".join(lines)
+
+
+
+def _render_what_worked(add: Callable[[str], None], result: ImportResult) -> None:
+    """What survived the trip, stated positively and first.
+
+    This exists because of a specific complaint about an earlier version of
+    this report, and the complaint was right: it read well in failure and had
+    almost nothing to say in success. That is half a report. An author whose
+    form has one unsupported question needs to see that the other fifty-three
+    came through and that their village list was read — otherwise a partial
+    import is indistinguishable from a total one, and the natural reaction to
+    a page of errors is to assume nothing worked.
+    """
+    facts: list[str] = []
+    if result.questions:
+        facts.append(
+            f"**{result.questions} question(s)** were read from the `survey` sheet"
+            + (f" in {len(result.languages)} language(s)" if len(result.languages) > 1 else "")
+            + "."
+        )
+    if result.datasets:
+        rows = sum(d.row_count for d in result.datasets)
+        used_by = sum(len(d.used_by) for d in result.datasets)
+        facts.append(
+            f"**{len(result.datasets)} companion file(s)** were read — {rows:,} row(s) "
+            f"of reference data, feeding {used_by} question(s). They are checked and "
+            "published as their own immutable versions, pinned to this form version, "
+            "so the list a question offered can always be reconstructed."
+        )
+    filtered = sum(
+        1
+        for d in result.datasets
+        for column in d.columns_used
+        if column not in (d.value_column, *d.label_columns.values())
+    )
+    if filtered:
+        facts.append(
+            f"**{filtered} cascading filter(s)** were translated, so each list narrows "
+            "to the rows matching the answers already given."
+        )
+    if not facts:
+        return
+    add("**What worked**")
+    add("")
+    for fact in facts:
+        add(f"- {fact}")
+    add("")
+
+
+def _render_reference_data(add: Callable[[str], None], result: ImportResult) -> None:
+    """The companion CSVs, as a table an author can check against their files.
+
+    Printed whether or not the import succeeded, and printed even when every
+    one of them was fine: this is the half of the report that says what *is*
+    there. A file's row count is the single most useful number here — a village
+    list that reads as 12 rows when it should be 38,000 is a truncated export,
+    and nothing else in the pipeline will ever notice.
+    """
+    if not result.datasets:
+        return
+
+    add("## Reference data")
+    add("")
+    add(
+        f"{len(result.datasets)} file(s) travel with this form. They are not part of "
+        "the workbook — XLSForm keeps a `select_one_from_file` list in a file beside "
+        "it — so each is read, checked, and published as its own immutable version, "
+        "pinned to this form version (Form IR §3). A form version and the exact "
+        "lists it offered stay together for as long as the answers do."
+    )
+    add("")
+    add("| File | Published as | Rows | Columns | Read by the form | Chosen from by |")
+    add("|---|---|---|---|---|---|")
+    for dataset in result.datasets:
+        users = ", ".join(f"`{u}`" for u in dataset.used_by) or "—"
+        add(
+            f"| `{dataset.file_name}` | `{dataset.key}` | {dataset.row_count:,} | "
+            f"{len(dataset.columns)} | {len(dataset.columns_used)} | {users} |"
+        )
+    add("")
+
+    unread = {
+        dataset.file_name: [c for c in dataset.columns if c not in dataset.columns_used]
+        for dataset in result.datasets
+    }
+    if any(unread.values()):
+        add(
+            "Columns the form does not read are kept and published, not dropped — "
+            "but they are the reason a change to one of them does not cost a device "
+            "a download: what a device is sent is decided on the columns its forms "
+            "actually use."
+        )
+        add("")
+        for file_name, columns in unread.items():
+            if columns:
+                add(f"- `{file_name}` — not read: " + ", ".join(f"`{c}`" for c in columns))
+        add("")
+
+    add(
+        "**Content addresses.** Each is the checksum the data would be published "
+        "under. Re-importing an unchanged file publishes nothing new, and a "
+        "checksum that has moved is the only proof that a list actually changed."
+    )
+    add("")
+    for dataset in result.datasets:
+        note = f" · read as {dataset.encoding}" if dataset.encoding != "utf-8" else ""
+        add(f"- `{dataset.key}` — `{dataset.checksum}`{note}")
+    add("")
 
 
 def _render_group(

@@ -249,15 +249,20 @@ def test_an_unknown_type_names_the_question_it_lost() -> None:
 
 
 def test_a_real_xlsform_type_we_have_not_built_is_ours_not_the_author_s() -> None:
-    """`select_one_from_file` is spelled correctly and is a real type.
+    """`select_one_external` is spelled correctly and is a real type.
 
     Telling somebody to check the spelling of a correctly spelled word is the
     same defect as a connect-timeout message asserting something is at the
     address: a conclusion the evidence does not support. Worse here, because
     acting on it costs an evening they cannot win.
+
+    This used to be `select_one_from_file`, which is no longer an example of
+    anything: it imports now (Form IR §3, item 4 part 2). `select_one_external`
+    is the surviving case — a single `itemsets.csv` holding every list, which
+    is a different mechanism from one dataset per list and is not built.
     """
     result = import_workbook(
-        build([["type", "name", "label"], ["select_one_from_file places.csv", "p", "Place"]])
+        build([["type", "name", "label"], ["select_one_external places", "p", "Place"]])
     )
     lost = diagnostics_by_code(result, "type_not_implemented")
     assert lost[0].severity == "error"
@@ -285,12 +290,16 @@ def test_a_reference_to_a_dropped_question_is_reported_under_its_cause() -> None
     `select_one_from_file` question a row or two above. Counting them
     separately reported one gap as six errors and told an author their form
     was a disaster.
+
+    Those five are gone, because that type imports now. The mechanism is not:
+    any question dropped for a reason of ours still swallows the references to
+    it, and `select_one_external` is the case that still exercises it.
     """
     result = import_workbook(
         build(
             [
                 ["type", "name", "label", "relevant"],
-                ["select_one_from_file places.csv", "place", "Place", None],
+                ["select_one_external places", "place", "Place", None],
                 ["text", "other", "Other", "${place} = 'x'"],
             ]
         )

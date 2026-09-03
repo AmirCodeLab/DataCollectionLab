@@ -33,16 +33,28 @@ row hash is only the cheap first pass that says which rows are worth projecting.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ulid import new_ulid
-from app.modules.crypto.envelope import canonical_json
 from app.modules.entities.models import Dataset, DatasetRecord, DatasetVersion
+
+# The rules themselves live in `rows.py` so the XLSForm importer can apply the
+# same ones at import time, in the report, before anybody uploads anything. Two
+# copies would be two answers to "is this key usable", and the one an author saw
+# would be whichever code path they happened to reach. Re-exported because they
+# are part of this module's surface and callers already import them from here.
+from app.modules.entities.rows import (  # noqa: F401  (re-export)
+    KeyReport,
+    check_keys,
+    content_address,
+    row_hash,
+    version_checksum,
+)
 
 
 class DatasetRefused(Exception):
@@ -51,34 +63,6 @@ class DatasetRefused(Exception):
     def __init__(self, reasons: list[str]) -> None:
         super().__init__("; ".join(reasons))
         self.reasons = reasons
-
-
-def row_hash(data: dict[str, Any]) -> str:
-    """SHA-256 over the row's canonical JSON.
-
-    `canonical_json` is the envelope's (§5.1) — sorted keys, no spaces, UTF-8,
-    no NaN — and it is reused rather than replaced because it already has a
-    conformance vector proving two implementations agree on it. A second
-    serialisation invented here would be a second thing to keep in step, and
-    the symptom of getting it wrong is every row looking changed.
-    """
-    return "sha256:" + hashlib.sha256(canonical_json(data)).hexdigest()
-
-
-def version_checksum(rows: list[tuple[str, str]]) -> str:
-    """A whole version's content address, from its (key, row_hash) pairs.
-
-    Sorted by key so two servers that inserted the same rows in different
-    orders agree. This is what "is this the same dataset" means, and what a
-    device compares to know whether it is behind.
-    """
-    digest = hashlib.sha256()
-    for key, digest_of_row in sorted(rows):
-        digest.update(key.encode("utf-8"))
-        digest.update(b"\x00")
-        digest.update(digest_of_row.encode("utf-8"))
-        digest.update(b"\x00")
-    return "sha256:" + digest.hexdigest()
 
 
 @dataclass
@@ -92,6 +76,7 @@ class PublishedDataset:
     #: False when this exact content was already published under this number.
     created: bool = True
     warnings: list[str] = field(default_factory=list)
+    published_at: datetime | None = None
 
 
 async def publish_dataset_version(
@@ -125,68 +110,13 @@ async def publish_dataset_version(
             ]
         )
 
-    # The key is the cell's value, EXACTLY — Form IR §3.1. Not trimmed, not
-    # case-folded.
-    #
-    # It has to be the same rule as choice matching (§6.3) and this is the
-    # reason: a dataset-backed select stores a value taken from `valueColumn`,
-    # and §6.3 then validates that value against the resolved list by exact
-    # match. Trimming the key here while the stored answer kept its whitespace
-    # would make a legitimate answer fail membership against the very row it
-    # came from, and the report would say the value is not in a list that
-    # visibly contains it.
-    #
-    # Emptiness is still decided after stripping — "   " is no identity at all —
-    # but what gets stored is what was in the cell.
-    duplicates: dict[str, int] = {}
-    missing = 0
-    for row in rows:
-        raw = row.get(key_column)
-        key = "" if raw is None else str(raw)
-        if not key.strip():
-            missing += 1
-            continue
-        duplicates[key] = duplicates.get(key, 0) + 1
-
-    problems: list[str] = []
-    if missing:
-        problems.append(
-            f"{missing} row(s) have no value in the key column `{key_column}`. "
-            "A row with no identity cannot be selected, referred to, or deleted "
-            "in a later version."
-        )
-    repeated = sorted(k for k, n in duplicates.items() if n > 1)
-    if repeated:
-        extra = len(repeated) - 5
-        shown = ", ".join(repeated[:5]) + (f" (+{extra} more)" if extra > 0 else "")
-        problems.append(
-            f"{len(repeated)} key(s) in `{key_column}` appear more than once: {shown}. "
-            "Keys identify rows across versions, so a repeated one makes it "
-            "impossible to say which row a later change refers to."
-        )
-    if problems:
-        raise DatasetRefused(problems)
-
-    # Keys that differ only by whitespace or case are DIFFERENT rows (§3.1) and
-    # are reported rather than merged. They are almost always the same village
-    # entered twice — but merging them would be the platform deciding that two
-    # rows a customer supplied are one, which is not the platform's decision.
-    warnings: list[str] = []
-    folded: dict[str, list[str]] = {}
-    for key in duplicates:
-        folded.setdefault(key.strip().casefold(), []).append(key)
-    confusable = {k: v for k, v in folded.items() if len(v) > 1}
-    if confusable:
-        shown = "; ".join(
-            " vs ".join(repr(k) for k in sorted(group)) for group in list(confusable.values())[:3]
-        )
-        warnings.append(
-            f"{len(confusable)} key(s) differ only by case or surrounding whitespace "
-            f"and are stored as separate rows: {shown}. Form IR §3.1 matches keys "
-            "exactly, so these are distinct choices an enumerator will see twice. "
-            "They were not merged — that would be this platform deciding two of "
-            "your rows are one."
-        )
+    # The key rules are `rows.check_keys` and not a copy of them, so that the
+    # import report an author reads before uploading says exactly what this
+    # refuses. Its docstring is where the §3.1 exactness argument lives.
+    keys = check_keys(rows, key_column)
+    if keys.refused:
+        raise DatasetRefused(keys.problems)
+    warnings = list(keys.warnings)
 
     dataset = (
         await session.execute(
@@ -209,15 +139,35 @@ async def publish_dataset_version(
     checksum = version_checksum(hashed)
 
     if version is None:
-        highest = (
+        newest = (
             await session.execute(
-                select(DatasetVersion.version)
+                select(DatasetVersion)
                 .where(DatasetVersion.dataset_id == dataset.id)
                 .order_by(DatasetVersion.version.desc())
                 .limit(1)
             )
         ).scalar_one_or_none()
-        version = (highest or 0) + 1
+        # Idempotent by content when the caller did not name a number.
+        #
+        # Without this, uploading the same CSV twice publishes two identical
+        # versions and the form pins to the second — which is not wrong so much
+        # as untrue: nothing about the reference data changed, and a device
+        # holding v1 would be told it is behind and re-fetch 50k identical rows.
+        # The console flow makes this the common case rather than the odd one,
+        # because pressing Publish re-sends the companion files every time.
+        if newest is not None and newest.checksum == content_address(rows, key_column):
+            return PublishedDataset(
+                dataset_id=dataset.id,
+                dataset_version_id=newest.id,
+                dataset_key=dataset_key,
+                version=newest.version,
+                row_count=newest.row_count,
+                checksum=newest.checksum,
+                created=False,
+                warnings=warnings,
+                published_at=newest.published_at,
+            )
+        version = (newest.version if newest else 0) + 1
 
     existing = (
         await session.execute(
@@ -239,6 +189,7 @@ async def publish_dataset_version(
                 checksum=checksum,
                 created=False,
                 warnings=warnings,
+                published_at=existing.published_at,
             )
         raise DatasetRefused(
             [
@@ -256,6 +207,11 @@ async def publish_dataset_version(
         version=version,
         row_count=len(rows),
         checksum=checksum,
+        # A version row that exists is a version that is published: nothing
+        # here writes a draft. The column is nullable because migration 0001
+        # left room for one, and leaving it NULL would make "published" a thing
+        # only the absence of a timestamp records.
+        published_at=func.now(),
     )
     session.add(dataset_version)
     await session.flush()
@@ -282,4 +238,8 @@ async def publish_dataset_version(
         row_count=len(rows),
         checksum=checksum,
         warnings=warnings,
+        # func.now() is unresolved until the transaction commits; report the
+        # publish time rather than issue a round trip to read it back — the same
+        # as forms.service.publish_version.
+        published_at=datetime.now(tz=UTC),
     )

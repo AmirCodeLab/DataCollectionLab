@@ -279,7 +279,7 @@
           "forms"
         ],
         "summary": "Import Xlsform",
-        "description": "Import an XLSForm .xlsx and return the Form IR with a full account of everything that did not survive.\n\nThe form is returned even when it cannot be published — an author needs every problem in one pass, not one per round trip. `publishable` is false when any diagnostic is an error; publishing is refused server-side as well, so the flag is for greying a button rather than being the gate.\n\nNothing is stored. This endpoint answers 'what would this become?'; POST /forms/versions is what commits it.",
+        "description": "Import an XLSForm .xlsx and return the Form IR with a full account of everything that did not survive.\n\nThe form is returned even when it cannot be published — an author needs every problem in one pass, not one per round trip. `publishable` is false when any diagnostic is an error; publishing is refused server-side as well, so the flag is for greying a button rather than being the gate.\n\n`datasets` carries the companion CSVs a `select_one_from_file` names (Form IR §3). They ship beside the workbook rather than inside it, so they have to be uploaded alongside: a form imported without them reports each missing file by name, because a question whose list did not arrive has no options at all and looks exactly like one that does. Send every CSV you have — a file nothing refers to is reported too, which is how a rename on one side of the pair gets noticed.\n\nNothing is stored. This endpoint answers 'what would this become?'; POST /projects/{projectId}/datasets and POST /forms/versions are what commit it.",
         "operationId": "import_xlsform_api_v1_forms_import_post",
         "requestBody": {
           "content": {
@@ -383,7 +383,7 @@
           "forms"
         ],
         "summary": "Publish Version",
-        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.\n\n`deployTo` deploys the version to the named environments in the same call.\nPublishing without it is legitimate — the version exists and nothing runs\nit — but it reaches no device, so the response reports `deployments` either\nway rather than letting \"published\" be read as \"on the phones\".",
+        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.\n\n`deployTo` deploys the version to the named environments in the same call.\nPublishing without it is legitimate — the version exists and nothing runs\nit — but it reaches no device, so the response reports `deployments` either\nway rather than letting \"published\" be read as \"on the phones\".\n\n`datasets` pins each `choices.dataset` key (Form IR §3) to the dataset\nversion this form was published against, from\n`POST /projects/{projectId}/datasets`. Every key the form names must be\npinned and no key it does not name may be: an unpinned key would have to\nresolve at read time, against whatever is newest, which is the same mistake\nas validating a v1 answer against v2's choice list.",
         "operationId": "publish_version_api_v1_forms_versions_post",
         "requestBody": {
           "content": {
@@ -1134,6 +1134,81 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/datasets": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Publish Dataset",
+        "description": "Publish one immutable version of a dataset from a CSV (Form IR §3).\n\nMultipart, not JSON, and deliberately: the caller already has the file — it uploaded the same bytes to POST /forms/import — and a 38,000-row village list re-encoded as a JSON array is several megabytes of body for no gain. It also keeps one CSV parser on the server rather than one here and one in every client.\n\n**Idempotent by content.** Re-uploading an unchanged file returns the existing version with `created: false` rather than publishing a duplicate — which matters because a console re-sends the companion files every time somebody presses Publish, and a device holding the old version id would otherwise be told it is behind and re-fetch rows that did not change.\n\nA published version never changes. Re-publishing a *numbered* version with different content is refused with a 409: a form version pinned to it would have its choice list moved underneath answers already collected against it.",
+        "operationId": "publish_dataset_api_v1_projects__project_id__datasets_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_publish_dataset_api_v1_projects__project_id__datasets_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishDatasetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefusedError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/submissions": {
       "get": {
         "tags": [
@@ -1552,6 +1627,16 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "description": "An XLSForm .xlsx workbook"
+          },
+          "datasets": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Datasets",
+            "description": "Companion .csv files named by select_one_from_file rows",
+            "default": []
           }
         },
         "type": "object",
@@ -1559,6 +1644,49 @@
           "file"
         ],
         "title": "Body_import_xlsform_api_v1_forms_import_post"
+      },
+      "Body_publish_dataset_api_v1_projects__project_id__datasets_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The reference data, as CSV"
+          },
+          "datasetKey": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Datasetkey",
+            "description": "The Form IR key this list is published under — what `choices.dataset` names. The XLSForm importer derives it from the file name and reports what it chose."
+          },
+          "keyColumn": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Keycolumn",
+            "description": "The column holding each row's identity — what a `select_one_from_file` stores as the answer. Defaults to `name`, which is what XLSForm requires of these files.",
+            "default": "name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Display name for the dataset. Defaults to its key."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "datasetKey"
+        ],
+        "title": "Body_publish_dataset_api_v1_projects__project_id__datasets_post"
       },
       "CompileRequest": {
         "properties": {
@@ -1678,6 +1806,46 @@
         ],
         "title": "ContentKeyView",
         "description": "A submission's content key, in the only form the server has it: wrapped."
+      },
+      "DatasetPin": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Datasetversionid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "datasetVersionId"
+        ],
+        "title": "DatasetPin",
+        "description": "One dataset version a form version is published against.\n\nThe IR names a dataset by **key** — `\"dataset\": \"districts\"` (§3) — and a\nkey is not a version. Resolving it at read time would let a draft opened\nagainst form v1 see whatever `districts` happens to be newest, which is the\nsame mistake as validating a v1 answer against v2's choice list.\n\nSo it is resolved once, here, at publish, and pinned in\n`form_version_dataset`. A form version is immutable and so is its view of\nits reference data."
+      },
+      "DatasetRefusedError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "DatasetRefusedError",
+        "description": "The 409 body: every reason, not the first one.\n\nA list rather than a string for the same reason the publish endpoint's is:\nwhoever is fixing the file needs every problem in one pass, and a refusal\nthat names one duplicate key at a time is a refusal somebody meets four\ntimes."
       },
       "DeployedFormVersion": {
         "properties": {
@@ -2163,6 +2331,74 @@
         "title": "ImportCoverage",
         "description": "Proof that nothing was dropped in silence.\n\nEvery non-empty cell in the workbook either produced part of the form or is\nnamed by a diagnostic above. A cell in neither fails the import outright\nrather than reaching this response — see the coverage ledger.\n\nIt cannot tell you the workbook had anything in it. An empty sheet has no\ncells to account for, so `cells: 0` satisfies the check perfectly; that is\nwhy a form with no questions is refused at publish rather than merely noted."
       },
+      "ImportDataset": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "fileName": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "valueColumn": {
+            "type": "string",
+            "title": "Valuecolumn"
+          },
+          "labelColumns": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labelcolumns"
+          },
+          "columnsUsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columnsused"
+          },
+          "usedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Usedby"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "encoding": {
+            "type": "string",
+            "title": "Encoding"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "fileName",
+          "rowCount",
+          "columns",
+          "valueColumn",
+          "checksum",
+          "encoding"
+        ],
+        "title": "ImportDataset",
+        "description": "One companion CSV, read — what it is and what the form does with it.\n\nDeliberately without the rows. This is the answer to \"what would this\nbecome?\", and a village list would make the response several megabytes on\nan endpoint whose whole point is to be cheap enough to call on every edit.\nThe caller already has the file; `POST /projects/{id}/datasets` is where\nthe bytes go."
+      },
       "ImportDiagnostic": {
         "properties": {
           "severity": {
@@ -2277,6 +2513,13 @@
           },
           "instrumentation": {
             "$ref": "#/components/schemas/ImportInstrumentation"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDataset"
+            },
+            "type": "array",
+            "title": "Datasets"
           },
           "reportMarkdown": {
             "type": "string",
@@ -3283,6 +3526,71 @@
         "title": "ProjectSummary",
         "description": "One project, enough for the console to name it and route to it."
       },
+      "PublishDatasetResponse": {
+        "properties": {
+          "datasetId": {
+            "type": "string",
+            "title": "Datasetid"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "datasetKey": {
+            "type": "string",
+            "title": "Datasetkey"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetId",
+          "datasetVersionId",
+          "datasetKey",
+          "version",
+          "rowCount",
+          "checksum",
+          "created",
+          "warnings",
+          "publishedAt"
+        ],
+        "title": "PublishDatasetResponse",
+        "description": "One immutable dataset version (Form IR §3, sync §5)."
+      },
       "PublishVersionRequest": {
         "properties": {
           "projectId": {
@@ -3334,6 +3642,13 @@
                 "type": "null"
               }
             ]
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetPin"
+            },
+            "type": "array",
+            "title": "Datasets"
           }
         },
         "type": "object",
@@ -3390,6 +3705,13 @@
             },
             "type": "array",
             "title": "Deployments"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetPin"
+            },
+            "type": "array",
+            "title": "Datasets"
           }
         },
         "type": "object",

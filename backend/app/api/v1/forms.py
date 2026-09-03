@@ -29,6 +29,7 @@ from app.modules.forms.schemas import (
     FormListResponse,
     FormVersionDocument,
     ImportCoverage,
+    ImportDataset,
     ImportDiagnostic,
     ImportFormResponse,
     ImportInstrumentation,
@@ -94,20 +95,52 @@ async def compile_form(request: CompileRequest) -> CompileResponse:
         "false when any diagnostic is an error; publishing is refused "
         "server-side as well, so the flag is for greying a button rather than "
         "being the gate.\n\n"
+        "`datasets` carries the companion CSVs a `select_one_from_file` names "
+        "(Form IR §3). They ship beside the workbook rather than inside it, so "
+        "they have to be uploaded alongside: a form imported without them "
+        "reports each missing file by name, because a question whose list did "
+        "not arrive has no options at all and looks exactly like one that "
+        "does. Send every CSV you have — a file nothing refers to is reported "
+        "too, which is how a rename on one side of the pair gets noticed.\n\n"
         "Nothing is stored. This endpoint answers 'what would this become?'; "
-        "POST /forms/versions is what commits it."
+        "POST /projects/{projectId}/datasets and POST /forms/versions are what "
+        "commit it."
     ),
 )
 async def import_xlsform(
     file: Annotated[UploadFile, File(description="An XLSForm .xlsx workbook")],
+    datasets: Annotated[
+        list[UploadFile],
+        File(description="Companion .csv files named by select_one_from_file rows"),
+    ] = [],  # noqa: B006  - FastAPI reads the default to make the field optional
 ) -> ImportFormResponse:
-    """Turn a spreadsheet into a form, and say what was lost doing it."""
+    """Turn a spreadsheet and its companion files into a form, and say what was
+    lost doing it."""
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="the uploaded file is empty")
 
+    companions: dict[str, bytes] = {}
+    for companion in datasets:
+        name = (companion.filename or "").strip()
+        if not name:
+            # A part with no filename cannot be matched against a survey row,
+            # and guessing which one it is would be worse than refusing.
+            raise HTTPException(
+                status_code=400,
+                detail="a companion file was uploaded with no filename, so there is "
+                "no way to tell which `select_one_from_file` row it answers",
+            )
+        if name in companions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"`{name}` was uploaded more than once; only one of them can "
+                "be the list this form means",
+            )
+        companions[name] = await companion.read()
+
     try:
-        result = import_workbook(data)
+        result = import_workbook(data, companions=companions)
     except ImportFailed as failure:
         # Not a diagnostic: a diagnostic is something *about* a form, and this
         # is the absence of one. There is no row to point at.
@@ -154,6 +187,21 @@ async def import_xlsform(
             for d in result.diagnostics
         ],
         coverage=ImportCoverage(**result.coverage),
+        datasets=[
+            ImportDataset(
+                key=d.key,
+                file_name=d.file_name,
+                row_count=d.row_count,
+                columns=d.columns,
+                value_column=d.value_column,
+                label_columns=d.label_columns,
+                columns_used=d.columns_used,
+                used_by=d.used_by,
+                checksum=d.checksum,
+                encoding=d.encoding,
+            )
+            for d in result.datasets
+        ],
         instrumentation=ImportInstrumentation(
             unsupported_functions=result.instrumentation.unsupported_functions,
             unsupported_types=result.instrumentation.unsupported_types,
@@ -225,6 +273,13 @@ async def publish_version(
     Publishing without it is legitimate — the version exists and nothing runs
     it — but it reaches no device, so the response reports `deployments` either
     way rather than letting "published" be read as "on the phones".
+
+    `datasets` pins each `choices.dataset` key (Form IR §3) to the dataset
+    version this form was published against, from
+    `POST /projects/{projectId}/datasets`. Every key the form names must be
+    pinned and no key it does not name may be: an unpinned key would have to
+    resolve at read time, against whatever is newest, which is the same mistake
+    as validating a v1 answer against v2's choice list.
     """
     async with session.begin():
         try:
@@ -235,7 +290,8 @@ async def publish_version(
                 title=request.title,
                 published_by=request.published_by,
                 deploy_to=request.deploy_to,
-            import_record=request.import_record,
+                import_record=request.import_record,
+                datasets=request.datasets,
             )
         except CompileError as exc:
             raise HTTPException(status_code=422, detail=[str(exc)]) from exc

@@ -23,7 +23,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.modules.entities.rows import check_keys, content_address
+
 from . import datatypes
+from .datasets import (
+    DEFAULT_LABEL_COLUMN,
+    DEFAULT_VALUE_COLUMN,
+    CompanionCsv,
+    CsvUnreadable,
+    read_companion_csv,
+)
 from .diagnostics import Diagnostic, DiagnosticLog, Instrumentation
 from .expressions import ExpressionError, substitutions, translate
 from .expressions import references as expr_references
@@ -83,7 +92,10 @@ _METADATA_TYPES = {
 #: "we did not recognise this column at all" are different things to be told.
 _KNOWN_IGNORED_COLUMNS = {
     "appearance": "the IR carries `appearance` but no client reads it yet",
-    "choice_filter": "cascading choice filters are not implemented",
+    "choice_filter": (
+        "a choice filter over an inline list needs the filter columns carried "
+        "into the IR, which Form IR §3 defines only for dataset-backed lists"
+    ),
     "parameters": "widget parameters are not implemented",
     "trigger": "recalculation triggers are inferred from the dependency graph (§5.1)",
     "instance_name": "instance naming is not implemented",
@@ -98,18 +110,25 @@ _KNOWN_IGNORED_COLUMNS = {
 
 #: Real XLSForm types the Form IR can express and this platform has not built.
 #:
-#: These are **our** gap, not the author's. `select_one_from_file` is spelled
-#: correctly and is a real type; Form IR §3 defines `choices.kind = "dataset"`
-#: for exactly it. Telling somebody to check the spelling of a correctly spelled
-#: word is the same defect as a connect-timeout message asserting something is
-#: at the address: a conclusion the evidence does not support.
-_EXTERNAL_CHOICES = (
-    "external choice lists (Form IR §3 defines them; nothing reads them yet)"
-)
+#: These are **our** gap, not the author's. Telling somebody to check the
+#: spelling of a correctly spelled word is the same defect as a connect-timeout
+#: message asserting something is at the address: a conclusion the evidence does
+#: not support.
+#:
+#: `select_one_from_file` used to be in here and is not any more — it reads its
+#: companion CSV into a dataset (Form IR §3, item 4 part 2). What is *still* not
+#: built is anything that resolves such a list, which is a different statement
+#: and belongs where every other "no client can present this" lives: the
+#: collectable registry, checked per question rather than per type.
 _NOT_YET_IMPLEMENTED = {
-    "select_one_from_file": _EXTERNAL_CHOICES,
-    "select_multiple_from_file": _EXTERNAL_CHOICES,
-    "select_one_external": _EXTERNAL_CHOICES,
+    "select_one_external": (
+        "the external itemsets.csv mechanism (a single file holding every "
+        "list; Form IR §3 has one dataset per list instead)"
+    ),
+    "select_multiple_external": (
+        "the external itemsets.csv mechanism (a single file holding every "
+        "list; Form IR §3 has one dataset per list instead)"
+    ),
     "xml-external": "external instance data",
 }
 
@@ -125,6 +144,11 @@ _NOT_IN_THE_IR = {
 
 _SELECT_ONE = re.compile(r"^select_one\s+(\S+)", re.IGNORECASE)
 _SELECT_MULTI = re.compile(r"^select_multiple\s+(\S+)", re.IGNORECASE)
+# `\s+` and not a single space on purpose: the UCL form writes
+# `select_one_from_file  UCL_districts.csv` with two of them, and a form is not
+# refused over a spacebar.
+_SELECT_ONE_FROM_FILE = re.compile(r"^select_one_from_file\s+(\S+)", re.IGNORECASE)
+_SELECT_MULTI_FROM_FILE = re.compile(r"^select_multiple_from_file\s+(\S+)", re.IGNORECASE)
 # The legacy long spellings, which the ODK "widgets" sample still uses.
 _SELECT_ONE_LONG = re.compile(r"^select\s+one\s+(?:from\s+)?(\S+)", re.IGNORECASE)
 _SELECT_MULTI_LONG = re.compile(
@@ -160,6 +184,46 @@ def normalise_id(name: str) -> str:
 
 
 @dataclass
+class ImportedDataset:
+    """One companion CSV, read, and what the form does with it.
+
+    Carries the rows because the caller is the one that publishes them: the
+    import endpoint is stateless by design ("what would this become?") and
+    `POST /projects/{id}/datasets` is what commits. The report only ever prints
+    counts and column names, never the data.
+    """
+
+    #: The Form IR dataset key (§3) — what `choices.dataset` names.
+    key: str
+    #: As the survey sheet spelled it, which is what the author has on disk.
+    file_name: str
+    columns: list[str]
+    rows: list[dict[str, str]]
+    #: The column a stored answer comes from, and therefore the record key.
+    value_column: str
+    #: Language tag -> column. Empty when the file has no label column at all.
+    label_columns: dict[str, str] = field(default_factory=dict)
+    #: Question ids that select from it.
+    used_by: list[str] = field(default_factory=list)
+    #: Columns the form actually reads: value, labels, and anything a filter
+    #: names. What a delta must be computed over (item 4 part 5) and what the
+    #: report prints, because "38 columns, 4 of them used" is the fact that
+    #: decides whether an edit costs a device a transfer.
+    columns_used: list[str] = field(default_factory=list)
+    #: The checksum this content would publish under. Same function the server
+    #: uses, so a caller can tell "already published" from "new version"
+    #: without a round trip.
+    checksum: str = ""
+    encoding: str = "utf-8"
+    #: Findings about the file that did not stop it being read.
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def row_count(self) -> int:
+        return len(self.rows)
+
+
+@dataclass
 class ImportResult:
     form: dict[str, Any]
     diagnostics: list[Diagnostic]
@@ -174,6 +238,9 @@ class ImportResult:
     #: author needs every problem in one pass — but it must not be published.
     publishable: bool = True
     languages: list[str] = field(default_factory=list)
+    #: The companion CSVs this form needs, read. In the order the survey sheet
+    #: first referred to them, so a report reads down the form.
+    datasets: list[ImportedDataset] = field(default_factory=list)
 
 
 class ImportFailed(Exception):
@@ -211,8 +278,23 @@ def _language_of(column: str) -> tuple[str, str | None]:
 
 
 class _Importer:
-    def __init__(self, ledger: CoverageLedger) -> None:
+    def __init__(self, ledger: CoverageLedger, companions: dict[str, bytes] | None = None) -> None:
         self.ledger = ledger
+        #: The files supplied beside the workbook, by the name they were
+        #: supplied under. Matched case-insensitively — a survey sheet saying
+        #: `UCL_villages.csv` and a file named `ucl_villages.csv` is a Windows
+        #: author and a Linux server, not a different file.
+        self.companions = {name.strip(): data for name, data in (companions or {}).items()}
+        self._companions_folded = {name.casefold(): name for name in self.companions}
+        #: file name (as the survey sheet spells it) -> what it became.
+        self.datasets: dict[str, ImportedDataset] = {}
+        #: Dataset key -> the first file that claimed it, for collision checks.
+        self.dataset_key_owner: dict[str, str] = {}
+        #: File name -> the key of the diagnostic that explained why it cannot
+        #: be used. One explanation per file however many questions name it —
+        #: `species_names.csv` is named four times by the UCL form — and every
+        #: question after the first is reported as a knock-on pointing here.
+        self.unreadable_files: dict[str, str] = {}
         self.log = DiagnosticLog(ledger)
         self.instrumentation = Instrumentation()
         self.choice_lists: dict[str, list[dict[str, Any]]] = {}
@@ -550,7 +632,7 @@ class _Importer:
             self._consume_remaining(row, node_id=name, handled={"type"}, quiet=True)
             return None
 
-        data_type, choice_list = self._data_type(row, type_cell, raw_type, name)
+        data_type, choice_ref = self._data_type(row, type_cell, raw_type, name)
         if data_type is None:
             self._consume_remaining(row, node_id=name, handled={"type", "name"}, quiet=True)
             return None
@@ -570,7 +652,8 @@ class _Importer:
         if hints:
             node["hint"] = hints
 
-        if choice_list is not None:
+        if choice_ref is not None and choice_ref[0] == "inline":
+            choice_list = choice_ref[1]
             self.used_choice_lists.add(choice_list)
             self.choice_list_users.setdefault(choice_list, []).append(name)
             items = self.choice_lists.get(choice_list)
@@ -589,6 +672,8 @@ class _Importer:
                     "kind": "inline",
                     "items": [self._choice_item(item) for item in items],
                 }
+        elif choice_ref is not None:
+            self._dataset_choices(row, node, name, choice_ref[1], type_cell, raw_type)
 
         self._expressions(row, node, name)
         self._flags(row, node, name)
@@ -618,6 +703,316 @@ class _Importer:
             )
         return node
 
+    # -- dataset-backed choices (Form IR §3) ---------------------------------
+
+    def _dataset_key(self, file_name: str, ref: CellRef, node_id: str) -> str | None:
+        """The Form IR dataset key a companion file is published under.
+
+        `UCL_villages.csv` becomes `ucl_villages`. The IR names a dataset by key
+        and §2.4's identifier rule is what every other name in the document
+        obeys, so a file name is normalised the same way a question name is —
+        and the rename is reported for the same reason, because the key is what
+        the console, the sync manifest and the retention rule all say.
+        """
+        stem = re.sub(r"\.csv$", "", file_name.strip(), flags=re.IGNORECASE)
+        key = normalise_id(stem)
+        if not key or not _ID_PATTERN.match(key):
+            self.log.error(
+                "unusable_dataset_name",
+                f"`{file_name}` cannot be turned into a dataset key. Form IR §3 names "
+                "a dataset by an identifier (§2.4): a lowercase letter followed by "
+                "letters, digits and underscores.",
+                ref=ref,
+                cell_value=file_name,
+                node_id=node_id,
+                key=f"companion_unusable:{file_name.casefold()}",
+                remedy="Rename the file, for example to `villages.csv`.",
+            )
+            return None
+
+        owner = self.dataset_key_owner.get(key)
+        if owner is not None and owner.casefold() != file_name.casefold():
+            self.log.error(
+                "dataset_key_collision",
+                f"`{file_name}` and `{owner}` both become the dataset key `{key}`. "
+                "One key cannot name two different lists, and choosing between them "
+                "automatically would silently give a question the wrong options.",
+                ref=ref,
+                cell_value=file_name,
+                node_id=node_id,
+                key=f"companion_unusable:{file_name.casefold()}",
+                remedy="Rename one of the files so the two differ by more than case "
+                "or punctuation.",
+            )
+            return None
+        self.dataset_key_owner[key] = file_name
+        if key != stem:
+            self.log.info(
+                "dataset_key_normalised",
+                f"`{file_name}` is published as the dataset `{key}` (Form IR §3 names "
+                "a dataset by an identifier, §2.4).",
+                ref=ref,
+                cell_value=file_name,
+                node_id=node_id,
+            )
+        return key
+
+    def _companion(self, file_name: str, ref: CellRef, node_id: str) -> CompanionCsv | None:
+        """The named companion file, read once however many questions use it.
+
+        Missing is an error and not a warning, and it is worth being clear why:
+        the question is not merely reduced, it has *no options at all*. A form
+        whose village list did not arrive is a form that cannot be answered, and
+        it looks exactly like a form that can.
+        """
+        if file_name in self.unreadable_files:
+            return None
+
+        actual = self._companions_folded.get(file_name.casefold())
+        if actual is None:
+            self.unreadable_files[file_name] = f"companion_missing:{file_name.casefold()}"
+            supplied = ", ".join(f"`{n}`" for n in sorted(self.companions)) or "none at all"
+            self.log.error(
+                "companion_file_missing",
+                f"`{file_name}` was not supplied. XLSForm keeps this list in a file "
+                "beside the workbook rather than in it, so without the file the "
+                "question has no options to offer — not fewer, none.",
+                ref=ref,
+                cell_value=file_name,
+                node_id=node_id,
+                key=f"companion_missing:{file_name.casefold()}",
+                remedy=f"Attach `{file_name}` along with the workbook. Files supplied "
+                f"with this import: {supplied}.",
+            )
+            return None
+
+        try:
+            return read_companion_csv(actual, self.companions[actual])
+        except CsvUnreadable as failure:
+            self.unreadable_files[file_name] = f"companion_unreadable:{file_name.casefold()}"
+            self.log.error(
+                "companion_file_unreadable",
+                str(failure),
+                ref=ref,
+                cell_value=file_name,
+                node_id=node_id,
+                key=f"companion_unreadable:{file_name.casefold()}",
+            )
+            return None
+
+    def _resolve_dataset(
+        self, file_name: str, type_cell: Cell, name: str
+    ) -> ImportedDataset | None:
+        """Read the companion file behind a `select_one_from_file`, once.
+
+        None means it cannot be used and the reason has been reported. Every
+        question naming the same file shares one reading and one diagnostic —
+        `species_names.csv` is named four times by the UCL form, and four
+        copies of "this file is missing" is three too many.
+        """
+        existing = self.datasets.get(file_name.casefold())
+        if existing is not None:
+            return existing
+        if file_name in self.unreadable_files:
+            return None
+        key = self._dataset_key(file_name, type_cell.ref, name)
+        csv_file = self._companion(file_name, type_cell.ref, name) if key else None
+        if key is None or csv_file is None:
+            self.unreadable_files.setdefault(file_name, "unusable")
+            return None
+
+        if DEFAULT_VALUE_COLUMN not in csv_file.columns:
+            self.log.error(
+                "dataset_has_no_value_column",
+                f"`{file_name}` has no `{DEFAULT_VALUE_COLUMN}` column. That is "
+                "the column XLSForm stores as the answer, so without it there is "
+                f"nothing to select. Its columns are: "
+                f"{', '.join('`' + c + '`' for c in csv_file.columns)}.",
+                ref=type_cell.ref,
+                cell_value=file_name,
+                node_id=name,
+                key=f"companion_unusable:{file_name.casefold()}",
+                remedy=f"Add a `{DEFAULT_VALUE_COLUMN}` column holding the value "
+                "each row is chosen as.",
+            )
+            self.unreadable_files[file_name] = f"companion_unusable:{file_name.casefold()}"
+            return None
+
+        labels = csv_file.label_columns()
+        if not labels and DEFAULT_LABEL_COLUMN in csv_file.columns:
+            # A plain `label` with no language suffix, exactly as on the
+            # choices sheet. Retagged onto the real default language once
+            # the settings sheet has been read.
+            labels = {"default": DEFAULT_LABEL_COLUMN}
+        if not labels:
+            self.log.warning(
+                "dataset_has_no_label_column",
+                f"`{file_name}` has no `{DEFAULT_LABEL_COLUMN}` column, so each "
+                f"option will be shown as its `{DEFAULT_VALUE_COLUMN}` value. That "
+                "is readable for a code like `TZ01` and not for an id.",
+                ref=type_cell.ref,
+                cell_value=file_name,
+                node_id=name,
+            )
+
+        existing = ImportedDataset(
+            key=key,
+            file_name=file_name,
+            columns=list(csv_file.columns),
+            rows=csv_file.rows,
+            value_column=DEFAULT_VALUE_COLUMN,
+            label_columns=labels,
+            encoding=csv_file.encoding,
+            warnings=list(csv_file.warnings),
+        )
+        existing.columns_used = [DEFAULT_VALUE_COLUMN, *labels.values()]
+        existing.checksum = content_address(
+            [dict(r) for r in csv_file.rows], DEFAULT_VALUE_COLUMN
+        )
+        self.datasets[file_name.casefold()] = existing
+        self._report_dataset_keys(existing, type_cell.ref)
+        return existing
+
+    def _dataset_choices(
+        self,
+        row: Row,
+        node: dict[str, Any],
+        name: str,
+        file_name: str,
+        type_cell: Cell,
+        raw_type: str,
+    ) -> None:
+        """Attach the `choices.kind = "dataset"` block (Form IR §3).
+
+        The file is already read — `_data_type` refuses the question outright if
+        it is not — so this only builds the block and translates the filter.
+        """
+        existing = self.datasets[file_name.casefold()]
+        existing.used_by.append(name)
+        choices: dict[str, Any] = {
+            "kind": "dataset",
+            "dataset": existing.key,
+            "valueColumn": existing.value_column,
+        }
+        if existing.label_columns:
+            choices["labelColumn"] = dict(existing.label_columns)
+        node["choices"] = choices
+
+        self._choice_filter(row, node, name, existing)
+
+        # Whether an enumerator can answer it, which is not the same question as
+        # whether `select_one` is a collectable dataType. The registry decides,
+        # not this file — see specs/collectable-types-v0.1.json.
+        if datatypes.classify_choice_source("dataset") != "collectable":
+            self.instrumentation.note_uncollectable(f"{node['dataType']} (dataset-backed)")
+            self.log.error(
+                "choice_source_not_collectable",
+                "This question chooses from a dataset (Form IR §3). The reference "
+                "data was read and will be published with the form, but nothing "
+                "resolves a dataset-backed list yet — not the form engines and not "
+                "a device — so the question would reach an enumerator with no "
+                "options under it at all.",
+                ref=type_cell.ref,
+                cell_value=raw_type,
+                node_id=name,
+                blame="platform",
+                remedy="Nothing is wrong with your spreadsheet or your CSV. Either "
+                "wait for dataset-backed selects to ship, or replace the question "
+                "with a `select_one` over a list on the choices sheet.",
+            )
+
+    def _report_dataset_keys(self, dataset: ImportedDataset, ref: CellRef) -> None:
+        """Say at import what the publish endpoint would refuse, and why.
+
+        The same `check_keys` the server runs, so the report and the gate cannot
+        disagree — a report saying a file is fine and a publish then refusing it
+        is the `publishable`-versus-the-gate failure one level down.
+        """
+        report = check_keys([dict(r) for r in dataset.rows], dataset.value_column)
+        for problem in report.problems:
+            self.log.error(
+                "dataset_keys_unusable",
+                f"`{dataset.file_name}`: {problem}",
+                ref=ref,
+                cell_value=dataset.file_name,
+                remedy="Fix the file and import again. The rest of the form was read "
+                "regardless, so anything else below is still worth reading.",
+            )
+        for warning in report.warnings:
+            self.log.warning(
+                "dataset_keys_confusable",
+                f"`{dataset.file_name}`: {warning}",
+                ref=ref,
+                cell_value=dataset.file_name,
+            )
+        for warning in dataset.warnings:
+            self.log.warning("companion_file_note", warning, ref=ref)
+
+    def _choice_filter(
+        self, row: Row, node: dict[str, Any], name: str, dataset: ImportedDataset
+    ) -> None:
+        """Translate `choice_filter` into `choices.filter` (Form IR §3).
+
+        Only for a dataset-backed list. §3 addresses a candidate row's columns
+        as `$row.column`, and an inline list's items carry no columns to address
+        — so a filter over one has nowhere to land, and stays reported as a
+        column that was not imported.
+        """
+        cell = row.cells.get("choice_filter")
+        if cell is None:
+            return
+        try:
+            expression = translate(cell.value, self_path=name, row_scope=True)
+        except ExpressionError as failure:
+            if failure.function:
+                self.instrumentation.note_function(failure.function)
+            self.log.error(
+                "untranslatable_expression",
+                f"The `choice_filter` of `{name}` could not be translated: {failure}. "
+                "Left out, every row of the list would be offered instead of the ones "
+                "that match.",
+                ref=cell.ref,
+                cell_value=cell.value,
+                node_id=name,
+                remedy="Rewrite it using the functions this importer supports.",
+            )
+            return
+
+        # A filter naming a column the file has not got would silently match
+        # nothing, which on a phone is a list that is simply empty.
+        columns = {
+            ref[len("$row.") :]
+            for ref in expr_references(expression)
+            if ref.startswith("$row.")
+        }
+        unknown = sorted(c for c in columns if c not in dataset.columns)
+        if unknown:
+            self.log.error(
+                "filter_column_not_in_dataset",
+                f"The `choice_filter` of `{name}` matches on "
+                + ", ".join(f"`{c}`" for c in unknown)
+                + f", which `{dataset.file_name}` has no column for. Its columns are: "
+                + ", ".join(f"`{c}`" for c in dataset.columns)
+                + ". A filter on a column that is not there matches no rows, so the "
+                "question would offer nothing.",
+                ref=cell.ref,
+                cell_value=cell.value,
+                node_id=name,
+                remedy="Check the column name against the file's header row.",
+            )
+            return
+
+        node["choices"]["filter"] = expression
+        self.ledger.consume(cell.ref)
+        for column in sorted(columns):
+            if column not in dataset.columns_used:
+                dataset.columns_used.append(column)
+        # Checked and rewritten once every question has been seen, like every
+        # other expression: a filter may refer to a question further down.
+        self.expression_cells.append(
+            (node["choices"], "filter", cell.ref, cell.value, name)
+        )
+
     def _choice_item(self, item: dict[str, Any]) -> dict[str, Any]:
         labels = dict(item["label"])
         if "default" in labels and len(labels) == 1:
@@ -629,8 +1024,54 @@ class _Importer:
 
     def _data_type(
         self, row: Row, type_cell: Cell, raw_type: str, name: str
-    ) -> tuple[str | None, str | None]:
+    ) -> tuple[str | None, tuple[str, str] | None]:
+        """The IR dataType, and where this question's options come from.
+
+        The second element is `("inline", list_name)` for a list on the choices
+        sheet and `("dataset", file_name)` for a companion CSV — Form IR §3's
+        two kinds, decided here and nowhere else.
+        """
         lowered = raw_type.lower()
+
+        # Before the plain select patterns: `select_one_from_file x.csv` starts
+        # with `select_one` only if you read it carelessly, and `_SELECT_ONE`
+        # would happily match it and take `x.csv` for a choices-sheet list name.
+        for pattern, kind in (
+            (_SELECT_ONE_FROM_FILE, "select_one"),
+            (_SELECT_MULTI_FROM_FILE, "select_multiple"),
+        ):
+            match = pattern.match(raw_type)
+            if match:
+                file_name = match.group(1)
+                # Resolved here rather than after the node is built, so that a
+                # file that did not arrive drops the question exactly as any
+                # other unimportable row is dropped. Producing a select with no
+                # choices block instead would be a question with no options in
+                # valid IR — and a `relevant` pointing at it would resolve, so
+                # the report would not even show the knock-on.
+                already = file_name in self.unreadable_files
+                if self._resolve_dataset(file_name, type_cell, name) is None:
+                    cause = self.unreadable_files[file_name]
+                    self.dropped_questions[name] = cause
+                    if already:
+                        # The file was explained against the first question that
+                        # named it. This row still has to say something, or a
+                        # question would be gone with nothing pointing at its
+                        # row — which is the silent drop the ledger exists to
+                        # catch, and did catch when this was missing.
+                        self.log.error(
+                            "question_without_its_dataset",
+                            f"`{name}` also chooses from `{file_name}`, which could "
+                            "not be used (see above), so this question was not "
+                            "imported either.",
+                            ref=type_cell.ref,
+                            cell_value=raw_type,
+                            node_id=name,
+                            caused_by=cause,
+                            blame="author",
+                        )
+                    return None, None
+                return kind, ("dataset", file_name)
 
         for pattern, kind in (
             (_SELECT_ONE, "select_one"),
@@ -649,7 +1090,7 @@ class _Importer:
                         cell_value=raw_type,
                         node_id=name,
                     )
-                return kind, match.group(1)
+                return kind, ("inline", match.group(1))
 
         if lowered in ("calculate", "hidden"):
             return "text", None
@@ -999,15 +1440,30 @@ def _rewrite_refs(node: Any, renames: dict[str, str]) -> None:
             _rewrite_refs(item, renames)
 
 
-def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
-    """Turn an .xlsx into a Form IR document and a full account of the rest."""
+def import_workbook(
+    data: bytes,
+    *,
+    form_id: str | None = None,
+    companions: dict[str, bytes] | None = None,
+) -> ImportResult:
+    """Turn an .xlsx into a Form IR document and a full account of the rest.
+
+    [companions] is the files that ship *beside* the workbook — the CSVs a
+    `select_one_from_file` names (Form IR §3). Keyed by file name as supplied;
+    matched against the survey sheet case-insensitively, because the sheet was
+    written on Windows and the server is not.
+
+    Passing none is not the same as there being none. A form that names a
+    companion file and is imported without it reports every one of them as
+    missing, by name, rather than quietly producing questions with no options.
+    """
     ledger = CoverageLedger()
     try:
         workbook = read(data, ledger)
     except WorkbookError as failure:
         raise ImportFailed(str(failure)) from failure
 
-    importer = _Importer(ledger)
+    importer = _Importer(ledger, companions)
     settings = importer.read_settings(workbook)
     importer.default_language = None
     declared_default = settings.get("default_language")
@@ -1036,7 +1492,14 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
             continue
         missing = sorted(
             r.split(".")[0] for r in expr_references(expression)
-            if r.split(".")[0] not in known and not r.startswith("_")
+            # `$row.x` is a column of the candidate row inside a choice filter,
+            # never a question — the engine resolves it from the row and
+            # `collect_refs` already excludes it from the dependency graph. It
+            # was checked against the file's header when the filter was
+            # translated, which is a stronger check than this one could be.
+            if r.split(".")[0] not in known
+            and not r.startswith("_")
+            and not r.startswith("$row.")
         )
         if missing:
             node.pop(key, None)
@@ -1072,6 +1535,32 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
                 if cascade
                 else "Check the spelling, or the order of the questions.",
             )
+
+    # A file supplied that nothing asked for. Almost always a filename typo on
+    # one side or the other, and the symptom without this is a question whose
+    # list is "missing" while the list is sitting right there in the upload.
+    referenced = {name.casefold() for name in importer.datasets}
+    referenced |= {name.casefold() for name in importer.unreadable_files}
+    for supplied in sorted(importer.companions):
+        if supplied.casefold() in referenced:
+            continue
+        wanted = sorted(
+            {d.file_name for d in importer.datasets.values()} | set(importer.unreadable_files)
+        )
+        importer.log.warning(
+            "companion_file_unused",
+            f"`{supplied}` was supplied but no question refers to it, so it was not "
+            "read and nothing will be published from it."
+            + (
+                " The files this form does ask for are: "
+                + ", ".join(f"`{n}`" for n in wanted)
+                + "."
+                if wanted
+                else " This form refers to no companion files at all."
+            ),
+            remedy="Check the file name against the `select_one_from_file` rows on "
+            "the survey sheet — a mismatch is usually a rename on one side.",
+        )
 
     unused = set(importer.choice_lists) - importer.used_choice_lists
     for list_name in sorted(unused):
@@ -1118,6 +1607,9 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
         "children": children,
     }
     _retag_default_labels(form["children"], default_language)
+    for dataset in importer.datasets.values():
+        if "default" in dataset.label_columns:
+            dataset.label_columns[default_language] = dataset.label_columns.pop("default")
 
     # A form with no questions in it.
     #
@@ -1240,6 +1732,9 @@ def import_workbook(data: bytes, *, form_id: str | None = None) -> ImportResult:
         questions=question_count,
         publishable=not importer.log.has_errors,
         languages=languages,
+        # In the order the survey sheet first referred to them, which is the
+        # order a person reads the form in. `dict` preserves insertion order.
+        datasets=list(importer.datasets.values()),
     )
 
 
@@ -1256,6 +1751,14 @@ def _retag_default_labels(nodes: list[dict[str, Any]], language: str) -> None:
             if isinstance(value, dict) and "default" in value:
                 text = value.pop("default")
                 value.setdefault(language, text)
+        # `labelColumn` is the same shape and the same placeholder: a CSV with a
+        # plain `label` column and no language suffix (species names have no
+        # language) comes back keyed `default` exactly as a label does.
+        choices = node.get("choices")
+        if isinstance(choices, dict):
+            columns = choices.get("labelColumn")
+            if isinstance(columns, dict) and "default" in columns:
+                columns.setdefault(language, columns.pop("default"))
         if node.get("children"):
             _retag_default_labels(node["children"], language)
 

@@ -9,11 +9,18 @@ architecture could not keep.
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.schemas import MessageError
+from app.modules.entities import service as dataset_service
+from app.modules.entities.schemas import DatasetRefusedError, PublishDatasetResponse
+from app.modules.forms.xlsform.datasets import (
+    DEFAULT_VALUE_COLUMN,
+    CsvUnreadable,
+    read_companion_csv,
+)
 from app.modules.media import service as media_service
 from app.modules.media.schemas import MediaPolicyResponse, MediaPolicyUpdate
 from app.modules.projects import service
@@ -199,3 +206,96 @@ async def set_media_policy(
     if policy is None:
         raise HTTPException(status_code=404, detail="project not found")
     return policy
+
+
+@router.post(
+    "/{project_id}/datasets",
+    response_model=PublishDatasetResponse,
+    response_model_by_alias=True,
+    status_code=201,
+    responses={400: {"model": MessageError}, 409: {"model": DatasetRefusedError}},
+    description=(
+        "Publish one immutable version of a dataset from a CSV (Form IR §3).\n\n"
+        "Multipart, not JSON, and deliberately: the caller already has the file "
+        "— it uploaded the same bytes to POST /forms/import — and a 38,000-row "
+        "village list re-encoded as a JSON array is several megabytes of body "
+        "for no gain. It also keeps one CSV parser on the server rather than "
+        "one here and one in every client.\n\n"
+        "**Idempotent by content.** Re-uploading an unchanged file returns the "
+        "existing version with `created: false` rather than publishing a "
+        "duplicate — which matters because a console re-sends the companion "
+        "files every time somebody presses Publish, and a device holding the "
+        "old version id would otherwise be told it is behind and re-fetch rows "
+        "that did not change.\n\n"
+        "A published version never changes. Re-publishing a *numbered* version "
+        "with different content is refused with a 409: a form version pinned to "
+        "it would have its choice list moved underneath answers already "
+        "collected against it."
+    ),
+)
+async def publish_dataset(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    project_id: Annotated[str, Path(min_length=1, max_length=64)],
+    file: Annotated[UploadFile, File(description="The reference data, as CSV")],
+    dataset_key: Annotated[
+        str,
+        Form(
+            alias="datasetKey",
+            min_length=1,
+            max_length=200,
+            description="The Form IR key this list is published under — what "
+            "`choices.dataset` names. The XLSForm importer derives it from the "
+            "file name and reports what it chose.",
+        ),
+    ],
+    key_column: Annotated[
+        str,
+        Form(
+            alias="keyColumn",
+            min_length=1,
+            max_length=200,
+            description="The column holding each row's identity — what a "
+            "`select_one_from_file` stores as the answer. Defaults to `name`, "
+            "which is what XLSForm requires of these files.",
+        ),
+    ] = DEFAULT_VALUE_COLUMN,
+    name: Annotated[
+        str | None,
+        Form(description="Display name for the dataset. Defaults to its key."),
+    ] = None,
+) -> PublishDatasetResponse:
+    """Turn one CSV into an immutable dataset version."""
+    data = await file.read()
+    try:
+        parsed = read_companion_csv(file.filename or f"{dataset_key}.csv", data)
+    except CsvUnreadable as failure:
+        # Not a domain refusal: there is no dataset here to refuse. Same
+        # distinction as WorkbookError against a diagnostic.
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+
+    async with session.begin():
+        try:
+            published = await dataset_service.publish_dataset_version(
+                session,
+                project_id=project_id,
+                dataset_key=dataset_key,
+                rows=[dict(row) for row in parsed.rows],
+                key_column=key_column,
+                name=name,
+            )
+        except dataset_service.DatasetRefused as refusal:
+            raise HTTPException(status_code=409, detail=refusal.reasons) from refusal
+
+    return PublishDatasetResponse(
+        dataset_id=published.dataset_id,
+        dataset_version_id=published.dataset_version_id,
+        dataset_key=published.dataset_key,
+        version=published.version,
+        row_count=published.row_count,
+        checksum=published.checksum,
+        created=published.created,
+        # The file's own findings travel with the dataset's: a padded row and a
+        # confusable key are the same kind of fact to whoever uploaded it.
+        warnings=[*parsed.warnings, *published.warnings],
+        published_at=published.published_at,
+    )

@@ -131,3 +131,120 @@ def test_evaluate_reports_every_field_including_the_derived_ones(
 
     assert set(body["fields"]) == {"a", "b", "c"}
     assert set(body["answers"]) <= set(body["fields"])
+
+
+# --- companion files over the wire ----------------------------------------
+#
+# The multipart half of the import endpoint. Worth testing at this level rather
+# than only against `import_workbook`: an `UploadFile` list, a filename that
+# survives the encoding, and a part with no filename at all are all things only
+# the HTTP layer can get wrong, and the last one is a real browser behaviour.
+
+
+def _workbook(rows: list[list[str | None]]) -> bytes:
+    import io
+
+    import openpyxl
+
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = "survey"
+    for row in rows:
+        sheet.append(row)
+    book.create_sheet("choices").append(["list_name", "name", "label"])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+DATASET_FORM = [
+    ["type", "name", "label"],
+    ["select_one_from_file villages.csv", "village", "Village"],
+]
+
+
+def test_import_reads_a_companion_csv_sent_beside_the_workbook() -> None:
+    response = call(
+        "POST",
+        "/api/v1/forms/import",
+        files=[
+            ("file", ("survey.xlsx", _workbook(DATASET_FORM), _XLSX)),
+            ("datasets", ("villages.csv", b"name,label\nV01,Mtakuja\n", "text/csv")),
+        ],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert len(body["datasets"]) == 1
+    dataset = body["datasets"][0]
+    # camelCase on the wire, like everything else the console reads.
+    assert dataset["fileName"] == "villages.csv"
+    assert dataset["key"] == "villages"
+    assert dataset["rowCount"] == 1
+    assert dataset["valueColumn"] == "name"
+    assert dataset["checksum"].startswith("sha256:")
+    # The rows are deliberately NOT in the response: this endpoint answers
+    # "what would this become?" and a village list would make it megabytes.
+    assert "rows" not in dataset
+
+
+def test_import_without_the_companion_files_names_each_missing_one() -> None:
+    response = call(
+        "POST",
+        "/api/v1/forms/import",
+        files=[("file", ("survey.xlsx", _workbook(DATASET_FORM), _XLSX))],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["publishable"] is False
+    codes = {d["code"] for d in body["diagnostics"]}
+    assert "companion_file_missing" in codes
+    assert body["datasets"] == []
+
+
+def test_a_companion_part_with_an_empty_filename_is_refused() -> None:
+    """A browser can send `filename=""`, and there is no way to tell which
+    `select_one_from_file` row it answers. Guessing would be worse.
+
+    The body is assembled by hand because an HTTP client will not produce this:
+    passing an empty name makes httpx send an ordinary form field instead, and
+    the case being guarded is a real file part whose name is empty.
+    """
+    boundary = "----dcptest"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="survey.xlsx"\r\n'
+        f"Content-Type: {_XLSX}\r\n\r\n"
+    ).encode() + _workbook(DATASET_FORM) + (
+        f"\r\n--{boundary}\r\n"
+        'Content-Disposition: form-data; name="datasets"; filename=""\r\n'
+        "Content-Type: text/csv\r\n\r\n"
+        "name,label\r\nV01,Mtakuja\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    response = call(
+        "POST",
+        "/api/v1/forms/import",
+        content=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert response.status_code == 400, response.text
+    assert "no filename" in response.json()["detail"]
+
+
+def test_the_same_companion_uploaded_twice_is_refused() -> None:
+    response = call(
+        "POST",
+        "/api/v1/forms/import",
+        files=[
+            ("file", ("survey.xlsx", _workbook(DATASET_FORM), _XLSX)),
+            ("datasets", ("villages.csv", b"name,label\nV01,a\n", "text/csv")),
+            ("datasets", ("villages.csv", b"name,label\nV01,b\n", "text/csv")),
+        ],
+    )
+    assert response.status_code == 400
+    assert "more than once" in response.json()["detail"]
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

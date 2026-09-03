@@ -4,6 +4,13 @@
     python scripts/import_xlsform.py survey.xlsx
     python scripts/import_xlsform.py survey.xlsx --out reports/
     python scripts/import_xlsform.py survey.xlsx --ir household.json
+    python scripts/import_xlsform.py survey.xlsx --datasets ./csvs/
+
+A `select_one_from_file` names a CSV that ships *beside* the workbook, so the
+directory holding the .xlsx is searched by default and `--datasets` points
+somewhere else. Nothing is guessed at: a file the survey sheet names and this
+cannot find is reported by name, because a question whose list did not arrive
+has no options at all and looks exactly like one that does.
 
 Runs the same importer the API does, in the same process — not a reimplementation
 and not an HTTP call. A second code path here would be a second set of answers
@@ -50,6 +57,11 @@ def main() -> int:
     )
     parser.add_argument("--ir", type=pathlib.Path, help="write the Form IR to this file")
     parser.add_argument(
+        "--datasets",
+        type=pathlib.Path,
+        help="directory holding the companion .csv files (default: beside the workbook)",
+    )
+    parser.add_argument(
         "--quiet", action="store_true", help="print only the summary, not every diagnostic"
     )
     arguments = parser.parse_args()
@@ -58,9 +70,23 @@ def main() -> int:
         print(f"no such file: {arguments.workbook}", file=sys.stderr)
         return 2
 
+    companion_dir = arguments.datasets or arguments.workbook.parent
+    if arguments.datasets and not arguments.datasets.is_dir():
+        print(f"no such directory: {arguments.datasets}", file=sys.stderr)
+        return 2
+    # Every CSV in the directory is offered, not only the ones the form names.
+    # The importer is what decides which are wanted — and it reports a file
+    # supplied that nothing asked for, which is how a rename on one side of the
+    # pair gets noticed instead of showing up as a missing list.
+    companions = {
+        path.name: path.read_bytes()
+        for path in sorted(companion_dir.glob("*.csv"))
+        if path.is_file()
+    }
+
     data = arguments.workbook.read_bytes()
     try:
-        result = import_workbook(data)
+        result = import_workbook(data, companions=companions)
     except ImportFailed as failure:
         print(f"{arguments.workbook.name}: {failure}", file=sys.stderr)
         return 2
@@ -86,6 +112,12 @@ def main() -> int:
         for severity in ("error", "warning", "info")
     }
     print(f"{name}: {result.questions} question(s) from {result.survey_rows} survey row(s)")
+    for dataset in result.datasets:
+        print(
+            f"  dataset {dataset.key:<24} {dataset.row_count:>7,} rows  "
+            f"{len(dataset.columns_used)}/{len(dataset.columns)} columns read  "
+            f"{dataset.checksum[:19]}…"
+        )
     print(
         f"  {counts['error']} error(s), {counts['warning']} warning(s), {counts['info']} note(s)"
     )

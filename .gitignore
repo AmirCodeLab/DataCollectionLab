@@ -36,3 +36,11 @@ clients/iosApp/**/DerivedData/
 # supply-chain question nobody wants to answer at review time.
 clients/iosApp/Frameworks/
 backend/var/
+
+# Generated XLSForm companion CSVs — see backend/tests/fixtures/xlsform/PROVENANCE.md.
+# Deterministic output of scripts/generate_ucl_datasets.py, ~3 MB at real scale;
+# the generator is committed instead.
+backend/tests/fixtures/xlsform/ucl-biomass-datasets/
+
+# Import reports — regenerable output of scripts/import_xlsform.py --out.
+reports/

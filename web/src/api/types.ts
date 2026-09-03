@@ -13,6 +13,19 @@
 export interface Body_import_xlsform_api_v1_forms_import_post {
   /** An XLSForm .xlsx workbook */
   file: string;
+  /** Companion .csv files named by select_one_from_file rows */
+  datasets?: string[];
+}
+
+export interface Body_publish_dataset_api_v1_projects__project_id__datasets_post {
+  /** The reference data, as CSV */
+  file: string;
+  /** The Form IR key this list is published under — what `choices.dataset` names. The XLSForm importer derives it from the file name and reports what it chose. */
+  datasetKey: string;
+  /** The column holding each row's identity — what a `select_one_from_file` stores as the answer. Defaults to `name`, which is what XLSForm requires of these files. */
+  keyColumn?: string;
+  /** Display name for the dataset. Defaults to its key. */
+  name?: string | null;
 }
 
 /** A Form IR document to compile. Its own formId and version are authoritative. */
@@ -45,6 +58,35 @@ export interface ContentKeyView {
   contentKeyId: string;
   deviceId: string;
   wraps: WrappedKeyView[];
+}
+
+/**
+ * One dataset version a form version is published against.
+ *
+ * The IR names a dataset by **key** — `"dataset": "districts"` (§3) — and a
+ * key is not a version. Resolving it at read time would let a draft opened
+ * against form v1 see whatever `districts` happens to be newest, which is the
+ * same mistake as validating a v1 answer against v2's choice list.
+ *
+ * So it is resolved once, here, at publish, and pinned in
+ * `form_version_dataset`. A form version is immutable and so is its view of
+ * its reference data.
+ */
+export interface DatasetPin {
+  key: string;
+  datasetVersionId: string;
+}
+
+/**
+ * The 409 body: every reason, not the first one.
+ *
+ * A list rather than a string for the same reason the publish endpoint's is:
+ * whoever is fixing the file needs every problem in one pass, and a refusal
+ * that names one duplicate key at a time is a refusal somebody meets four
+ * times.
+ */
+export interface DatasetRefusedError {
+  detail: string[];
 }
 
 /**
@@ -218,6 +260,28 @@ export interface ImportCoverage {
   reported: number;
 }
 
+/**
+ * One companion CSV, read — what it is and what the form does with it.
+ *
+ * Deliberately without the rows. This is the answer to "what would this
+ * become?", and a village list would make the response several megabytes on
+ * an endpoint whose whole point is to be cheap enough to call on every edit.
+ * The caller already has the file; `POST /projects/{id}/datasets` is where
+ * the bytes go.
+ */
+export interface ImportDataset {
+  key: string;
+  fileName: string;
+  rowCount: number;
+  columns: string[];
+  valueColumn: string;
+  labelColumns?: Record<string, string>;
+  columnsUsed?: string[];
+  usedBy?: string[];
+  checksum: string;
+  encoding: string;
+}
+
 export interface ImportDiagnostic {
   severity: DiagnosticSeverity;
   code: string;
@@ -244,6 +308,7 @@ export interface ImportFormResponse {
   diagnostics: ImportDiagnostic[];
   coverage: ImportCoverage;
   instrumentation: ImportInstrumentation;
+  datasets?: ImportDataset[];
   reportMarkdown: string;
 }
 
@@ -561,6 +626,19 @@ export interface ProjectSummary {
   archivedAt: string | null;
 }
 
+/** One immutable dataset version (Form IR §3, sync §5). */
+export interface PublishDatasetResponse {
+  datasetId: string;
+  datasetVersionId: string;
+  datasetKey: string;
+  version: number;
+  rowCount: number;
+  checksum: string;
+  created: boolean;
+  warnings: string[];
+  publishedAt: string | null;
+}
+
 export interface PublishVersionRequest {
   projectId: string;
   form: Record<string, unknown>;
@@ -568,6 +646,7 @@ export interface PublishVersionRequest {
   publishedBy?: string | null;
   deployTo?: EnvironmentKind[];
   importRecord?: ImportRecord | null;
+  datasets?: DatasetPin[];
 }
 
 export interface PublishVersionResponse {
@@ -579,6 +658,7 @@ export interface PublishVersionResponse {
   created: boolean;
   warnings: string[];
   deployments: EnvironmentKind[];
+  datasets?: DatasetPin[];
 }
 
 export interface PullResponse {

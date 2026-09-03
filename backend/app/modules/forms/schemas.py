@@ -181,6 +181,45 @@ class ImportInstrumentation(BaseModel):
     )
 
 
+class ImportDataset(BaseModel):
+    """One companion CSV, read — what it is and what the form does with it.
+
+    Deliberately without the rows. This is the answer to "what would this
+    become?", and a village list would make the response several megabytes on
+    an endpoint whose whole point is to be cheap enough to call on every edit.
+    The caller already has the file; `POST /projects/{id}/datasets` is where
+    the bytes go.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    #: The Form IR dataset key (§3) — what `choices.dataset` names, and what a
+    #: pin at publish is keyed on.
+    key: str
+    #: As the survey sheet spelled it, so an author can match it to a file.
+    file_name: str = Field(serialization_alias="fileName")
+    row_count: int = Field(serialization_alias="rowCount")
+    columns: list[str]
+    #: The column a stored answer comes from, and therefore the record key.
+    value_column: str = Field(serialization_alias="valueColumn")
+    #: Language tag -> column. Empty when the file has no label column.
+    label_columns: dict[str, str] = Field(
+        default_factory=dict, serialization_alias="labelColumns"
+    )
+    #: The columns the form actually reads — value, labels, filters. What a
+    #: delta is computed over (item 4 part 5), and the number that says whether
+    #: an edit to this file will cost a device a download.
+    columns_used: list[str] = Field(default_factory=list, serialization_alias="columnsUsed")
+    #: Question ids that choose from it.
+    used_by: list[str] = Field(default_factory=list, serialization_alias="usedBy")
+    #: The checksum this content would publish under. Lets a console tell
+    #: "already published" from "a new version" without a round trip.
+    checksum: str
+    #: `utf-8` unless the file needed the Windows-1252 fallback, which is
+    #: reported rather than applied quietly — mojibake has no other symptom.
+    encoding: str
+
+
 class ImportSummary(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -211,6 +250,11 @@ class ImportFormResponse(BaseModel):
     diagnostics: list[ImportDiagnostic]
     coverage: ImportCoverage
     instrumentation: ImportInstrumentation
+    #: The companion CSVs this form needs (Form IR §3), in the order the survey
+    #: sheet first referred to them. Empty for a form that uses none — which is
+    #: not the same as a form whose files were not attached: that reports a
+    #: `companion_file_missing` error per file, by name.
+    datasets: list[ImportDataset] = Field(default_factory=list)
     #: The whole report as Markdown, ready to be written to a file and sent to
     #: the person who wrote the spreadsheet.
     report_markdown: str = Field(serialization_alias="reportMarkdown")
@@ -248,6 +292,25 @@ class ImportRecord(BaseModel):
     diagnostics: list[ImportDiagnostic]
 
 
+class DatasetPin(BaseModel):
+    """One dataset version a form version is published against.
+
+    The IR names a dataset by **key** — `"dataset": "districts"` (§3) — and a
+    key is not a version. Resolving it at read time would let a draft opened
+    against form v1 see whatever `districts` happens to be newest, which is the
+    same mistake as validating a v1 answer against v2's choice list.
+
+    So it is resolved once, here, at publish, and pinned in
+    `form_version_dataset`. A form version is immutable and so is its view of
+    its reference data.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str = Field(min_length=1, max_length=200)
+    dataset_version_id: str = Field(alias="datasetVersionId", min_length=1, max_length=64)
+
+
 class PublishVersionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -268,6 +331,11 @@ class PublishVersionRequest(BaseModel):
     # row so "how was this imported and what did not survive" is answerable
     # from the database rather than from an emailed report.
     import_record: ImportRecord | None = Field(default=None, alias="importRecord")
+    # Which dataset version each `choices.dataset` key resolves to. Required
+    # for every key the IR names and refused for any key it does not: a pin
+    # that nothing references is a claim about this form that is not true, and
+    # a missing pin is a choice list that would resolve to whatever is newest.
+    datasets: list[DatasetPin] = Field(default_factory=list)
 
 
 class PublishVersionResponse(BaseModel):
@@ -289,6 +357,11 @@ class PublishVersionResponse(BaseModel):
     # on its own reaches no device: a version nothing has deployed appears in no
     # manifest (sync §5), and "published" reads like "shipped" when it is not.
     deployments: list[EnvironmentKind]
+    # What this version's choice lists resolve to, for as long as it exists.
+    # Echoed for the same reason `deployments` is: the pinning is the whole
+    # guarantee that an answer can be explained later, and a caller should be
+    # able to see it happened rather than assume it.
+    datasets: list[DatasetPin] = Field(default_factory=list)
 
 
 class DeployedFormVersion(BaseModel):

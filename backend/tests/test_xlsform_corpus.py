@@ -154,10 +154,19 @@ def test_the_ucl_form_names_what_it_needed_that_we_lack() -> None:
     Counted rather than guessed: across 27 real forms `atan` was the only
     missing function and `select_one_from_file` the top missing type, which is
     not the order anyone would have picked from reading the XLSForm spec.
+
+    The type half of that has been built (item 4 part 2), and this asserts the
+    change rather than the old state: `select_one_from_file` is no longer an
+    unsupported *type*. What replaced it is a narrower and more honest claim —
+    the questions import and no client can present a dataset-backed list yet —
+    and that is counted separately, because "we cannot read this" and "we can
+    read it and cannot show it" are different items on a roadmap.
     """
     result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
     assert "atan" in result.instrumentation.unsupported_functions
-    assert "select_one_from_file" in result.instrumentation.unsupported_types
+    assert "select_one_from_file" not in result.instrumentation.unsupported_types, (
+        "the importer still reports this as a type it cannot read; it imports now"
+    )
     assert not result.publishable
 
 
@@ -219,6 +228,10 @@ def test_a_sheet_that_lies_about_its_size_does_not_hang_the_import() -> None:
     result = import_workbook(data)
     elapsed = time.monotonic() - started
 
+    # 54 with no companion files supplied — the eight `select_one_from_file`
+    # questions are dropped because their CSVs did not arrive, which is the
+    # right answer to "the list has no options" and is what this call asks for.
+    # `test_xlsform_datasets.py` is where the same form is imported *with* them.
     assert result.questions == 54, "the fixture changed; re-check what this is measuring"
     assert elapsed < 5, (
         f"reading an 81-row form took {elapsed:.1f}s. The sheet declares "

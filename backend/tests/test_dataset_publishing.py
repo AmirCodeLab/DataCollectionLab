@@ -345,3 +345,165 @@ def test_a_key_that_is_only_whitespace_is_still_refused(dataset_db: str) -> None
                 )
 
     asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Over HTTP: POST /api/v1/projects/{projectId}/datasets
+# ---------------------------------------------------------------------------
+#
+# Multipart, because the caller already has the file and a 38,000-row list
+# re-encoded as JSON is several megabytes of body for nothing. The route is
+# also where the two refusal shapes have to stay apart: a file that is not a
+# readable CSV is a 400 (there is no dataset here to refuse), and a dataset
+# whose keys are unusable is a 409 (there is, and these are the reasons).
+
+
+def _api(method: str, url: str, database_url: str, **kwargs):  # noqa: ANN202
+    import asyncio
+
+    import httpx
+
+    from app.api.deps import get_db
+    from app.main import app
+
+    async def override():  # noqa: ANN202
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        engine = create_async_engine(database_url)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with maker() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    app.dependency_overrides[get_db] = override
+
+    async def main():  # noqa: ANN202
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.request(method, url, **kwargs)
+
+    try:
+        return asyncio.run(main())
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.db
+def test_publishing_a_csv_over_http_returns_its_content_address(dataset_db: str) -> None:
+    response = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={"file": ("wards.csv", b"name,label\nW01,Kata Moja\nW02,Kata Mbili\n", "text/csv")},
+        data={"datasetKey": "wards"},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["datasetKey"] == "wards"
+    assert body["rowCount"] == 2
+    assert body["created"] is True
+    assert body["checksum"].startswith("sha256:")
+    assert body["publishedAt"] is not None, "a version row that exists is published"
+
+
+@pytest.mark.db
+def test_re_uploading_an_unchanged_file_publishes_nothing_new(dataset_db: str) -> None:
+    """The console re-sends the companion files every time somebody presses
+    Publish, so this is the common path and not the odd one.
+
+    A duplicate version is not merely untidy: a device holding the old id would
+    be told it is behind and re-fetch rows that did not change, which on a
+    field connection is the cost this whole design exists to avoid.
+    """
+    payload = {
+        "files": {"file": ("streets.csv", b"name,label\nS01,Barabara\n", "text/csv")},
+        "data": {"datasetKey": "streets"},
+    }
+    first = _api("POST", f"/api/v1/projects/{PROJECT_ID}/datasets", dataset_db, **payload)
+    again = _api("POST", f"/api/v1/projects/{PROJECT_ID}/datasets", dataset_db, **payload)
+
+    assert first.json()["created"] is True
+    assert again.json()["created"] is False
+    assert again.json()["datasetVersionId"] == first.json()["datasetVersionId"]
+    assert again.json()["version"] == first.json()["version"] == 1
+
+
+@pytest.mark.db
+def test_changed_content_becomes_a_new_version(dataset_db: str) -> None:
+    first = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={"file": ("wards2.csv", b"name,label\nW01,One\n", "text/csv")},
+        data={"datasetKey": "wards2"},
+    )
+    second = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={"file": ("wards2.csv", b"name,label\nW01,One\nW02,Two\n", "text/csv")},
+        data={"datasetKey": "wards2"},
+    )
+    assert first.json()["version"] == 1
+    assert second.json()["version"] == 2
+    assert second.json()["checksum"] != first.json()["checksum"]
+
+
+@pytest.mark.db
+def test_a_file_that_is_not_a_readable_csv_is_a_400_not_a_409(dataset_db: str) -> None:
+    """The distinction `WorkbookError` draws, one level down: a 409 says "this
+    dataset cannot be published and here is why", and there is no dataset
+    here to say it about."""
+    response = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={"file": ("bad.csv", b"name;label\nW01;Kata\n", "text/csv")},
+        data={"datasetKey": "bad"},
+    )
+    assert response.status_code == 400
+    assert "semicolon" in response.json()["detail"]
+
+
+@pytest.mark.db
+def test_unusable_keys_are_a_409_listing_every_reason(dataset_db: str) -> None:
+    """409 and not 422, deliberately: 422 already belongs to FastAPI's own
+    request-validation failure and only one body shape can be declared under
+    one status (docs/project-conventions.md, "The API contract")."""
+    response = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={"file": ("dupes.csv", b"name,label\nW01,One\nW01,Two\n,Three\n", "text/csv")},
+        data={"datasetKey": "dupes"},
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert isinstance(detail, list), "every reason in one pass, not the first one"
+    assert any("more than once" in reason for reason in detail)
+    assert any("no value in the key column" in reason for reason in detail)
+
+
+@pytest.mark.db
+def test_the_files_own_findings_travel_with_the_datasets(dataset_db: str) -> None:
+    """A padded row and a confusable key are the same kind of fact to whoever
+    uploaded the file, so they arrive in one list rather than two places."""
+    response = _api(
+        "POST",
+        f"/api/v1/projects/{PROJECT_ID}/datasets",
+        dataset_db,
+        files={
+            "file": (
+                "mixed.csv",
+                b"name,label,ward\nMoshi,Moshi town,Kata\nmoshi ,Moshi rural\n",
+                "text/csv",
+            )
+        },
+        data={"datasetKey": "mixed"},
+    )
+    assert response.status_code == 201, response.text
+    warnings = response.json()["warnings"]
+    assert any("fewer values" in w for w in warnings), "the file's own finding"
+    assert any("not merged" in w for w in warnings), "the dataset's finding"

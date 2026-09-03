@@ -179,10 +179,16 @@ def _tokenize(source: str) -> list[_Token]:
 
 
 class _Parser:
-    def __init__(self, tokens: list[_Token], self_path: str | None) -> None:
+    def __init__(
+        self, tokens: list[_Token], self_path: str | None, row_scope: bool = False
+    ) -> None:
         self.tokens = tokens
         self.position = 0
         self.self_path = self_path
+        #: Inside a `choice_filter` a bare name is a *column of the candidate
+        #: row*, which is the one place in XLSForm where a bare name means
+        #: something. Everywhere else it is an error, and deliberately so.
+        self.row_scope = row_scope
 
     def peek(self) -> _Token | None:
         return self.tokens[self.position] if self.position < len(self.tokens) else None
@@ -305,6 +311,13 @@ class _Parser:
                 return {"op": "lit", "value": lowered == "true"}
             if self.peek() and self.peek().kind == "op" and self.peek().text == "(":  # type: ignore[union-attr]
                 return self.parse_call(token.text)
+            if self.row_scope:
+                # `region_id=${region_id}` on a choice_filter: the left side is
+                # the candidate row's column, the right side is an answer. Form
+                # IR §3 spells the first `$row.region_id`, which is what the
+                # engine's evaluator already resolves and what `collect_refs`
+                # already knows not to treat as a field dependency.
+                return {"op": "ref", "path": f"$row.{token.text}"}
             raise ExpressionError(
                 f"{token.text!r} is not something this importer understands. "
                 "A bare name is not a reference — XLSForm writes those as ${name}."
@@ -346,12 +359,20 @@ class _Parser:
         return {"op": "call", "fn": target, "args": args}
 
 
-def translate(source: str, *, self_path: str | None = None) -> dict[str, Any]:
+def translate(
+    source: str, *, self_path: str | None = None, row_scope: bool = False
+) -> dict[str, Any]:
     """Compile one XLSForm expression into a Form IR expression node (§4.1).
 
     [self_path] is the question the expression belongs to, which is what `.`
     refers to inside a `constraint`. Passing None makes `.` an error rather
     than resolving it to something arbitrary.
+
+    [row_scope] is for a `choice_filter` and nothing else. It is the only
+    context in XLSForm where a bare name is meaningful — it names a column of
+    the candidate row — and it is deliberately not the default, because
+    everywhere else a bare name is a mistake worth reporting rather than a
+    reference worth inventing.
 
     Raises [ExpressionError] with a sentence fit to show an author. The caller
     turns that into a diagnostic against the cell; nothing here decides
@@ -361,7 +382,7 @@ def translate(source: str, *, self_path: str | None = None) -> dict[str, Any]:
     text = source.strip()
     if not text:
         raise ExpressionError("the expression is empty")
-    return _Parser(_tokenize(text), self_path).parse()
+    return _Parser(_tokenize(text), self_path, row_scope=row_scope).parse()
 
 
 def references(node: dict[str, Any]) -> set[str]:

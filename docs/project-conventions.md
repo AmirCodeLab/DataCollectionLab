@@ -236,23 +236,48 @@ Above the line, Kotlin-only and unreachable by any vector:
   writing, media capture wiring, error surfacing.
 - **The UI** — `CollectionScreen` and everything it renders.
 
-And one thing that is **not** Kotlin-only and still cannot be reached, which is
-worth separating because it is the least obvious of the three:
+### The rule, not the list
 
-- **Which form version a caller validates against.** A vector hands an engine
-  one compiled form; an engine never chooses. So no vector can catch "it
-  validated against the wrong version" — the choice happens in the caller, and
-  vectors cannot see callers. `choice-008` and `choice-009` make v1 and v2
-  *disagree* about one value, which is what makes the mistake detectable
-  anywhere at all, but neither vector fails when a caller binds wrongly; they
-  fail when the engine gets membership wrong. Break 40 records that as a
-  structural gap rather than a coverage one.
+Everything above is Kotlin-only, and for two years the boundary could be
+described that way. It cannot any more, and the general statement is worth more
+than the list:
 
-  It has two callers and both need their own test: the client
+> **A vector fixes the inputs and compares the outputs. So anything that
+> decides *which* compiled artifact is used — rather than what that artifact
+> evaluates to — is structurally invisible to it.**
+
+That is not a coverage gap to be closed by writing more vectors. A vector hands
+an engine one compiled form and one set of answers; the engine never chooses
+either. The choosing happens in a caller, and a caller is precisely what the
+format cannot express. Four instances so far, in the order they were found:
+
+- **Which form version a submission opens against.** `choice-008` and
+  `choice-009` make v1 and v2 *disagree* about one value, which is what makes
+  the mistake detectable anywhere at all — but neither vector fails when a
+  caller binds wrongly; they fail when the engine gets membership wrong.
+  Break 40. Two callers, both needing their own test: the client
   (`FormCatalog.compiledFormForSubmission`, break 30) and the server
-  (`forms.service.compiled_form_for_submission`). In both, the fix was to remove
-  the choice rather than test it — neither takes a version parameter, so the
-  wrong form is not something a caller can ask for.
+  (`forms.service.compiled_form_for_submission`).
+- **Which form version the server validates against.** The same choice, made
+  in the other process. `test_server_version_binding.py`, break 40.
+- **Which dataset version a form's choice lists resolve to.** Item 4 part 2.
+  The IR names a dataset by *key* (§3) and a key is not a version, so the
+  binding happens at publish, in `form_version_dataset`. Break 42 removed
+  `_resolve_dataset_pins` — a form naming three dataset keys then published
+  against nothing, and **310 tests and every conformance vector stayed green**,
+  because the IR was valid, compiled, and both engines agreed about it either
+  way. `test_form_dataset_pinning.py`.
+- **Which form versions a device holds at all.** `FormStore` retention, breaks
+  25, 28, 29 — the same shape one level further out.
+
+**The tell is grammatical.** If a change alters what an answer *evaluates to*,
+a vector can see it. If it alters *which document, version or list* the
+evaluation runs against, no vector can, however many are written. In every case
+above, the fix that worked was the same one: remove the choice rather than test
+it — `compiledFormForSubmission` takes no version parameter and
+`dataset_rows_for` takes none either, so the wrong artifact is not something a
+caller can ask for. A test is what catches the mistake being reintroduced; the
+missing parameter is what stops it being made.
 
 What watches that layer, and all there is:
 
@@ -265,6 +290,8 @@ What watches that layer, and all there is:
 | The server address, and what a failed sync says | `ServerConfigTest`, `SyncFailureTest`, `SyncClientTest` (`:shared:core:jvmTest`) | 32 |
 | The settings screen, and which forms it lists | `SettingsScreenTest`, `HeldFormsTest` (`:clients:composeApp:jvmTest`) | 32 |
 | Which form version the **server** validates against | `test_server_version_binding.py` (`backend`, `-m db`) | 40 |
+| Which dataset version a form version's lists resolve to | `test_form_dataset_pinning.py` (`backend`, `-m db`) | 42 |
+| Companion CSVs: read, refused, or reported missing | `test_xlsform_datasets.py` (`backend`) | 43 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -272,7 +299,10 @@ client-shaped fix would land — and **all 39 vectors stayed green** while the
 navigator refused to let an enumerator past an unanswered question. Break 23
 removed the date field's click overlay: the question became unanswerable and
 every vector still passed, because a form whose date question cannot be opened
-evaluates perfectly.
+evaluates perfectly. Break 42 is the cleanest example of the rule above: a
+published form with no record of which villages it offered, and nothing
+anywhere to notice, because every vector was still asking the only question a
+vector can ask.
 
 **So: if you are adding logic above the engine, a green conformance run is not
 evidence about your change.** It is evidence about code you did not touch. Add a
@@ -300,6 +330,14 @@ python scripts/generate_api_contract.py --check    # what CI runs
 python scripts/import_xlsform.py survey.xlsx --out reports/ --ir form.json
 #   exit 0 clean, 1 has errors, 2 not a readable workbook
 #   real third-party fixtures: backend/tests/fixtures/xlsform/ (+ PROVENANCE.md)
+#   companion CSVs are looked for beside the workbook; --datasets DIR points
+#   elsewhere. A file the survey sheet names and cannot be found is an error
+#   naming it, never a question that quietly has no options.
+
+# The UCL form's five companion CSVs — synthetic, adversarial, not committed
+python scripts/generate_ucl_datasets.py                    # ~3 MB at real scale
+python scripts/import_xlsform.py backend/tests/fixtures/xlsform/ucl-biomass.xlsx \
+    --datasets backend/tests/fixtures/xlsform/ucl-biomass-datasets --out reports/
 
 # Conformance — four sets, all of them on both engines
 python conformance/generate_vectors.py     # regenerate the evaluation vectors
@@ -442,9 +480,9 @@ Both are written up below.
    neither engine read `choices` at all: a `select_one` could hold "purple" and
    both engines called the form valid and finalisable, in production. Form IR
    §6.3/§6.4, error kind `choice`, nine vectors on both engines. See below
-4. **Datasets and `select_one_from_file` — IN PROGRESS.** The state of this is
-   written out below, because it is the item a fresh session would otherwise
-   have to reconstruct
+4. **Datasets and `select_one_from_file` — IN PROGRESS**, parts 1 and 2 done.
+   The state of this is written out below, because it is the item a fresh
+   session would otherwise have to reconstruct
 5. Export: CSV, XLSX, Stata, SPSS — not started
 
 Item 0 was not in the original list and had to be: `FormCatalog` read one form
@@ -608,24 +646,95 @@ incremental sync. Folding that into XLSForm import makes both half-done.
 forms (16 uses; `atan` was the only missing function), so it is chosen by
 evidence rather than guessed.
 
-**Five parts. Part 1 is landed; part 2 is next.**
+**Five parts. Parts 1 and 2 are landed; part 3 is next.**
 
 1. **Server — DONE** (`f26ab59`, `2f6cf0f`). Migration 0004:
    `dataset_record.row_hash`, an index on
    `(dataset_version_id, record_key, row_hash)`, and `form_version_dataset`.
    `entities/service.publish_dataset_version` publishes immutable versions,
    idempotent by content, refusing empty datasets and blank or repeated keys.
-2. **Import — NEXT.** An XLSForm's companion CSVs become dataset versions,
-   pinned to the form version at publish. Needs an API change: the import
-   endpoint must accept companion files beside the .xlsx.
-3. **Engine.** `choices.kind = "dataset"` resolution and the `$row` filter,
-   extending §6.3's membership gate rather than inventing a second one.
-   Conformance vectors on both engines **before any client work**. Note
-   `expression.py` already raises "$row reference outside a choice filter", so
-   the AST expects `$row.column` and nothing evaluates it yet.
+2. **Import — DONE.** An XLSForm's companion CSVs become dataset versions,
+   pinned to the form version at publish. Written up below.
+3. **Engine — NEXT.** `choices.kind = "dataset"` resolution and the `$row`
+   filter, extending §6.3's membership gate rather than inventing a second one.
+   Conformance vectors on both engines **before any client work**. The
+   importer now produces the filter — `{"op":"eq","args":[{"op":"ref",
+   "path":"$row.region_id"},{"op":"ref","path":"region_id"}]}` — and
+   `expression.py` already resolves `$row.column` from `EvalContext.row`. What
+   is missing is the caller: nothing builds that context, nothing resolves a
+   dataset key to rows, and `collect_refs` deliberately excludes `$row.` from
+   the dependency graph, so a filter reading `${region_id}` does **not**
+   currently make the village list recalculate when the region changes. That
+   dependency is part 3's, not a bug in part 2.
 4. **Delivery.** A `datasets` scope on `/sync/pull`, a local store in
    SQLCipher, retention mirroring `FormStore`'s rule one level down.
 5. **Incremental sync.** The hard part; decided below.
+
+### Part 2 — what the importer does with a companion file
+
+`select_one_from_file villages.csv` names a file that is **not in the workbook**.
+That is the whole difficulty: an importer reading only the .xlsx cannot know
+whether the question has two options or fifty thousand, or any.
+
+So the files travel with the upload. `POST /forms/import` takes repeated
+`datasets` parts beside `file`; `scripts/import_xlsform.py` looks in the
+directory holding the workbook and `--datasets` points elsewhere. Both hand the
+same `companions={name: bytes}` to the same `import_workbook`, because a second
+code path would be a second answer about what a form becomes.
+
+**Nothing is lost in silence, one level out from the cell ledger.** Every file
+the survey sheet names ends in exactly one of three states — read, refused with
+a reason, or reported missing by name — and every file *supplied* that nothing
+names is reported too, because that is a rename on one side of the pair and
+otherwise shows up as a missing list while the list sits in the upload. A
+question whose file did not arrive is **dropped**, not imported with an empty
+choice list: an unanswerable question in valid IR is the exact failure the
+whole design is about. Break 43 is the sharp edge — reporting a missing file
+once per *file* rather than once per *question* left three UCL questions gone
+with nothing pointing at their rows, and the coverage ledger caught it.
+
+**A dataset-backed select does not publish yet, and that is deliberate.**
+`select_one` is a collectable dataType and a *dataset-backed* `select_one` is
+not a collectable question: `CollectionViewModel` reads `choices.items`, which
+a dataset-backed list has none of, so the question would deploy and arrive with
+nothing under its label. Defect 7, one axis over. So the registry grew a second
+list — `choiceSources` in `specs/collectable-types-v0.1.json` — and the
+importer asks it per question. When parts 3 and 4 land, `dataset` joins that
+line and the refusal stops, from one file, with no code change on either side.
+
+Three more decisions worth not re-making:
+
+- **The pinning is made unexpressible, not tested.** `publish_version` refuses
+  a form that names a `choices.dataset` key with no pin, a pin for a key the
+  form does not name, a pin twice, a pin to another project's data, and a pin
+  whose version is of a different dataset. Break 42: removing the resolver let
+  a form publish against nothing while the whole non-db suite and every
+  conformance vector stayed green
+- **Publishing a dataset is its own call**, `POST /projects/{id}/datasets`,
+  multipart, **409** on refusal (422 is the framework's, per "The API
+  contract"). Idempotent by content *without* a version number, which matters
+  because the console re-sends the files on every Publish: a duplicate version
+  would tell every device it is behind and cost it a full re-fetch
+- **The key rules live in `entities/rows.py`** and both the publisher and the
+  importer call them, so the report an author reads before uploading says
+  exactly what the server will refuse. Two copies would be the
+  `publishable`-versus-the-gate failure one level down
+
+The report gained a **Reference data** section and a **What worked** block, the
+second in both the success and the failure branch. That is not decoration: a
+report that itemises only failure cannot tell an author whether the half they
+care about survived, and a form with one unsupported question reads like a form
+that did not import at all.
+
+**Where the UCL form actually stands.** Its five lists are read, checked,
+filtered and pinned; its eight `select_one_from_file` questions import (54
+questions became 62); the five knock-on `relevant` errors are gone;
+`select_one_from_file` has left the roadmap's missing-types list. It still does
+not publish, for three reasons that have nothing to do with datasets and were
+all there before: `atan` (2 errors, the only missing XPath function across 27
+real forms), `${...}` inserted into six labels and constraint messages (§7,
+the author's), and a repeat nested in a repeat (§2.3, deferred to IR v0.2).
+Plus the dataset-backed collectability gate above, which parts 3 and 4 lift.
 
 **Decision — the delta mechanism.** Per-row content hashes, delivered as a
 diff against the version the device holds.
