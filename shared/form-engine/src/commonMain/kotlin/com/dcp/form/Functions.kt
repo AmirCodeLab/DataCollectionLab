@@ -50,6 +50,7 @@ object Functions {
         "dec" to Sig(1, 1),
         "str" to Sig(1, 1),
         "distance" to Sig(2, 2),
+        "pulldata" to Sig(4, 4),
         "is_null" to Sig(1, 1),
         "is_not_null" to Sig(1, 1),
     )
@@ -122,6 +123,7 @@ object Functions {
             "substr" -> substr(args)
             "regex" -> regex(args)
             "distance" -> distance(args[0], args[1])
+            "pulldata" -> pulldata(args, ctx)
             else -> throw CompileException("function not implemented: $fn")
         }
     }
@@ -229,6 +231,33 @@ object Functions {
         return FormValue.Bool(compiled.containsMatchIn(subject))
     }
 
+    /**
+     * `(dataset, column, keyColumn, keyValue) → any` — a dataset lookup (§4.3).
+     *
+     * The value of `column` on the first row whose `keyColumn` equals
+     * `keyValue`, or null when there is no such row. Null rather than an error,
+     * like every other unusable argument (§4.7): on a device the commonest
+     * reason for no match is that the reference data has not finished syncing,
+     * and stopping the form is not an improvement on that.
+     *
+     * Goes through the same [DatasetSource] the choice filters use, so it obeys
+     * the same rule: the source is bound to a form version, and this reads the
+     * list that form version was **published against** rather than whatever is
+     * newest (§3.2).
+     */
+    private fun pulldata(args: List<FormValue>, ctx: EvalContext): FormValue {
+        val dataset = textOrNull(args[0]) ?: return FormValue.Null
+        val column = textOrNull(args[1]) ?: return FormValue.Null
+        val keyColumn = textOrNull(args[2]) ?: return FormValue.Null
+        if (args[3].isNull) return FormValue.Null
+        val source = ctx.datasets ?: return FormValue.Null
+        val rows = source.rows(dataset, mapOf(keyColumn to args[3]))
+        // The first match, in dataset order, which is the file's own order
+        // (§3.2). A dataset key is unique per version, so "first" is a
+        // formality for the ordinary case and a defined answer otherwise.
+        return rows.firstOrNull()?.get(column) ?: FormValue.Null
+    }
+
     /** `(geopoint, geopoint) → decimal` — metres, haversine, WGS-84 (spec 4.3). */
     private fun distance(a: FormValue, b: FormValue): FormValue {
         val p = a as? FormValue.GeoPoint ?: return FormValue.Null
@@ -242,7 +271,11 @@ object Functions {
         val dLon = lon2 - lon1
         val h = kotlin.math.sin(dLat / 2).pow(2) +
             kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * kotlin.math.sin(dLon / 2).pow(2)
-        return FormValue.Decimal(2 * radius * kotlin.math.asin(kotlin.math.sqrt(h)))
+        // Rounded to millimetres, deliberately (§4.3) — see the reference's
+        // note. Two engines four transcendental calls deep differ in the last
+        // bit and a vector cannot be written against that.
+        val metres = 2 * radius * kotlin.math.asin(kotlin.math.sqrt(h))
+        return FormValue.Decimal(kotlin.math.round(metres * 1000.0) / 1000.0)
     }
 
     private fun binaryText(args: List<FormValue>, op: (String, String) -> Boolean): FormValue {

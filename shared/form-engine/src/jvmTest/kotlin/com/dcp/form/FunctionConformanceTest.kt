@@ -63,7 +63,21 @@ class FunctionConformanceTest(
         val document = Json.parseToJsonElement(file.readText()).jsonObject
         val today = document["context"]?.jsonObject?.get("today")?.jsonPrimitive?.content
             ?: "2026-08-28"
-        val ctx = EvalContext(values = emptyMap(), today = today, now = "${today}T00:00:00")
+        val datasets = InMemoryDatasetSource(
+            document["datasets"]?.jsonObject.orEmpty().mapValues { (_, rows) ->
+                rows.jsonArray.map { row ->
+                    row.jsonObject.mapValues { (_, cell) -> formValueFromJson(cell) }
+                }
+            },
+        )
+        val ctx = EvalContext(
+            values = emptyMap(),
+            today = today,
+            now = "${today}T00:00:00",
+            // `pulldata` reads reference data, and it comes from the file
+            // rather than from each runner so both engines read the same bytes.
+            datasets = datasets,
+        )
 
         val probes = document.getValue("probes").jsonArray
         assertTrue(probes.isNotEmpty(), "${file.name} holds no probes; an empty file proves nothing")

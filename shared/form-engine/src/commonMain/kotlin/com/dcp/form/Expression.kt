@@ -81,6 +81,13 @@ data class EvalContext(
     val scope: Pair<String, String>? = null,
     /** repeat id -> ordered instance ids, for positional addressing. */
     val instances: Map<String, List<String>>? = null,
+    /**
+     * Where `pulldata` reads reference data from (§4.3). Null when the caller
+     * built no source — `pulldata` is then null, like every other argument that
+     * is not what §4.3 declares (§4.7), rather than an exception on a device
+     * that has not finished syncing.
+     */
+    val datasets: DatasetSource? = null,
 )
 
 object Evaluator {

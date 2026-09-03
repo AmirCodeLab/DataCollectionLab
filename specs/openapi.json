@@ -89,6 +89,110 @@
         }
       }
     },
+    "/api/v1/datasets/versions/{dataset_version_id}/delta": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Dataset Delta",
+        "description": "What changed between the version a device holds and the one a form version was published against.\n\nThis is the path that decides whether the feature is usable in a village. First sync is a one-off at enrolment; this is what happens every week for the life of the project.\n\n**Two stages.** `dataset_record.row_hash` answers 'did anything about this row change', cheaply, over the whole row. That is deliberately not the same question as 'must this device be sent anything': a dataset carries columns no form references — the UCL village list has eight and the form reads four — and an edit to one of those must not cost a 38,000-row list a transfer. So what decides is the projection onto the columns this form version actually reads, and `columns` reports which those were.\n\n**Deletions are explicit.** Inferring them from absence needs the whole set present to compare against, which is the thing being avoided.\n\n**A mismatch is a 409, never a full transfer.** A device asking to come from a version this server never published, or for a list its form was not published against, is a device whose state nobody understands — and re-sending the whole list would make that state look fine. 'No changes' and 'I could not ask' must not be the same silence.",
+        "operationId": "dataset_delta_api_v1_datasets_versions__dataset_version_id__delta_get",
+        "parameters": [
+          {
+            "name": "dataset_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Dataset Version Id"
+            }
+          },
+          {
+            "name": "formVersionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "title": "Formversionid"
+            }
+          },
+          {
+            "name": "datasetKey",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "title": "Datasetkey"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetDeltaPage"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefusedError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices": {
       "post": {
         "tags": [
@@ -1891,6 +1995,69 @@
         "title": "ContentKeyView",
         "description": "A submission's content key, in the only form the server has it: wrapped."
       },
+      "DatasetDeltaPage": {
+        "properties": {
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "fromDatasetVersionId": {
+            "type": "string",
+            "title": "Fromdatasetversionid"
+          },
+          "changed": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Deleted"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetVersionId",
+          "fromDatasetVersionId",
+          "changed",
+          "deleted",
+          "columns",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "DatasetDeltaPage",
+        "description": "What changed between two dataset versions, for one form version.\n\nThe path that decides field usability. First sync is a one-off at\nenrolment; this is what happens every week for the life of the project, on\nwhatever connection there is."
+      },
       "DatasetPin": {
         "properties": {
           "key": {
@@ -1998,6 +2165,13 @@
           "checksum": {
             "type": "string",
             "title": "Checksum"
+          },
+          "filterColumns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filtercolumns"
           }
         },
         "type": "object",

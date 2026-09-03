@@ -43,7 +43,14 @@ class DatasetStoreTest {
         version: Int = 1,
         rowCount: Int = 2,
         checksum: String = "sha256:$versionId",
-    ) = DatasetManifestEntry(formVersionId, key, versionId, version, rowCount, checksum)
+        // What the server would name: the value column, plus whatever the
+        // filters narrow on. Without it nothing is indexed and every resolution
+        // takes the scan path — which is correct, and would leave the indexed
+        // path untested.
+        filterColumns: List<String> = listOf("name", "district_id"),
+    ) = DatasetManifestEntry(
+        formVersionId, key, versionId, version, rowCount, checksum, filterColumns,
+    )
 
     private fun rows(vararg keys: String) =
         keys.map { it to """{"name":"$it","label":"Village $it"}""" }
@@ -257,6 +264,82 @@ class DatasetStoreTest {
         assertEquals(1, datasets.prune(), "only the orphan goes")
         assertEquals(0, datasets.prune())
         assertEquals(1, datasets.rowsFor("fv-1", "villages").size)
+    }
+
+    // -- deltas ------------------------------------------------------------
+
+    @Test
+    fun `a delta seeds from the version held and patches it`() {
+        // What a delta saves is the *transfer*. The rows already on the device
+        // are copied inside SQLite — no network — and only the changes travel.
+        val store = DatasetStore(db())
+        store.deliver(entry(versionId = "dv-1", version = 1), "V1", "V2", "V3")
+
+        store.applyManifest(listOf(entry(versionId = "dv-2", version = 2)))
+        store.applyDelta(
+            datasetVersionId = "dv-2",
+            fromDatasetVersionId = "dv-1",
+            changed = listOf("V2" to """{"name":"V2","label":"Renamed"}"""),
+            deleted = listOf("V3"),
+            nextCursor = null,
+            seed = true,
+        )
+
+        val rows = store.rowsFor("fv-1", "villages")
+        assertEquals(listOf("V1", "V2"), rows.map { it.first }.sorted())
+        assertTrue(rows.single { it.first == "V2" }.second.contains("Renamed"))
+    }
+
+    @Test
+    fun `the old version survives a delta because another form may still pin it`() {
+        // Copied, not renamed. An enumerator holding a v2 draft the morning v3
+        // lands has both form versions on the device, and they may name
+        // different lists. Retention decides when the old one goes.
+        val store = DatasetStore(db())
+        store.applyManifest(
+            listOf(
+                entry(formVersionId = "fv-1", versionId = "dv-1", version = 1),
+                entry(formVersionId = "fv-2", versionId = "dv-2", version = 2),
+            )
+        )
+        store.appendRows("dv-1", rows("V1", "V2"), nextCursor = null)
+        store.applyDelta("dv-2", "dv-1", emptyList(), listOf("V2"), null, seed = true)
+
+        assertEquals(2, store.rowsFor("fv-1", "villages").size, "the old list is untouched")
+        assertEquals(1, store.rowsFor("fv-2", "villages").size)
+    }
+
+    @Test
+    fun `a half-applied delta is not readable either`() {
+        val store = DatasetStore(db())
+        store.deliver(entry(versionId = "dv-1", version = 1), "V1")
+        store.applyManifest(listOf(entry(versionId = "dv-2", version = 2)))
+        store.applyDelta("dv-2", "dv-1", emptyList(), emptyList(), "c:100", seed = true)
+
+        assertTrue(
+            store.rowsFor("fv-1", "villages").isEmpty(),
+            "a correct patch applied to half a base is a wrong list every check agrees about",
+        )
+        store.applyDelta("dv-2", "dv-1", emptyList(), emptyList(), null, seed = false)
+        assertEquals(1, store.rowsFor("fv-1", "villages").size)
+    }
+
+    @Test
+    fun `only a complete version is offered as a delta base`() {
+        // Diffing from a half-transferred list applies a correct patch to an
+        // incorrect base and then marks the result whole.
+        val store = DatasetStore(db())
+        store.applyManifest(listOf(entry(versionId = "dv-1", version = 1)))
+        store.appendRows("dv-1", rows("V1"), nextCursor = "more")
+
+        assertNull(store.deltaBaseFor("villages", exclude = "dv-2"))
+
+        store.appendRows("dv-1", rows("V2"), nextCursor = null)
+        assertEquals("dv-1", store.deltaBaseFor("villages", exclude = "dv-2"))
+        assertNull(
+            store.deltaBaseFor("villages", exclude = "dv-1"),
+            "a version cannot be its own base",
+        )
     }
 
     // -- the engine bridge -------------------------------------------------

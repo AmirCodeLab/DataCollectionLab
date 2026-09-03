@@ -89,6 +89,17 @@ class DeployedDatasetVersion(BaseModel):
     #: The content address. What a device compares to decide it already holds
     #: this exact list, so a version whose content drifted cannot pass for it.
     checksum: str
+    #: The columns this form version's choice filters narrow on — what a device
+    #: should index (Form IR §3.2).
+    #:
+    #: The server sends them because the server is what knows: the filter is in
+    #: the IR, and which columns it selects on is decided by `compile_choices`,
+    #: the same function the engine uses. A device indexing every column instead
+    #: paid for it — 8 columns times 38,000 villages is 304,000 index entries,
+    #: which on a Pixel 6 Pro turned a 137 ms delta into 14.4 seconds.
+    filter_columns: list[str] = Field(
+        default_factory=list, serialization_alias="filterColumns"
+    )
 
 
 class DatasetRowsPage(BaseModel):
@@ -110,5 +121,34 @@ class DatasetRowsPage(BaseModel):
     rows: list[dict[str, str]]
     #: Pass back as `cursor` for the next page. Null on the last page — which
     #: is how a device knows it has the whole list and not most of it.
+    next_cursor: str | None = Field(serialization_alias="nextCursor")
+    has_more: bool = Field(serialization_alias="hasMore")
+
+
+class DatasetDeltaPage(BaseModel):
+    """What changed between two dataset versions, for one form version.
+
+    The path that decides field usability. First sync is a one-off at
+    enrolment; this is what happens every week for the life of the project, on
+    whatever connection there is.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    dataset_version_id: str = Field(serialization_alias="datasetVersionId")
+    #: Echoed so a device can see the server agreed about where it was starting
+    #: from, rather than inferring it from a page that happens to apply.
+    from_dataset_version_id: str = Field(serialization_alias="fromDatasetVersionId")
+    #: Whole rows, not just the changed columns: a device stores whole rows
+    #: because another form version may read different ones.
+    changed: list[dict[str, str]]
+    #: Keys that are gone. Explicit, never inferred from absence — inferring it
+    #: needs the whole set present to compare against, which is the thing a
+    #: delta exists to avoid sending.
+    deleted: list[str]
+    #: The columns the projection was taken over. Reported so that *why* a row
+    #: did or did not travel is answerable from the response rather than from
+    #: reading the server.
+    columns: list[str]
     next_cursor: str | None = Field(serialization_alias="nextCursor")
     has_more: bool = Field(serialization_alias="hasMore")

@@ -47,6 +47,14 @@ CREATE TABLE dataset_version (
     -- resume. First sync is the hard case: 38,000 rows over a field connection
     -- is many requests and at least one of them will fail.
     next_cursor TEXT,
+    -- The columns a form filters on, comma-separated, as the server named them
+    -- (Form IR §3.2). Only these are indexed into `dataset_cell`.
+    --
+    -- The server sends them because the server is what knows: the filter is in
+    -- the IR. Indexing every column instead was measured on a Pixel 6 Pro —
+    -- eight columns times 38,000 villages is 304,000 entries, which turned a
+    -- 137 ms delta into 14.4 seconds, because a delta copies the index across.
+    filter_columns TEXT NOT NULL DEFAULT '',
     fetched_at TEXT NOT NULL
 );
 
@@ -80,7 +88,7 @@ CREATE INDEX form_version_dataset_version ON form_version_dataset(dataset_versio
 
 heldDatasetVersions:
 SELECT dataset_version_id, dataset_key, version, checksum, row_count, complete,
-       next_cursor, fetched_at
+       next_cursor, filter_columns, fetched_at
 FROM dataset_version
 ORDER BY dataset_key ASC, version DESC;
 
@@ -93,14 +101,15 @@ SELECT dataset_version_id, checksum, complete FROM dataset_version;
 
 datasetVersion:
 SELECT dataset_version_id, dataset_key, version, checksum, row_count, complete,
-       next_cursor, fetched_at
+       next_cursor, filter_columns, fetched_at
 FROM dataset_version
 WHERE dataset_version_id = ?;
 
 upsertDatasetVersion:
 INSERT OR REPLACE INTO dataset_version(dataset_version_id, dataset_key, version, checksum,
-                                       row_count, complete, next_cursor, fetched_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                                       row_count, complete, next_cursor, filter_columns,
+                                       fetched_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 markComplete:
 UPDATE dataset_version SET complete = 1, next_cursor = NULL WHERE dataset_version_id = ?;
@@ -183,3 +192,113 @@ orphanedPins:
 SELECT form_version_id FROM form_version_dataset
 WHERE NOT EXISTS (SELECT 1 FROM form_version f
                    WHERE f.form_version_id = form_version_dataset.form_version_id);
+
+-- Applying a delta (item 4 part 5).
+--
+-- A device on v3 receiving v4 keeps the rows it already has: they are copied
+-- to the new version id and the changed ones written over them. The copy is one
+-- statement inside SQLite and costs no network at all, which is the entire
+-- point — what a delta saves is the transfer, and 38,000 rows over a field
+-- connection is the thing being saved.
+--
+-- Copied rather than renamed because another form version this device holds may
+-- still pin the old version (an enumerator with a v2 draft the morning v3
+-- lands). Retention decides when it goes, not this.
+copyRowsToVersion:
+INSERT OR REPLACE INTO dataset_row(dataset_version_id, record_key, data_json)
+SELECT ?, record_key, data_json FROM dataset_row WHERE dataset_version_id = ?;
+
+deleteRow:
+DELETE FROM dataset_row WHERE dataset_version_id = ? AND record_key = ?;
+
+-- Narrowing by index rather than by scan (Form IR §3.2).
+--
+-- Measured on a Pixel 6 Pro with 38,000 villages: reading the whole version and
+-- filtering it in memory cost **1,589 ms on the first keystroke** and held 46 MB
+-- of heap. An enumerator taps the village question and the app stops for a
+-- second and a half. That is not a slow feature, it is an unusable one, and §3.2
+-- promised otherwise — resolution proportional to the rows matching the
+-- selector, never to the dataset.
+--
+-- The cost was never the comparison; it was parsing 38,000 JSON documents to
+-- find a couple of hundred. So the columns are indexed on the way in and the
+-- selector becomes a lookup: only rows that match are ever parsed.
+--
+-- One row per (row, column). It is the largest thing in this schema by some way
+-- — eight columns times 38,000 villages is 304,000 entries — and it is worth it:
+-- storage on a handset is cheap and a second and a half per keystroke is not.
+-- Empty cells are skipped, because nothing filters on absence and they are
+-- common in real exports.
+--
+-- `json_extract` would have been the smaller change and is not available:
+-- SQLDelight compiles against a SQLite dialect without JSON1 and will not type
+-- the call. It would also still have been a scan — in C rather than in Kotlin,
+-- which is faster and is not what §3.2 says.
+CREATE TABLE dataset_cell (
+    dataset_version_id TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    cell_value TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    PRIMARY KEY (dataset_version_id, column_name, cell_value, record_key)
+) WITHOUT ROWID;
+
+insertCell:
+INSERT OR REPLACE INTO dataset_cell(dataset_version_id, column_name, cell_value, record_key)
+VALUES (?, ?, ?, ?);
+
+deleteCells:
+DELETE FROM dataset_cell WHERE dataset_version_id = ?;
+
+deleteCellsForRow:
+DELETE FROM dataset_cell WHERE dataset_version_id = ? AND record_key = ?;
+
+copyCellsToVersion:
+INSERT OR REPLACE INTO dataset_cell(dataset_version_id, column_name, cell_value, record_key)
+SELECT ?, column_name, cell_value, record_key
+FROM dataset_cell WHERE dataset_version_id = ?;
+
+-- One selector column: a primary-key range scan on (version, column, value).
+-- This is the query §3.2's contract is about.
+rowsForFormVersionWhere1:
+SELECT r.record_key, r.data_json
+FROM dataset_cell c
+JOIN dataset_row r
+  ON r.dataset_version_id = c.dataset_version_id AND r.record_key = c.record_key
+JOIN form_version_dataset p ON p.dataset_version_id = c.dataset_version_id
+JOIN dataset_version v ON v.dataset_version_id = c.dataset_version_id
+WHERE p.form_version_id = ? AND p.dataset_key = ? AND v.complete = 1
+  AND c.column_name = ? AND c.cell_value = ?
+ORDER BY r.rowid;
+
+-- Two: the intersection of two such lookups. Two is not an arbitrary stopping
+-- point — it is every cascade there is. Region -> district -> village narrows on
+-- one column each; the UCL plot list narrows on two (village and planting
+-- phase). Anything wider falls back to the in-memory scan, which is correct and
+-- slow, and `StoredDatasetSource` says which path it took rather than hiding it.
+rowsForFormVersionWhere2:
+SELECT r.record_key, r.data_json
+FROM dataset_cell c
+JOIN dataset_cell c2
+  ON c2.dataset_version_id = c.dataset_version_id AND c2.record_key = c.record_key
+JOIN dataset_row r
+  ON r.dataset_version_id = c.dataset_version_id AND r.record_key = c.record_key
+JOIN form_version_dataset p ON p.dataset_version_id = c.dataset_version_id
+JOIN dataset_version v ON v.dataset_version_id = c.dataset_version_id
+WHERE p.form_version_id = ? AND p.dataset_key = ? AND v.complete = 1
+  AND c.column_name = ? AND c.cell_value = ?
+  AND c2.column_name = ? AND c2.cell_value = ?
+ORDER BY r.rowid;
+
+-- Which columns the version a form version pins actually indexes.
+--
+-- Asked before the indexed path is taken, and that is not an optimisation. An
+-- index that does not cover a column answers "no rows" rather than "I cannot
+-- help" — so a filter on an unindexed column would resolve to an empty village
+-- list, on a device holding every village, with nothing in an error state. It
+-- is the stale-list failure reached by a different road, and a test caught it
+-- the first time the columns became selective.
+indexedColumnsForFormVersion:
+SELECT v.filter_columns
+FROM dataset_version v
+JOIN form_version_dataset p ON p.dataset_version_id = v.dataset_version_id
+WHERE p.form_version_id = ? AND p.dataset_key = ?;

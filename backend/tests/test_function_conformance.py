@@ -27,6 +27,7 @@ from datetime import date, datetime
 
 import pytest
 
+from app.modules.form_engine.datasets import InMemoryDatasetSource
 from app.modules.form_engine.expression import (
     EvalContext,
     EvaluationError,
@@ -42,7 +43,12 @@ assert FILES, f"no function matrix found in {MATRIX_DIR}"
 def _context(document: dict) -> EvalContext:
     today = date.fromisoformat(document.get("context", {}).get("today", "2026-08-28"))
     return EvalContext(
-        values={}, today=today, now=datetime.combine(today, datetime.min.time())
+        values={},
+        today=today,
+        now=datetime.combine(today, datetime.min.time()),
+        # `pulldata` reads reference data, and it comes from the file rather
+        # than from each runner so both engines read the same bytes.
+        datasets=InMemoryDatasetSource(document.get("datasets") or {}),
     )
 
 

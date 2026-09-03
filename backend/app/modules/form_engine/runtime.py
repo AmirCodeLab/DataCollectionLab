@@ -385,6 +385,9 @@ class FormInstance:
             metadata=self.metadata,
             scope=scope,
             instances=self.instances,
+            # `pulldata` reads through the same source the choice filters do,
+            # so a client's form-version binding covers both (§3.2).
+            datasets=self.datasets,
         )
 
     def _evaluate_field(self, fid: str, path: str, scope: tuple[str, str] | None) -> None:

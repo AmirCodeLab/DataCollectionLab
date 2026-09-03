@@ -5,6 +5,20 @@
  "context": {
   "today": "2026-08-28"
  },
+ "datasets": {
+  "villages": [
+   {
+    "name": "V1",
+    "label": "Mtakuja",
+    "pop": "800"
+   },
+   {
+    "name": "V2",
+    "label": "Mbuyuni",
+    "pop": "40"
+   }
+  ]
+ },
  "probes": [
   {
    "id": "fn.is_not_null.null",

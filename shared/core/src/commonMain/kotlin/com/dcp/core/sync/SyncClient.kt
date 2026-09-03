@@ -621,6 +621,7 @@ class SyncClient(
                 version = it.version,
                 rowCount = it.rowCount,
                 checksum = it.checksum,
+                filterColumns = it.filterColumns,
             )
         }
         store.applyManifest(entries)
@@ -629,7 +630,17 @@ class SyncClient(
         val incomplete = mutableListOf<String>()
         for (entry in store.missingFrom(entries)) {
             try {
-                fetched += fetchDatasetRows(baseUrl, store, entry.datasetVersionId)
+                // A complete earlier version of the same list is a base to diff
+                // against, and the difference is the whole of part 5: a device
+                // on v3 receiving v4 with 200 changed rows should not spend a
+                // morning on 38,000. With no base there is nothing to diff and
+                // the paged full transfer is the first-sync path.
+                val base = store.deltaBaseFor(entry.datasetKey, entry.datasetVersionId)
+                fetched += if (base != null) {
+                    fetchDatasetDelta(baseUrl, store, entry, base)
+                } else {
+                    fetchDatasetRows(baseUrl, store, entry.datasetVersionId)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -679,6 +690,51 @@ class SyncClient(
             store.appendRows(datasetVersionId, stored, page.nextCursor)
             rows += stored.size
             cursor = page.nextCursor ?: return rows
+        }
+    }
+
+    /**
+     * The changes between a version this device holds and the one it needs.
+     *
+     * A **409 is not retried and not fallen back from.** The server refusing a
+     * diff means it does not recognise where this device says it is — and
+     * quietly fetching the whole list instead would leave the device correct
+     * and the disagreement invisible, which is the failure this whole guard
+     * exists for. It propagates, and the sync reports it.
+     */
+    private suspend fun fetchDatasetDelta(
+        baseUrl: String,
+        store: DatasetStore,
+        entry: DatasetManifestEntry,
+        base: String,
+    ): Int {
+        var cursor: String? = null
+        var applied = 0
+        var first = true
+        while (true) {
+            val page: WireDatasetDeltaPage = withRetry {
+                http.get("$baseUrl/api/v1/datasets/versions/$base/delta") {
+                    parameter("formVersionId", entry.formVersionId)
+                    parameter("datasetKey", entry.datasetKey)
+                    if (cursor != null) parameter("cursor", cursor)
+                }.body()
+            }
+            store.applyDelta(
+                datasetVersionId = entry.datasetVersionId,
+                fromDatasetVersionId = base,
+                changed = page.changed.map { row ->
+                    val key = row["name"] ?: row.values.firstOrNull() ?: ""
+                    key to SyncJson.encodeToString(RowSerializer, row)
+                },
+                deleted = page.deleted,
+                nextCursor = page.nextCursor,
+                // The rows this device already holds are copied across on the
+                // first page only; later pages patch what is already there.
+                seed = first,
+            )
+            applied += page.changed.size + page.deleted.size
+            first = false
+            cursor = page.nextCursor ?: return applied
         }
     }
 

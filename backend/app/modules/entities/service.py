@@ -295,6 +295,8 @@ async def deployed_dataset_versions_for_device(
     if not deployed:
         return []
 
+    from app.modules.forms.models import FormVersion
+
     rows = await session.execute(
         select(
             FormVersionDataset.form_version_id,
@@ -311,6 +313,18 @@ async def deployed_dataset_versions_for_device(
         .order_by(FormVersionDataset.dataset_key, FormVersionDataset.form_version_id)
     )
 
+    # Which columns each deployed form version filters on. Read from the IR
+    # once per form version rather than per manifest entry: a form with five
+    # lists would otherwise compile itself five times.
+    irs = {
+        row[0]: row[1]
+        for row in await session.execute(
+            select(FormVersion.id, FormVersion.ir).where(
+                FormVersion.id.in_([v.form_version_id for v in deployed])
+            )
+        )
+    }
+
     return [
         DeployedDatasetVersion(
             form_version_id=form_version_id,
@@ -319,10 +333,60 @@ async def deployed_dataset_versions_for_device(
             version=version,
             row_count=row_count,
             checksum=checksum,
+            filter_columns=sorted(
+                selector_columns(irs.get(form_version_id) or {}, dataset_key)
+            ),
         )
         for form_version_id, dataset_key, dataset_version_id, version, row_count, checksum
         in rows
     ]
+
+
+def selector_columns(ir: dict[str, Any], dataset_key: str) -> set[str]:
+    """The columns a form version's filters *narrow on* for one dataset (§3.2).
+
+    The selector's keys, and nothing else — not the label columns, not the value
+    column, not the residual's. Those are read, and reading is what the row
+    itself is for; narrowing is what an index is for, and indexing more than
+    that is what a device pays for.
+
+    It cost a measurement to learn: indexing every column made 8 x 38,000 =
+    304,000 entries, a 7x slower first sync and a **105x slower delta**, because
+    a delta copies the index across to the new version. One column is 38,000.
+    """
+    from app.modules.form_engine.datasets import compile_choices
+
+    found: set[str] = set()
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            choices = node.get("choices")
+            if isinstance(choices, dict) and choices.get("dataset") == dataset_key:
+                query = compile_choices(choices)
+                if query is not None:
+                    found.update(query.selector)
+            walk(node.get("children", []) or [])
+
+    walk(ir.get("children", []) or [])
+    # The value column too: membership (§6.3) is a lookup on it, and it is asked
+    # on every recalculation of an answered question.
+    for node in _questions(ir):
+        choices = node.get("choices") or {}
+        if choices.get("dataset") == dataset_key and choices.get("valueColumn"):
+            found.add(str(choices["valueColumn"]))
+    return found
+
+
+def _questions(ir: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            out.append(node)
+            walk(node.get("children", []) or [])
+
+    walk(ir.get("children", []) or [])
+    return out
 
 
 async def dataset_rows_page(
@@ -420,3 +484,240 @@ async def dataset_rows_for(
         )
     ).scalars().all()
     return [dict(r) for r in records]
+
+
+# ---------------------------------------------------------------------------
+# Incremental delivery (item 4 part 5)
+# ---------------------------------------------------------------------------
+
+
+class DeltaRefused(Exception):
+    """The diff cannot be computed, and a full transfer is not the answer.
+
+    **This class is the guard.** The tempting behaviour when a device asks for a
+    diff the server cannot produce is to send the whole list instead — it always
+    works, and the device ends up correct. It is also silent, and it papers over
+    the only evidence that something is wrong: a device asking to go from a
+    version this dataset never had, or for a list its form was not published
+    against, is a device whose state nobody understands, and re-sending 38,000
+    rows makes that state *look* fine.
+
+    So a mismatch refuses, loudly, with a reason. "No changes" and "I could not
+    ask" must never be the same silence — which is the whole failure mode of a
+    delta mechanism and the reason this is built with delivery rather than after
+    it.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def columns_read_by(ir: dict[str, Any], dataset_key: str) -> set[str]:
+    """The columns a form version actually reads from one dataset (§3.2).
+
+    Value column, every label column, and every `$row.` the filter names.
+    Nothing else — and that is the entire point of stage two: a dataset carries
+    columns no form references (the UCL village list has eight and the form
+    reads four), and an edit to one of those must not cost a 38,000-row list a
+    transfer over a field connection for a change no enumerator can see.
+
+    Derived from the IR by the same `compile_choices` the engine uses, rather
+    than by a second walk written here. A projection computed one way on the
+    server and another way in the engine would ship deltas nobody needs, or
+    worse, skip ones somebody does.
+    """
+    from app.modules.form_engine.datasets import ROW_PREFIX, compile_choices
+
+    found: set[str] = set()
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            choices = node.get("choices")
+            if isinstance(choices, dict) and choices.get("dataset") == dataset_key:
+                query = compile_choices(choices)
+                if query is not None:
+                    found.add(query.value_column)
+                    found.update(query.label_columns.values())
+                    # The selector's KEYS are columns; its values are
+                    # expressions over answers and read nothing from the row.
+                    found.update(query.selector)
+                    if query.residual is not None:
+                        # `collect_refs` drops `$row.` deliberately — they are
+                        # columns, not fields — so the residual's columns are
+                        # picked out here instead.
+                        found.update(
+                            r[len(ROW_PREFIX):] for r in _row_refs(query.residual)
+                        )
+            walk(node.get("children", []) or [])
+
+    walk(ir.get("children", []) or [])
+    return found
+
+
+def _row_refs(expr: Any) -> set[str]:
+    from app.modules.form_engine.datasets import ROW_PREFIX
+
+    found: set[str] = set()
+    if isinstance(expr, dict):
+        if expr.get("op") == "ref" and str(expr.get("path", "")).startswith(ROW_PREFIX):
+            found.add(str(expr["path"]))
+        for arg in expr.get("args") or []:
+            found |= _row_refs(arg)
+    return found
+
+
+@dataclass
+class DatasetDelta:
+    """What changed between two versions of one dataset, for one form version."""
+
+    dataset_version_id: str
+    from_dataset_version_id: str
+    #: Rows whose projection onto the columns this form reads is different, or
+    #: which are new. Whole rows, not just the changed columns: a device stores
+    #: whole rows because another form version may read different ones.
+    changed: list[dict[str, Any]] = field(default_factory=list)
+    #: Keys that are gone. **Explicit**, never inferred from absence —
+    #: inferring it needs the whole set present to compare against, which is
+    #: the thing being avoided. A form manifest can be a complete statement
+    #: because it is 300 bytes; a 38,000-row dataset cannot.
+    deleted: list[str] = field(default_factory=list)
+    next_cursor: str | None = None
+    #: The columns the projection was taken over — reported so a device (and a
+    #: person reading a trace) can see *why* a row did or did not travel.
+    columns: list[str] = field(default_factory=list)
+
+
+async def dataset_delta(
+    session: AsyncSession,
+    *,
+    form_version_id: str,
+    dataset_key: str,
+    from_dataset_version_id: str,
+    cursor: str | None,
+    limit: int,
+) -> DatasetDelta:
+    """The diff a device on `from` needs to reach what `form_version_id` pins.
+
+    Two stages, and the second is the one that matters (docs/project-conventions.md, item 4):
+
+    1. `dataset_record.row_hash` answers "did anything about this row change",
+       cheaply. It covers the **whole** row.
+    2. That is deliberately not the same question as "must this device be sent
+       anything". The projection onto the columns this form version actually
+       reads is what decides, so an edit to a column no form references costs
+       nobody a transfer.
+
+    Refuses rather than falling back to a full transfer — see [DeltaRefused].
+    A device holding nothing does not come here at all: it has no `from`, and
+    the paged rows endpoint is the first-sync path.
+    """
+    to_version = (
+        await session.execute(
+            select(FormVersionDataset.dataset_version_id).where(
+                FormVersionDataset.form_version_id == form_version_id,
+                FormVersionDataset.dataset_key == dataset_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if to_version is None:
+        raise DeltaRefused(
+            f"form version {form_version_id} was not published against any "
+            f"`{dataset_key}`. A device asking for one is a device whose state "
+            "does not match this server's, and sending it a list would hide that "
+            "rather than fix it."
+        )
+
+    rows = (
+        await session.execute(
+            select(DatasetVersion.id, DatasetVersion.dataset_id, DatasetVersion.version).where(
+                DatasetVersion.id.in_([to_version, from_dataset_version_id])
+            )
+        )
+    ).all()
+    found = {row[0]: row for row in rows}
+    if from_dataset_version_id not in found:
+        raise DeltaRefused(
+            f"this device says it holds dataset version {from_dataset_version_id}, "
+            "which this server has never published. Something about that device's "
+            "state is wrong, and a full transfer would make it look right."
+        )
+    if found[from_dataset_version_id][1] != found[to_version][1]:
+        raise DeltaRefused(
+            f"dataset version {from_dataset_version_id} belongs to a different "
+            f"dataset than `{dataset_key}`. These two lists have no diff — one is "
+            "not a later version of the other."
+        )
+
+    from app.modules.forms.models import FormVersion
+
+    ir = (
+        await session.execute(
+            select(FormVersion.ir).where(FormVersion.id == form_version_id)
+        )
+    ).scalar_one_or_none()
+    columns = sorted(columns_read_by(ir or {}, dataset_key))
+
+    def projection(data: dict[str, Any]) -> str:
+        return row_hash({c: data.get(c) for c in columns})
+
+    before = {
+        key: projection(data)
+        for key, data in await session.execute(
+            select(DatasetRecord.record_key, DatasetRecord.data).where(
+                DatasetRecord.dataset_version_id == from_dataset_version_id
+            )
+        )
+    }
+
+    # Two phases in one cursor: the changed rows in publication order, then the
+    # deleted keys. Both are bounded, and paging only one of them would leave
+    # the other unbounded — a version that dropped 30,000 villages is exactly
+    # the case a delta is for.
+    phase, position = ("c", "") if not cursor else (cursor[:1], cursor[2:])
+
+    changed: list[dict[str, Any]] = []
+    if phase == "c":
+        statement = (
+            select(DatasetRecord.ordinal, DatasetRecord.record_key, DatasetRecord.data)
+            .where(DatasetRecord.dataset_version_id == to_version)
+            .order_by(DatasetRecord.ordinal)
+        )
+        if position:
+            statement = statement.where(DatasetRecord.ordinal > int(position))
+        last_ordinal: int | None = None
+        for ordinal, key, data in await session.execute(statement):
+            if before.get(key) != projection(dict(data)):
+                changed.append(dict(data))
+            last_ordinal = ordinal
+            if len(changed) >= limit:
+                return DatasetDelta(
+                    dataset_version_id=to_version,
+                    from_dataset_version_id=from_dataset_version_id,
+                    changed=changed,
+                    next_cursor=f"c:{last_ordinal}",
+                    columns=columns,
+                )
+        phase, position = "d", ""
+
+    present = set(
+        (
+            await session.execute(
+                select(DatasetRecord.record_key).where(
+                    DatasetRecord.dataset_version_id == to_version
+                )
+            )
+        ).scalars()
+    )
+    gone = sorted(key for key in before if key not in present)
+    if position:
+        gone = [key for key in gone if key > position]
+    page = gone[:limit]
+    return DatasetDelta(
+        dataset_version_id=to_version,
+        from_dataset_version_id=from_dataset_version_id,
+        changed=changed,
+        deleted=page,
+        next_cursor=f"d:{page[-1]}" if len(gone) > limit else None,
+        columns=columns,
+    )

@@ -31,16 +31,23 @@ import kotlinx.serialization.json.Json
  * enumerator sees as an empty list — visible, reportable, and wrong in the
  * direction that gets noticed.
  *
- * ## The current shape, and what part 5 changes
+ * ## Two paths, and the measurement that produced the second one
  *
- * Rows are read out of SQLCipher and filtered in memory. That is honest for
- * now and is *not* the performance contract being met: §3.2 promises resolution
- * proportional to the rows matching the selector, and this reads the whole
- * version to find them. The interface is what makes the difference addressable
- * — an index on the selector columns is a change to this class and to nothing
- * else, and the engine, the vectors and every client stay exactly as they are.
- * Measuring it on the Pixel at 38,000 rows is what decides whether it has to
- * happen before the item is done (item 4 part 5).
+ * The first cut read the whole version out of SQLCipher and filtered it in
+ * memory. On a Pixel 6 Pro with 38,000 villages that cost **1,589 ms on the
+ * first keystroke** and held 46 MB of heap — the app stopping for a second and
+ * a half when an enumerator taps the village question. §3.2 promised resolution
+ * proportional to the rows matching the selector, and that was proportional to
+ * the dataset.
+ *
+ * So the columns are indexed on the way in and a selector of one or two columns
+ * — which is every cascade there is — becomes a lookup. Only matching rows are
+ * read and parsed.
+ *
+ * The in-memory path survives for wider selectors, and [scanned] says when it
+ * was used. A fallback nobody can see is a performance contract nobody can
+ * check: the difference between the two is three orders of magnitude, and it
+ * must not be something a form author discovers in a village.
  */
 class StoredDatasetSource(
     private val store: DatasetStore,
@@ -50,19 +57,45 @@ class StoredDatasetSource(
     private val rowSerializer = MapSerializer(String.serializer(), String.serializer())
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Parsed once per dataset key per instance; a form re-resolves constantly. */
+    /** Parsed once per dataset key per instance, for the scan path only. */
     private val cache = mutableMapOf<String, List<Map<String, FormValue>>>()
+
+    /**
+     * True once a resolution has fallen back to reading a whole version.
+     *
+     * Exposed rather than logged: the two paths differ by three orders of
+     * magnitude on real data, and which one a form gets is a property of how its
+     * filter was written. Something has to be able to say so — a benchmark, a
+     * settings screen, a support answer — without reading this file.
+     */
+    var scanned: Boolean = false
+        private set
 
     override fun rows(
         dataset: String,
         selector: Map<String, FormValue>,
         equals: Pair<String, FormValue>?,
     ): List<Map<String, FormValue>> {
-        val all = cache.getOrPut(dataset) {
-            store.rowsFor(formVersionId, dataset).map { (_, dataJson) ->
-                json.decodeFromString(rowSerializer, dataJson)
-                    .mapValues { (_, cell) -> FormValue.Text(cell) as FormValue }
+        // The indexed path. A selector term whose value is not text cannot be a
+        // lookup — the index stores cells, and a CSV holds nothing but text —
+        // and a null one matches nothing at all, which §3.2 makes the correct
+        // answer rather than a reason to widen.
+        val terms = buildList {
+            selector.forEach { (column, value) -> add(column to value) }
+            if (equals != null) add(equals)
+        }
+        if (terms.isNotEmpty() && terms.all { it.second is FormValue.Text }) {
+            val lookup = terms.map { it.first to (it.second as FormValue.Text).value }
+            store.rowsMatching(formVersionId, dataset, lookup)?.let { found ->
+                return found.map { (_, dataJson) -> parse(dataJson) }
             }
+        }
+        if (terms.any { it.second is FormValue.Null }) return emptyList()
+
+        // The scan. Correct, slow, and recorded.
+        scanned = true
+        val all = cache.getOrPut(dataset) {
+            store.rowsFor(formVersionId, dataset).map { (_, dataJson) -> parse(dataJson) }
         }
         // The same comparison the reference source makes — exact, §3.1 and
         // §6.3's rule — so a device and the server agree about membership.
@@ -76,4 +109,8 @@ class StoredDatasetSource(
         }
         return matched
     }
+
+    private fun parse(dataJson: String): Map<String, FormValue> =
+        json.decodeFromString(rowSerializer, dataJson)
+            .mapValues { (_, cell) -> FormValue.Text(cell) as FormValue }
 }

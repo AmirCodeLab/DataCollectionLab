@@ -260,6 +260,48 @@ rather than by an optimisation, which is why it is stated here and not in a
 client: the engine decides *what* the list is, a source decides only how
 quickly it can find it.
 
+#### What it costs, measured
+
+Measured on a **Pixel 6 Pro**, 38,000 villages of eight columns, through
+SQLCipher, driving the real engine — `scripts/measure_datasets_on_device.sh`
+reproduces it:
+
+| | in memory | indexed |
+|---|---|---|
+| First keystroke on the question | **1,589 ms** | **45 ms** |
+| Every keystroke after (median) | 17.4 ms | 9.8 ms |
+| 95th percentile | 56.4 ms | 32.3 ms |
+| Resident heap | 46.3 MB | 11.6 MB |
+| First sync, writing 38,000 rows | 1.1 s | 3.2 s |
+| Storage | 8.4 MB | 11.3 MB |
+| Second sync: 200 changed rows | 137 ms | 2.7 s |
+
+The left column is what "read the version and filter it" costs, and it is why
+this section is written the way it is. A second and a half of nothing when an
+enumerator taps a question is not a slow feature; it is an unusable one, and no
+amount of care elsewhere makes up for it.
+
+The right column is the cost moved to where it can be afforded. Narrowing is now
+an index lookup, and the price is paid at **write** time — three seconds on a
+first sync, which happens once at enrolment, and 2.7 seconds to apply a weekly
+delta, which happens inside a sync that is already waiting on a network. Both
+are background; neither is in front of anybody.
+
+**Only the columns a filter narrows on are indexed**, and a server tells a
+device which those are, because the filter is in the IR and the server is what
+reads it. Indexing every column instead was measured too: 8 × 38,000 = 304,000
+entries, a first sync of 7.7 s, 19.6 MB of storage, and a delta of **14.4
+seconds** — because a delta copies the index across to the new version. An index
+is not free and the difference between indexing what is used and indexing
+everything was a factor of five on the number that matters most.
+
+**An index that does not cover a column must not answer.** A lookup on an
+unindexed column returns no rows, which is indistinguishable from a filter that
+matched nothing — an empty village list on a device holding every village, with
+nothing in an error state. So the engine's source checks coverage first and
+falls back to the scan, and says which path it took. A fallback nobody can see
+is a performance contract nobody can check.
+
 **A client MUST NOT pre-narrow the candidate set.** Handing an engine "the rows
 I think are relevant" makes the client the thing that decides what the choice
 list is — and which rows are candidates is a *which-artifact* decision, of
@@ -333,8 +375,29 @@ One deliberate exception: a positional reference to an instance that does not cu
 | `regex` | `(text, pattern) → boolean` | RE2 syntax only — see §4.6 |
 | `round` | `(number, integer?) → number` | Half away from zero |
 | `int` / `dec` / `str` | explicit casts | No implicit coercion — see §4.3.1 |
-| `distance` | `(geopoint, geopoint) → decimal` | Metres, haversine, WGS-84 |
-| `pulldata` | `(dataset, column, keyColumn, keyValue) → any` | Dataset lookup |
+| `distance` | `(geopoint, geopoint) → decimal` | Metres, haversine, WGS-84, **rounded to millimetres** — see below |
+| `pulldata` | `(dataset, column, keyColumn, keyValue) → any` | Dataset lookup — resolved through the form version's pin, §3.2 |
+| `is_null` / `is_not_null` | `(any) → boolean` | Always a boolean, never null — §4.4.10 |
+
+`distance` is rounded to three decimal places, and that is a conformance
+decision rather than a display one. The haversine is four transcendental calls
+deep, and `sin`, `cos`, `asin` and `sqrt` are permitted an error of one unit in
+the last place by both platforms' libraries — so two engines computing the same
+formula over the same inputs legitimately differ in the last bit, and did:
+325481.7667839453 against 325481.7667839454 metres. A millimetre is four orders
+of magnitude below the accuracy of any GPS fix this platform will accept
+(§6.1), so nothing real is lost, and the alternative is a vector that fails on
+one platform's libm for reasons no author can act on.
+
+**This table is the complete list, and it is checked by execution.** Every name
+here is called on both engines by `conformance/functions`, which is derived from
+this table rather than from a list somebody maintains beside it. That is not
+belt-and-braces: `regex`, `substr` and `distance` sat in this table, implemented
+in the Python reference and absent from the Kotlin engine, for as long as both
+existed — a form using one worked on the server and threw mid-interview on a
+phone — and `pulldata` was in the table and in neither. All four were *declared*
+in the Kotlin signature map, which is why nothing may be checked against a
+declaration. Break 49.
 
 #### 4.3.1 The explicit casts
 

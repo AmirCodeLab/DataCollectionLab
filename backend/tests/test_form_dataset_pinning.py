@@ -652,3 +652,224 @@ def test_the_server_resolver_takes_no_version_either(
     assert parameters == ["session", "submission_id", "dataset_key"], (
         "a `version` parameter here would be the wrong list, on request"
     )
+
+
+# ---------------------------------------------------------------------------
+# Incremental delivery (item 4 part 5)
+# ---------------------------------------------------------------------------
+
+
+def _delta(url: str, *, form_version_id: str, key: str, frm: str, cursor=None, limit=1000):  # noqa: ANN202
+    import asyncio
+
+    from app.modules.entities.service import dataset_delta
+
+    async def run():  # noqa: ANN202
+        async with _session(url) as session:
+            return await dataset_delta(
+                session,
+                form_version_id=form_version_id,
+                dataset_key=key,
+                from_dataset_version_id=frm,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    return asyncio.run(run())
+
+
+@pytest.fixture(scope="module")
+def two_versions(pinning_db: str) -> dict[str, str]:
+    """`places` v1 and v2: one row edited in a read column, one edited in a
+    column no form reads, one added, one removed."""
+    import asyncio
+
+    from app.modules.entities.service import publish_dataset_version
+
+    v1 = [
+        {"name": "A", "label": "Alpha", "region": "R1", "note": "kept"},
+        {"name": "B", "label": "Bravo", "region": "R1", "note": "old"},
+        {"name": "C", "label": "Charlie", "region": "R2", "note": "kept"},
+    ]
+    v2 = [
+        {"name": "A", "label": "Alpha", "region": "R1", "note": "kept"},
+        # `label` is read by the form: this must travel.
+        {"name": "B", "label": "Bravo Renamed", "region": "R1", "note": "old"},
+        # `note` is NOT read by the form: this must NOT travel.
+        {"name": "C", "label": "Charlie", "region": "R2", "note": "edited"},
+        {"name": "D", "label": "Delta", "region": "R2", "note": ""},
+    ]
+
+    async def run() -> dict[str, str]:
+        out = {}
+        async with _session(pinning_db) as session, session.begin():
+            for name, rows in (("v1", v1), ("v2", v2)):
+                published = await publish_dataset_version(
+                    session, project_id=PROJECT_ID, dataset_key="places",
+                    rows=rows, key_column="name",
+                )
+                out[name] = published.dataset_version_id
+        return out
+
+    return asyncio.run(run())
+
+
+def _places_form(key: str = "places") -> dict:
+    """A form reading `name` and `label` and filtering on `region` — three of
+    the four columns. `note` is the one nothing reads."""
+    return {
+        "irVersion": "0.1", "formId": "places", "version": 1,
+        "title": {"en": "Places"}, "defaultLanguage": "en", "languages": ["en"],
+        "children": [
+            {"type": "question", "id": "region", "dataType": "text", "label": {"en": "R"}},
+            {"type": "question", "id": "place", "dataType": "select_one",
+             "label": {"en": "P"},
+             "choices": {"kind": "dataset", "dataset": key, "valueColumn": "name",
+                         "labelColumn": {"en": "label"},
+                         "filter": {"op": "eq", "args": [
+                             {"op": "ref", "path": "$row.region"},
+                             {"op": "ref", "path": "region"}]}}},
+        ],
+    }
+
+
+@pytest.mark.db
+def test_a_delta_carries_only_rows_whose_read_columns_changed(
+    pinning_db: str, two_versions: dict[str, str]
+) -> None:
+    """Stage two, and the entire reason there are two stages.
+
+    `C` changed — its `note` is different, so its row hash moved. Nothing the
+    form reads changed, so it must not travel. On a 38,000-row list over a
+    field connection, shipping every row whose hash moved is the difference
+    between a delta and a full transfer wearing a delta's name.
+    """
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_form"
+    )
+    delta = _delta(
+        pinning_db, form_version_id=published.id, key="places", frm=two_versions["v1"]
+    )
+
+    assert delta.columns == ["label", "name", "region"], (
+        "the projection is the columns the form reads; `note` is not one"
+    )
+    changed = sorted(row["name"] for row in delta.changed)
+    assert changed == ["B", "D"], (
+        f"expected the renamed row and the new one, got {changed}. `C` differs "
+        "only in a column nothing reads and must not have travelled."
+    )
+
+
+@pytest.mark.db
+def test_deletions_are_explicit(pinning_db: str, two_versions: dict[str, str]) -> None:
+    """Inferring a deletion from absence needs the whole set present to compare
+    against, which is the thing a delta exists to avoid sending."""
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v1"])], "delta_back"
+    )
+    # v2 -> v1: `D` is gone, and the device has to be told rather than work it out.
+    delta = _delta(
+        pinning_db, form_version_id=published.id, key="places", frm=two_versions["v2"]
+    )
+    assert delta.deleted == ["D"]
+
+
+@pytest.mark.db
+def test_a_delta_from_a_version_this_server_never_published_is_refused(
+    pinning_db: str, two_versions: dict[str, str]
+) -> None:
+    """The guard, and the temptation it refuses.
+
+    Sending the whole list here always works and leaves the device correct. It
+    also hides the only evidence that something is wrong — a device claiming a
+    version that does not exist is a device whose state nobody understands, and
+    a full transfer makes that state look fine.
+    """
+    from app.modules.entities.service import DeltaRefused
+
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_ghost"
+    )
+    with pytest.raises(DeltaRefused) as refusal:
+        _delta(pinning_db, form_version_id=published.id, key="places", frm="01NOSUCH")
+    assert "never published" in refusal.value.reason
+
+
+@pytest.mark.db
+def test_a_delta_across_two_different_datasets_is_refused(
+    pinning_db: str, two_versions: dict[str, str]
+) -> None:
+    from app.modules.entities.service import DeltaRefused
+
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_cross"
+    )
+    with pytest.raises(DeltaRefused) as refusal:
+        _delta(
+            pinning_db,
+            form_version_id=published.id,
+            key="places",
+            frm=versions_of_another_dataset(pinning_db),
+        )
+    assert "different dataset" in refusal.value.reason
+
+
+def versions_of_another_dataset(url: str) -> str:
+    import asyncio
+
+    from app.modules.entities.service import publish_dataset_version
+
+    async def run() -> str:
+        async with _session(url) as session, session.begin():
+            published = await publish_dataset_version(
+                session, project_id=PROJECT_ID, dataset_key="unrelated",
+                rows=[{"name": "X"}], key_column="name",
+            )
+            return published.dataset_version_id
+
+    return asyncio.run(run())
+
+
+@pytest.mark.db
+def test_a_form_version_that_pins_no_such_list_is_refused(
+    pinning_db: str, two_versions: dict[str, str]
+) -> None:
+    from app.modules.entities.service import DeltaRefused
+
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_nokey"
+    )
+    with pytest.raises(DeltaRefused) as refusal:
+        _delta(
+            pinning_db, form_version_id=published.id, key="villages",
+            frm=two_versions["v1"],
+        )
+    assert "not published against" in refusal.value.reason
+
+
+@pytest.mark.db
+def test_a_delta_pages_through_changes_and_then_deletions(
+    pinning_db: str, two_versions: dict[str, str]
+) -> None:
+    """One cursor, two phases. Paging only the changes would leave deletions
+    unbounded, and a version that dropped 30,000 villages is exactly the case a
+    delta is for."""
+    published = _publish(
+        pinning_db, _places_form(), [("places", two_versions["v1"])], "delta_paged"
+    )
+    seen_changed: list[str] = []
+    seen_deleted: list[str] = []
+    cursor = None
+    while True:
+        page = _delta(
+            pinning_db, form_version_id=published.id, key="places",
+            frm=two_versions["v2"], cursor=cursor, limit=1,
+        )
+        seen_changed += [r["name"] for r in page.changed]
+        seen_deleted += page.deleted
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+    assert seen_deleted == ["D"]
+    assert "B" in seen_changed, "the renamed row travels in both directions"

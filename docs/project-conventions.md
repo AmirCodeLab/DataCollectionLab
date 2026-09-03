@@ -368,6 +368,12 @@ cd backend && pytest tests/test_function_conformance.py -v    # §4.3 x every sh
 # architecture stops protecting you". Headless: Compose renders offscreen.
 ./gradlew :clients:composeApp:jvmTest
 
+# What a dataset costs on a real phone (Form IR §3.2, item 4 part 5)
+scripts/measure_datasets_on_device.sh 38000    # needs a connected debug build
+#   Reports first-sync write, storage, per-keystroke filter latency and the
+#   second-sync delta. Meant to be run and published whatever it says: the
+#   first cut cost 1,589 ms on the first keystroke and only a Pixel said so.
+
 # Local database encryption (envelope §14)
 ./gradlew :shared:core:jvmTest --tests "com.dcp.core.security.*"
 scripts/prove_local_encryption.sh          # against a connected device
@@ -492,9 +498,11 @@ Both are written up below.
    neither engine read `choices` at all: a `select_one` could hold "purple" and
    both engines called the form valid and finalisable, in production. Form IR
    §6.3/§6.4, error kind `choice`, nine vectors on both engines. See below
-4. **Datasets and `select_one_from_file` — IN PROGRESS**, parts 1 and 2 done.
-   The state of this is written out below, because it is the item a fresh
-   session would otherwise have to reconstruct
+4. **Datasets and `select_one_from_file` — all five parts done**, and measured
+   on a Pixel. The state of it is written out below, because it is the item a
+   fresh session would otherwise have to reconstruct. What is NOT done is the
+   acceptance run: the UCL form still does not publish, for three reasons that
+   predate datasets (`atan`, `${...}` in six labels, a nested repeat)
 5. Export: CSV, XLSX, Stata, SPSS — not started
 
 Item 0 was not in the original list and had to be: `FormCatalog` read one form
@@ -674,8 +682,7 @@ evidence rather than guessed.
    `GET /datasets/versions/{id}/rows` paged and resumable, `DatasetStore` in
    SQLCipher, and `StoredDatasetSource` bridging it to the engine. Written up
    below.
-5. **Incremental sync — NEXT**, and the measurements are owed with it. The
-   hard part; decided below.
+5. **Incremental sync — DONE**, with the measurements. Written up below.
 
 ### Part 2 — what the importer does with a companion file
 
@@ -857,6 +864,63 @@ through that interface and is not yet *met* by this implementation. An index on
 the selector columns is a change to that one class, with the engine, the vectors
 and every client untouched. Whether it has to happen is what the Pixel
 measurement decides, which is part 5's.
+
+### Part 5 — the delta, and what a Pixel says it costs
+
+`GET /datasets/versions/{held}/delta?formVersionId=…&datasetKey=…` returns the
+changes between the version a device holds and the one its form was published
+against. Two stages, and the second is the one that earns its keep: the row hash
+answers "did anything about this row change", and the **projection onto the
+columns that form version actually reads** decides whether anything travels. A
+row whose only edit is to a column nothing reads does not move.
+
+Deletions are explicit. Inferring them from absence needs the whole set present
+to compare against, which is what a delta exists to avoid sending.
+
+**A mismatch is a 409 and never a full transfer.** A device asking to come from
+a version this server never published, or for a list its form was not published
+against, is a device whose state nobody understands — and re-sending the list
+would leave it correct and the disagreement invisible. `DeltaRefused` is that
+rule; the sync client does not fall back from it either.
+
+#### The measurements, and the one that changed the design
+
+Pixel 6 Pro, 38,000 villages, through SQLCipher, driving the real engine.
+`scripts/measure_datasets_on_device.sh` reproduces it; §3.2 has the table.
+
+The first cut read a version and filtered it in memory. **The first keystroke on
+the village question cost 1,589 ms.** That is not a slow feature, it is an
+unusable one, and it is exactly what §12 flagged as open since v0.1.
+
+Indexing the columns fixed it — 45 ms — and then broke something else. Indexing
+*every* column made 304,000 entries and took the **second-sync delta from 137 ms
+to 14.4 seconds**, because applying a delta copies the index to the new version.
+The weekly delta is the number that decides field usability, so that was worse
+than what it fixed. Break 52.
+
+Indexing only the columns a filter narrows on — named by the server, which is
+what reads the IR — is where it landed:
+
+| | before | after |
+|---|---|---|
+| First keystroke | 1,589 ms | **45 ms** |
+| Keystroke median / p95 | 17.4 / 56.4 ms | **9.8 / 32.3 ms** |
+| Heap | 46.3 MB | **11.6 MB** |
+| First sync (38,000 rows) | 1.1 s | 3.2 s |
+| Storage | 8.4 MB | 11.3 MB |
+| Second sync (200 changed) | 137 ms | 2.7 s |
+
+The cost moved to write time, which is where it can be afforded: three seconds
+once at enrolment, and 2.7 seconds inside a weekly sync that is already waiting
+on a network. Neither is in front of anybody. **Per-keystroke filtering over
+38,000 villages is viable**, and it was not before this was measured.
+
+Two more things the device found and a laptop could not. `datasets.sq` added
+three tables with no `.sqm`, so every fresh-database test passed and the phone —
+which had the app installed — could not upgrade into it (break 51). And once
+`filter_columns` became selective, a lookup on an unindexed column returned *no
+rows* rather than falling back, which is an empty village list on a device
+holding every village (break 53).
 
 **Decision — the delta mechanism.** Per-row content hashes, delivered as a
 diff against the version the device holds.

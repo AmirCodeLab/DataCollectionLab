@@ -396,6 +396,9 @@ class FormInstance(
         metadata = metadata,
         scope = scope,
         instances = instances,
+        // `pulldata` reads through the same source the choice filters do, so a
+        // client's form-version binding covers both (§3.2).
+        datasets = datasets,
     )
 
     // -- dataset-backed choice lists (§3.2) --------------------------------

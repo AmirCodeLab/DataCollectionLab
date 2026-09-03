@@ -45,6 +45,11 @@ class EvalContext:
     scope: tuple[str, str] | None = None
     # repeat_id -> ordered instance ids, for positional addressing.
     instances: Mapping[str, list[str]] | None = None
+    # Where `pulldata` reads reference data from (§4.3). None when the caller
+    # built no source — `pulldata` is then null, like every other argument that
+    # is not what §4.3 declares (§4.7), rather than an exception on a device
+    # that has not finished syncing.
+    datasets: Any = None
 
 
 # --------------------------------------------------------------------------
@@ -480,6 +485,33 @@ def _fn_round(ctx: EvalContext, args: list[Any]) -> Any:
     return rounded / factor if digits > 0 else int(rounded)
 
 
+def _fn_pulldata(ctx: EvalContext, args: list[Any]) -> Any:
+    """`(dataset, column, keyColumn, keyValue) → any` — a dataset lookup (§4.3).
+
+    The value of `column` on the first row whose `keyColumn` equals `keyValue`,
+    or null when there is no such row. Null rather than an error, like every
+    other unusable argument (§4.7): on a device the commonest reason for no
+    match is that the reference data has not finished syncing, and stopping the
+    form is not an improvement on that.
+
+    Goes through the same [DatasetSource] the choice filters use, so it obeys
+    the same rule: on a client the source is bound to a form version, and this
+    reads the list that form version was **published against** rather than
+    whatever is newest (§3.2). A `pulldata` that resolved a key freely would be
+    breaks 30/40/42 with a lookup instead of a list.
+    """
+    dataset, column, key_column = (_text(a) for a in args[:3])
+    if dataset is None or column is None or key_column is None:
+        return None
+    if ctx.datasets is None or _is_null(args[3]):
+        return None
+    rows = ctx.datasets.rows(dataset, {key_column: args[3]})
+    # The first match, in dataset order, which is the file's own order (§3.2).
+    # A dataset key is unique per version, so "first" is a formality for the
+    # ordinary case and a defined answer for a lookup on a non-key column.
+    return next((row.get(column) for row in rows), None)
+
+
 def _fn_distance(ctx: EvalContext, args: list[Any]) -> Any:
     a, b = _geopoint(args[0]), _geopoint(args[1])
     if a is None or b is None:
@@ -489,7 +521,13 @@ def _fn_distance(ctx: EvalContext, args: list[Any]) -> Any:
     lat2, lon2 = math.radians(b["lat"]), math.radians(b["lon"])
     dlat, dlon = lat2 - lat1, lon2 - lon1
     h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 2 * radius * math.asin(math.sqrt(h))
+    # Rounded to millimetres, deliberately (§4.3). Four transcendental calls
+    # deep, `sin`/`cos`/`asin`/`sqrt` are each permitted one ulp of error by
+    # both platforms' libraries, so two engines computing this formula over the
+    # same inputs legitimately differ in the last bit — and did, by 1e-10 m. A
+    # millimetre is four orders of magnitude below any GPS fix this platform
+    # accepts, so nothing real is lost and a whole class of divergence goes.
+    return round(2 * radius * math.asin(math.sqrt(h)), 3)
 
 
 def _as_number(value: Any) -> float | None:
@@ -581,6 +619,7 @@ FUNCTIONS: dict[str, tuple[Callable[[EvalContext, list[Any]], Any], int, int]] =
     "dec": (_cast_dec, 1, 1),
     "str": (_cast_str, 1, 1),
     "distance": (_fn_distance, 2, 2),
+    "pulldata": (_fn_pulldata, 4, 4),
     "is_null": (lambda c, a: _is_null(a[0]), 1, 1),
     "is_not_null": (lambda c, a: not _is_null(a[0]), 1, 1),
 }

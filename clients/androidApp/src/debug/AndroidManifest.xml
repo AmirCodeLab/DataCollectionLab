@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only. `BenchmarkActivity` is how §3.2's performance contract gets a
+  number from a real handset instead of from a laptop, and it exists in no
+  release build: it writes tens of thousands of rows into the app's database,
+  which is a reasonable thing to do to a test device and not to anybody's.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".BenchmarkActivity"
+            android:exported="true"
+            android:label="DCP dataset benchmark" />
+    </application>
+</manifest>

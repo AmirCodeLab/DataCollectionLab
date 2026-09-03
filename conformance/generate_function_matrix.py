@@ -51,10 +51,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
 from datetime import date, datetime  # noqa: E402
 
+from app.modules.form_engine.datasets import InMemoryDatasetSource  # noqa: E402
 from app.modules.form_engine.expression import (  # noqa: E402
     EvalContext,
     evaluate,
 )
+from app.modules.form_engine.spec import spec_functions  # noqa: E402
 
 OUT = pathlib.Path(__file__).parent / "functions"
 
@@ -88,6 +90,13 @@ BINARY_FNS = [
     "contains", "starts_with", "ends_with", "regex", "substr", "round",
     "date_diff_days", "date_add_days", "age_years", "concat",
 ]
+#: Functions whose shape does not fit the unary/binary cross product, each with
+#: its own probes below. Listed rather than skipped: the whole point of deriving
+#: the coverage from the spec is that a function cannot go unprobed by being
+#: forgotten, and "it did not fit" is exactly how forgetting happens.
+NULLARY_FNS = ["today", "now"]
+SPECIAL_FNS = ["distance", "pulldata", "coalesce"]
+
 UNARY_OPS = ["not", "neg"]
 BINARY_OPS = [
     "eq", "ne", "lt", "lte", "gt", "gte", "add", "sub", "mul", "div",
@@ -99,10 +108,26 @@ def lit(value: object) -> dict:
     return {"op": "lit", "value": value}
 
 
+#: The reference data `pulldata` reads. Tiny, because what is being compared is
+#: the lookup rule and not a store's speed.
+PULLDATA_ROWS = {
+    "villages": [
+        {"name": "V1", "label": "Mtakuja", "pop": "800"},
+        {"name": "V2", "label": "Mbuyuni", "pop": "40"},
+    ]
+}
+
+GEOPOINT = {"lat": -3.3869, "lon": 36.6830}
+OTHER_GEOPOINT = {"lat": -6.1630, "lon": 35.7516}
+
+
 def _context() -> EvalContext:
     today = date.fromisoformat(TODAY)
     return EvalContext(
-        values={}, today=today, now=datetime.combine(today, datetime.min.time())
+        values={},
+        today=today,
+        now=datetime.combine(today, datetime.min.time()),
+        datasets=InMemoryDatasetSource(PULLDATA_ROWS),
     )
 
 
@@ -164,6 +189,60 @@ def build() -> dict[str, dict]:
                     {"op": op, "args": [lit(SHAPES[a]), lit(SHAPES[b])]},
                 )
 
+    for fn in NULLARY_FNS:
+        add(f"fn.{fn}", f"fn.{fn}", {"op": "call", "fn": fn, "args": []})
+
+    # `distance` — geopoints and everything that is not one.
+    for name, value in [("geo", GEOPOINT), ("other", OTHER_GEOPOINT), *SHAPES.items()]:
+        add(
+            "fn.distance",
+            f"fn.distance.geo.{name}",
+            {"op": "call", "fn": "distance", "args": [lit(GEOPOINT), lit(value)]},
+        )
+        add(
+            "fn.distance",
+            f"fn.distance.{name}.geo",
+            {"op": "call", "fn": "distance", "args": [lit(value), lit(GEOPOINT)]},
+        )
+
+    # `pulldata` — the lookup, and every way its four arguments can be wrong.
+    lookup = ["villages", "label", "name", "V1"]
+    add("fn.pulldata", "fn.pulldata.hit", {
+        "op": "call", "fn": "pulldata", "args": [lit(v) for v in lookup]
+    })
+    add("fn.pulldata", "fn.pulldata.no_such_row", {
+        "op": "call", "fn": "pulldata",
+        "args": [lit("villages"), lit("label"), lit("name"), lit("V9")],
+    })
+    add("fn.pulldata", "fn.pulldata.no_such_column", {
+        "op": "call", "fn": "pulldata",
+        "args": [lit("villages"), lit("nope"), lit("name"), lit("V1")],
+    })
+    add("fn.pulldata", "fn.pulldata.no_such_dataset", {
+        "op": "call", "fn": "pulldata",
+        "args": [lit("nope"), lit("label"), lit("name"), lit("V1")],
+    })
+    for index, name in enumerate(("dataset", "column", "key_column", "key_value")):
+        for shape in ("null", "int", "bool"):
+            args = [lit(v) for v in lookup]
+            args[index] = lit(SHAPES[shape])
+            add("fn.pulldata", f"fn.pulldata.{name}.{shape}",
+                {"op": "call", "fn": "pulldata", "args": args})
+
+    # `coalesce` — variadic, so the binary cross plus the arities that matter.
+    for a in BINARY_SHAPES:
+        for b in BINARY_SHAPES:
+            add("fn.coalesce", f"fn.coalesce.{a}.{b}", {
+                "op": "call", "fn": "coalesce", "args": [lit(SHAPES[a]), lit(SHAPES[b])]
+            })
+    add("fn.coalesce", "fn.coalesce.one", {
+        "op": "call", "fn": "coalesce", "args": [lit(None)]
+    })
+    add("fn.coalesce", "fn.coalesce.three", {
+        "op": "call", "fn": "coalesce",
+        "args": [lit(None), lit(None), lit("last")],
+    })
+
     # The one thing §4.7 leaves as an error, so that "evaluation is total apart
     # from integer overflow" is asserted rather than asserted-about.
     add(
@@ -177,12 +256,42 @@ def build() -> dict[str, dict]:
         {"op": "add", "args": [lit(9_223_372_036_854_775_807), lit(1)]},
     )
 
+    # Derived from the spec, not from the lists above — that is the whole point.
+    #
+    # A function added to §4.3's table and not classified here stops the
+    # generator rather than going unprobed. `regex`, `substr` and `distance`
+    # went unprobed for as long as both engines existed, and three of them were
+    # implemented in one engine and not the other; `pulldata` was implemented in
+    # neither. Nothing could have said so, because the coverage was a list
+    # somebody maintained beside the table. Break 49.
+    covered = set(UNARY_FNS) | set(BINARY_FNS) | set(NULLARY_FNS) | set(SPECIAL_FNS)
+    declared = spec_functions()
+    unprobed = sorted(declared - covered)
+    if unprobed:
+        raise SystemExit(
+            f"§4.3 declares {', '.join(unprobed)} and this generator does not probe "
+            "them. Classify each one (UNARY_FNS, BINARY_FNS, NULLARY_FNS or "
+            "SPECIAL_FNS with its own probes) — a function nothing calls is a "
+            "function neither engine has to implement, which is how a "
+            "mid-interview crash shipped."
+        )
+    invented = sorted(covered - declared)
+    if invented:
+        raise SystemExit(
+            f"this generator probes {', '.join(invented)}, which §4.3 does not "
+            "declare. Either the spec is missing a row or the list here is stale; "
+            "both are the table and the tests disagreeing about what exists."
+        )
+
     return {
         group: {
             "id": group,
             "description": f"Every value shape through `{group.split('.', 1)[1]}`",
             "spec": "4.3, 4.7",
             "context": {"today": TODAY},
+            # Carried in the file rather than built by each runner, so both
+            # engines read `pulldata`'s reference data from the same bytes.
+            "datasets": PULLDATA_ROWS,
             "probes": probes,
         }
         for group, probes in files.items()
@@ -280,6 +389,7 @@ def spec_file() -> dict:
         "description": "§4.7's own worked examples, typed from the specification",
         "spec": "4.7",
         "context": {"today": TODAY},
+        "datasets": PULLDATA_ROWS,
         "probes": probes,
     }
 

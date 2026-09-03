@@ -61,6 +61,23 @@ export interface ContentKeyView {
 }
 
 /**
+ * What changed between two dataset versions, for one form version.
+ *
+ * The path that decides field usability. First sync is a one-off at
+ * enrolment; this is what happens every week for the life of the project, on
+ * whatever connection there is.
+ */
+export interface DatasetDeltaPage {
+  datasetVersionId: string;
+  fromDatasetVersionId: string;
+  changed: Record<string, string>[];
+  deleted: string[];
+  columns: string[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
  * One dataset version a form version is published against.
  *
  * The IR names a dataset by **key** — `"dataset": "districts"` (§3) — and a
@@ -127,6 +144,7 @@ export interface DeployedDatasetVersion {
   version: number;
   rowCount: number;
   checksum: string;
+  filterColumns?: string[];
 }
 
 /**

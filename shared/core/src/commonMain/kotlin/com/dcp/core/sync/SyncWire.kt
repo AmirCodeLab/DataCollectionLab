@@ -206,6 +206,10 @@ data class WireDeployedDatasetVersion(
     val version: Int,
     val rowCount: Int,
     val checksum: String,
+    // What to index (§3.2). The server names them because the filter is in the
+    // IR and the server is what reads it — a device indexing every column was
+    // measured at 8 x 38,000 entries and a 105x slower delta.
+    val filterColumns: List<String> = emptyList(),
 )
 
 /**
@@ -217,6 +221,27 @@ data class WireDeployedDatasetVersion(
  * enumerator can search, scroll and choose from, and nothing about it looks
  * wrong.
  */
+/**
+ * GET /api/v1/datasets/versions/{held}/delta — what changed since.
+ *
+ * The path that decides field usability: first sync is a one-off at enrolment,
+ * this is what happens every week for the life of the project.
+ */
+@Serializable
+data class WireDatasetDeltaPage(
+    val datasetVersionId: String,
+    val fromDatasetVersionId: String,
+    val changed: List<Map<String, String>> = emptyList(),
+    // Explicit, never inferred from absence: inferring it needs the whole set
+    // present to compare against, which is what a delta exists to avoid.
+    val deleted: List<String> = emptyList(),
+    // Which columns the projection was taken over, so *why* a row travelled is
+    // answerable from the response rather than by reading the server.
+    val columns: List<String> = emptyList(),
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+)
+
 @Serializable
 data class WireDatasetRowsPage(
     val datasetVersionId: String,
