@@ -29,8 +29,10 @@ from typing import Literal
 from .cells import Cell
 from .manifest import Manifest
 from .shape import Table
+from .statistical import StatColumn
+from .statistical import bundle_files as statistical_files
 
-type Format = Literal["csv", "xlsx"]
+type Format = Literal["csv", "xlsx", "dta", "sav"]
 
 #: Excel's own limit, not ours.
 SHEET_NAME_LIMIT = 31
@@ -53,17 +55,33 @@ class Bundle:
 
 
 def write_bundle(
-    tables: Sequence[Table], manifest: Manifest, *, fmt: Format
+    tables: Sequence[Table],
+    manifest: Manifest,
+    *,
+    fmt: Format,
+    stored: Mapping[str, Sequence[StatColumn]] | None = None,
 ) -> Bundle:
+    """The files an export consists of.
+
+    `manifest.json` ships beside every format except .xlsx, which carries a
+    `_manifest` sheet instead because an .xlsx travels on its own. A .dta or a
+    .sav does not: it is one table, and the manifest is the only place the
+    shortened names and the changed types are written down.
+    """
     files: tuple[tuple[str, bytes], ...]
+    document = (
+        "manifest.json",
+        json.dumps(manifest.as_dict(), indent=2, ensure_ascii=False).encode(),
+    )
     if fmt == "xlsx":
         files = ((f"{manifest.form_id}.xlsx", write_xlsx(tables, manifest)),)
+    elif fmt in ("dta", "sav"):
+        if stored is None:
+            raise ValueError(f"a {fmt} bundle needs its planned columns")
+        files = tuple(statistical_files(tables, stored, fmt=fmt)) + (document,)
     else:
         files = tuple((f"{table.name}.csv", write_csv(table)) for table in tables) + (
-            (
-                "manifest.json",
-                json.dumps(manifest.as_dict(), indent=2, ensure_ascii=False).encode(),
-            ),
+            document,
         )
     return Bundle(files=files, tables=tuple(tables), manifest=manifest)
 

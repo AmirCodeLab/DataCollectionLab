@@ -26,6 +26,7 @@ from typing import Any, Literal
 from .cells import ENCRYPTED
 from .plan import Column, ColumnPlan
 from .shape import Shape, SubmissionRecord, Table
+from .statistical import StatColumn
 
 type Unreadable = Literal["encrypted", "computed_from_encrypted"]
 
@@ -50,6 +51,29 @@ INSTANCE_KEY_NOTE = (
     "is the position in the current ordered list: sort by it, never join on it."
 )
 
+SHORTENED_NAME_NOTE = (
+    "Stata caps a variable name at 32 characters and neither Stata nor SPSS "
+    "accepts the characters a repeat path contains, so some columns are stored "
+    "under a shortened name. Every one is listed below as `storedAs` beside the "
+    "name the CSV export uses. Shortening is a function of the form alone, so "
+    "the same form shortens to the same names in every export."
+)
+
+STORAGE_TYPE_NOTE = (
+    "Some columns are stored as text that would otherwise be numeric, because "
+    f"a numeric column cannot hold {ENCRYPTED!r}. Each says so below under "
+    "`storageChangedBecause`. A column's type therefore depends on whether "
+    "anything in THIS export was unreadable: the same form can export numeric "
+    "one week and text the next, and this list is where that is visible."
+)
+
+DATETIME_NOTE = (
+    "A `datetime` answer, and the started/finalized/received stamps, are "
+    "stored as ISO 8601 text rather than as a native date-time. Neither format "
+    "stores a UTC offset, so writing one would mean dropping it — which changes "
+    "when something happened. A `date` has no offset and is stored natively."
+)
+
 
 @dataclass(frozen=True)
 class ColumnManifest:
@@ -62,6 +86,13 @@ class ColumnManifest:
     versions: tuple[int, ...]
     repeat: str | None
     position: int | None
+    #: The name this column has in the file. Equal to `column` except in a
+    #: `.dta` or `.sav`, where names are capped and some are shortened.
+    stored_as: str
+    #: How the file stores it, for the formats that have types. None for CSV.
+    storage_type: str | None
+    declared_storage_type: str | None
+    storage_changed_because: str | None
     unreadable: Unreadable | None
     #: Project key ids whose private half opens this column's values. Empty when
     #: the column is readable; empty *and* unreadable is its own finding — a
@@ -80,6 +111,10 @@ class ColumnManifest:
             "versions": list(self.versions),
             "repeat": self.repeat,
             "position": self.position,
+            "storedAs": self.stored_as,
+            "storageType": self.storage_type,
+            "declaredStorageType": self.declared_storage_type,
+            "storageChangedBecause": self.storage_changed_because,
             "unreadable": self.unreadable,
             "openableBy": list(self.openable_by),
             "relevanceUncertain": self.relevance_uncertain,
@@ -146,6 +181,8 @@ def build_manifest(
     language: str | None,
     shape: Shape,
     ciphertext_fields: Mapping[str, Sequence[str]],
+    stored: Mapping[str, Sequence[StatColumn]] | None = None,
+    long_strings: Sequence[tuple[str, int]] = (),
     exported_at: datetime | None = None,
 ) -> Manifest:
     """Describe what was written.
@@ -154,6 +191,12 @@ def build_manifest(
     project key ids that open it. A field marked unreadable that is *not* in it
     was computed from one that is — `sum` over three encrypted incomes is 0, and
     0 in a CSV is a number rather than a gap somebody can see.
+
+    `stored` is how a `.dta` or `.sav` actually named and typed each column,
+    which is not something the plan can know: a name has to fit Stata's 32
+    characters and a type has to accommodate whatever this export turned out to
+    contain. Passing it is what makes the manifest a description of the **file**
+    rather than of the intention.
     """
     unreadable_fields: set[str] = set()
     uncertain_fields: set[str] = set()
@@ -164,7 +207,7 @@ def build_manifest(
         for path in record.projection.unmapped:
             unmapped.setdefault(path, []).append(record.submission_id)
 
-    def describe(column: Column) -> ColumnManifest:
+    def describe(column: Column, stat: StatColumn | None) -> ColumnManifest:
         field_id = column.field_id if column.source in ("field", "label") else None
         reason: Unreadable | None = None
         if field_id is not None and field_id in unreadable_fields:
@@ -179,13 +222,44 @@ def build_manifest(
             versions=column.versions,
             repeat=column.repeat,
             position=column.position,
+            stored_as=column.name if stat is None else stat.name,
+            storage_type=None if stat is None else stat.storage,
+            declared_storage_type=None if stat is None else stat.declared_storage,
+            storage_changed_because=None if stat is None else stat.changed_because,
             unreadable=reason,
             openable_by=tuple(ciphertext_fields.get(field_id or "", ())),
             relevance_uncertain=field_id is not None and field_id in uncertain_fields,
         )
 
+    described = tuple(
+        TableManifest(
+            name=table.name,
+            kind=table.kind,
+            repeat_id=table.repeat_id,
+            row_count=len(table.rows),
+            columns=tuple(
+                describe(column, _stat_for(stored, table.name, index))
+                for index, column in enumerate(table.columns)
+            ),
+        )
+        for table in tables
+    )
+
     notes = [ENCRYPTED_NOTE]
     notes.append(WIDE_POSITION_NOTE if shape == "wide" else INSTANCE_KEY_NOTE)
+    if stored is not None:
+        notes.append(DATETIME_NOTE)
+        every = [column for table in described for column in table.columns]
+        if any(column.stored_as != column.column for column in every):
+            notes.append(SHORTENED_NAME_NOTE)
+        if any(column.storage_changed_because for column in every):
+            notes.append(STORAGE_TYPE_NOTE)
+    for name, longest in long_strings:
+        notes.append(
+            f"`{name}` holds a value of {longest:,} characters. Stata's `str#` "
+            "maximum is 2,045. It is written whole rather than truncated, and "
+            "whether Stata opens it has not been checked here."
+        )
 
     return Manifest(
         form_id=form_id,
@@ -195,19 +269,19 @@ def build_manifest(
         shape=shape,
         exported_at=exported_at or datetime.now(UTC),
         submission_count=len(records),
-        tables=tuple(
-            TableManifest(
-                name=table.name,
-                kind=table.kind,
-                repeat_id=table.repeat_id,
-                row_count=len(table.rows),
-                columns=tuple(describe(column) for column in table.columns),
-            )
-            for table in tables
-        ),
+        tables=described,
         notes=tuple(notes),
         unmapped={path: tuple(sorted(ids)) for path, ids in unmapped.items()},
     )
+
+
+def _stat_for(
+    stored: Mapping[str, Sequence[StatColumn]] | None, table: str, index: int
+) -> StatColumn | None:
+    if stored is None:
+        return None
+    planned = stored.get(table)
+    return None if planned is None or index >= len(planned) else planned[index]
 
 
 def _field_of(path: str) -> str:

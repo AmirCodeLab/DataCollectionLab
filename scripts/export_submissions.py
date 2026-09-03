@@ -3,6 +3,8 @@
 
     python scripts/export_submissions.py household --out exports/
     python scripts/export_submissions.py household --format xlsx --shape wide
+    python scripts/export_submissions.py household --format dta   # Stata
+    python scripts/export_submissions.py household --format sav   # SPSS
     python scripts/export_submissions.py household --status approved --language sw
 
 Nothing left this system in any format before item 5, which blocked every
@@ -21,9 +23,16 @@ Two shapes, and the default is the one to analyse:
   `members_1_name` can be a different person in this file and the next one. The
   manifest says so on its face.
 
-A CSV bundle carries `manifest.json`; an .xlsx carries a `_manifest` sheet,
-because an .xlsx travels on its own and an export that is partly unreadable and
-does not say so is worse than one that fails.
+A CSV, .dta or .sav bundle carries `manifest.json`; an .xlsx carries a
+`_manifest` sheet instead, because an .xlsx travels on its own and an export
+that is partly unreadable and does not say so is worse than one that fails.
+
+For `.dta` and `.sav` the manifest is not optional reading. Stata caps a
+variable name at 32 characters, so some columns are stored under a shortened
+name; and a column that holds an unreadable value is stored as **text** where it
+would otherwise be numeric, because a numeric column cannot carry the
+`ENCRYPTED` token and writing it as missing is the failure the token exists to
+prevent. Both are printed below and both are in the manifest per column.
 """
 
 from __future__ import annotations
@@ -73,7 +82,7 @@ def main() -> int:
     )
     parser.add_argument("form", help="the form key, as an op carries it")
     parser.add_argument("--out", type=pathlib.Path, default=pathlib.Path("exports"))
-    parser.add_argument("--format", choices=("csv", "xlsx"), default="csv")
+    parser.add_argument("--format", choices=("csv", "xlsx", "dta", "sav"), default="csv")
     parser.add_argument("--shape", choices=("long", "wide"), default="long")
     parser.add_argument("--language", help="label language; the form's default otherwise")
     parser.add_argument("--project", help="restrict to one project id")
@@ -114,6 +123,25 @@ def main() -> int:
         for column in unreadable:
             keys = ", ".join(column.openable_by) or "NOBODY — wrapped to no key"
             print(f"  {column.column:24} {column.unreadable:24} openable by: {keys}")
+
+    every = [column for table in manifest.tables for column in table.columns]
+    renamed = [column for column in every if column.stored_as != column.column]
+    if renamed:
+        print(f"\n{len(renamed)} column(s) stored under a shortened name:")
+        for column in renamed:
+            print(f"  {column.column:38} -> {column.stored_as}")
+
+    retyped = [column for column in every if column.storage_changed_because]
+    if retyped:
+        # The one an analyst has to know about: a do-file that summarizes this
+        # column works against an export with nothing encrypted in it and does
+        # nothing here, and the difference is not in the form.
+        print(f"\n{len(retyped)} column(s) are stored as text but declared otherwise:")
+        for column in retyped:
+            print(
+                f"  {column.stored_as:30} {column.declared_storage_type} -> "
+                f"{column.storage_type}  ({column.storage_changed_because})"
+            )
 
     if manifest.unmapped:
         print("\nvalues in storage that no version of this form has a field for:")

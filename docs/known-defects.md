@@ -337,3 +337,26 @@ It is recorded rather than fixed because the collision is narrow — a text
 question, answered with that exact word, in a project where the column is not
 encrypted — and because the manifest already answers it for anyone who reads it.
 Revisit if a real form hits it.
+
+## 12. A Stata `str#` longer than 2,045 characters is written and unverified
+
+Stata's `str#` type maxes out at 2,045 characters. `pyreadstat` writes a longer
+value without complaint and reads it back intact — measured, 40,000 characters,
+both `.dta` and `.sav`. Whether **Stata itself** opens that file has not been
+checked, because there is no Stata in this environment to check with.
+
+**What a customer sees.** Possibly nothing: most answers are far short of it.
+The realistic sources are a long free-text remark and a `geoshape`, which
+exports as JSON in one column.
+
+**Why it is still open.** The alternatives are worse and the risk is unmeasured.
+Truncating the value to fit would silently shorten an answer, which is the exact
+class of failure the whole export design is built against. Refusing to export
+the column would block a customer over a value that may well be fine. So it is
+written whole, `export/statistical.py` reports every column that exceeds the
+limit, and the manifest carries a note naming the column and its longest value —
+including the sentence that it has not been verified against Stata.
+
+Closing this needs one thing that is not code: a `.dta` with a 3,000-character
+string opened in a real Stata. If it fails, the fix is `strL`, which readstat
+may or may not emit; that is the next question, not the first.

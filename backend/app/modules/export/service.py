@@ -40,6 +40,7 @@ from app.modules.submissions.models import (
 from .manifest import build_manifest
 from .plan import build_plan
 from .shape import ChoiceLabels, Shape, SubmissionRecord, build_tables
+from .statistical import StatColumn, long_string_columns, plan_columns
 from .writers import Bundle, Format, write_bundle
 
 #: Above this, an export is a job rather than a request. Held here rather than
@@ -140,6 +141,22 @@ async def export_form(
 
     plan = build_plan(sorted(set(compiled.values()), key=lambda f: f.version), language=language)
     tables = build_tables(plan, records, shape=shape, base_name=form.form_key)
+
+    # A .dta or a .sav has to be named and typed before the manifest can
+    # describe it, because both depend on what this export turned out to
+    # contain: a name has to fit Stata's 32 characters, and a column holding
+    # ENCRYPTED cannot be numeric. CSV has neither constraint and passes None.
+    stored: dict[str, Sequence[StatColumn]] | None = None
+    long_strings: list[tuple[str, int]] = []
+    if fmt in ("dta", "sav"):
+        stored = {
+            table.name: plan_columns(table.columns, table.rows) for table in tables
+        }
+        for table in tables:
+            long_strings.extend(
+                long_string_columns(stored[table.name], table.columns, table.rows)
+            )
+
     manifest = build_manifest(
         plan,
         tables,
@@ -149,8 +166,10 @@ async def export_form(
         language=language,
         shape=shape,
         ciphertext_fields=openable,
+        stored=stored,
+        long_strings=long_strings,
     )
-    return write_bundle(tables, manifest, fmt=fmt)
+    return write_bundle(tables, manifest, fmt=fmt, stored=stored)
 
 
 def _scoped(statement: Select[Any], project_id: str | None) -> Select[Any]:

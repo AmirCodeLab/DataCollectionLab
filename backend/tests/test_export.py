@@ -35,6 +35,7 @@ from app.modules.export.manifest import WIDE_POSITION_NOTE, build_manifest
 from app.modules.export.plan import build_plan
 from app.modules.export.readback import NotRoundTrippable, read_bundle
 from app.modules.export.shape import SubmissionRecord, build_tables
+from app.modules.export.statistical import long_string_columns, plan_columns
 from app.modules.export.writers import Format, write_bundle
 from app.modules.form_engine.projection import project_for_export
 from app.modules.form_engine.runtime import CompiledForm
@@ -125,6 +126,52 @@ def household_ir(version: int = 1, *, extra: list[dict[str, Any]] | None = None)
                 "dataType": "geopoint",
                 "label": {"en": "Dwelling location"},
             },
+            # The types Q3 is about: each survives a CSV trivially and has
+            # somewhere to go wrong in a .dta or a .sav.
+            {
+                "type": "question",
+                "id": "interview_date",
+                "dataType": "date",
+                "label": {"en": "Date of interview"},
+            },
+            {
+                "type": "question",
+                "id": "started_time",
+                "dataType": "time",
+                "label": {"en": "Time started"},
+            },
+            {
+                "type": "question",
+                "id": "visited_at",
+                "dataType": "datetime",
+                "label": {"en": "Visited at"},
+            },
+            {
+                "type": "question",
+                "id": "literate",
+                "dataType": "boolean",
+                "label": {"en": "Respondent is literate"},
+            },
+            {
+                "type": "question",
+                "id": "crops",
+                "dataType": "select_multiple",
+                "label": {"en": "Crops grown"},
+                "choices": {
+                    "kind": "inline",
+                    "items": [
+                        {"value": "maize", "label": {"en": "Maize"}},
+                        {"value": "beans", "label": {"en": "Beans"}},
+                        {"value": "cassava", "label": {"en": "Cassava"}},
+                    ],
+                },
+            },
+            {
+                "type": "question",
+                "id": "remarks",
+                "dataType": "text",
+                "label": {"en": "Enumerator remarks"},
+            },
             *(extra or []),
         ],
     }
@@ -199,8 +246,17 @@ def bundle_of(
     fmt: Format = "csv",
     ciphertext_fields: dict[str, tuple[str, ...]] | None = None,
 ) -> Any:
+    """The whole pipeline, as `service.export_form` assembles it without a database."""
     plan = build_plan(forms)
     tables = build_tables(plan, records, shape=shape, base_name="household")  # type: ignore[arg-type]
+    stored = None
+    long_strings: list[tuple[str, int]] = []
+    if fmt in ("dta", "sav"):
+        stored = {t.name: plan_columns(t.columns, t.rows) for t in tables}
+        for table in tables:
+            long_strings.extend(
+                long_string_columns(stored[table.name], table.columns, table.rows)
+            )
     manifest = build_manifest(
         plan,
         tables,
@@ -210,8 +266,10 @@ def bundle_of(
         language="en",
         shape=shape,  # type: ignore[arg-type]
         ciphertext_fields=ciphertext_fields or {},
+        stored=stored,
+        long_strings=long_strings,
     )
-    return write_bundle(tables, manifest, fmt=fmt)
+    return write_bundle(tables, manifest, fmt=fmt, stored=stored)
 
 
 @pytest.fixture
@@ -235,6 +293,16 @@ def three_households(form: CompiledForm) -> list[SubmissionRecord]:
                 set_op("members[b2].name", "Ben, the elder"),
                 set_op("members[b2].income", 250.5),
                 set_op("dwelling", {"lat": -3.3869, "lon": 36.6829, "accuracy": 4.5}),
+                set_op("interview_date", "2026-09-03"),
+                set_op("started_time", "09:25:13"),
+                # A UTC offset. Neither .dta nor .sav can store one, which is
+                # why a datetime is written as text and a date is not.
+                set_op("visited_at", "2026-09-03T09:25:13+03:00"),
+                # `False`, not `True`: a boolean read back as the float 0.0
+                # is the one that goes wrong, and `True` would not show it.
+                set_op("literate", False),
+                set_op("crops", ["maize", "cassava"]),
+                set_op("remarks", 'She asked us to come back "next week", if possible.'),
                 Op("finalize"),
             ],
             form=form,
@@ -246,6 +314,8 @@ def three_households(form: CompiledForm) -> list[SubmissionRecord]:
                 # §4.4 keeps that 3 in storage; export must not contain it.
                 set_op("children", 3),
                 set_op("consent", "no"),
+                set_op("literate", True),
+                set_op("interview_date", "2026-09-04"),
                 Op("finalize"),
             ],
             form=form,
@@ -273,11 +343,17 @@ def three_households(form: CompiledForm) -> list[SubmissionRecord]:
 # --- invariant 1: round trip ---------------------------------------------
 
 
-@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+@pytest.mark.parametrize("fmt", ["csv", "xlsx", "dta", "sav"])
 def test_a_long_export_reads_back_as_the_submissions_it_came_from(
     three_households: list[SubmissionRecord], form: CompiledForm, fmt: Format
 ) -> None:
-    """Export, re-import, compare — for every value, in both formats.
+    """Export, re-import, compare — for every value, in **every** format.
+
+    Running it over CSV alone would prove almost nothing about the two
+    statistical formats, which is where the types actually are: a decimal that
+    loses precision, a date that arrives as a string, a boolean that comes back
+    as `0.0`, a missing value that arrives as `nan` rather than empty. All four
+    are invisible to a CSV round trip and all four are real.
 
     The comparison is against `canonical_value`, which is the export's own
     statement of what a table can hold. Comparing against the raw value would
@@ -612,3 +688,240 @@ def test_csv_survives_a_comma_and_non_ascii(
     assert b'"Ben, the elder"' in content
     read = read_bundle(bundle)
     assert read["sub_full"].repeats["members"][1].cells["name"] == "Ben, the elder"
+
+# --- what a statistical format adds, and what it can lose -----------------
+
+
+def test_a_columns_type_changes_with_the_data_and_the_manifest_says_so() -> None:
+    """The mistake that passes every test, for this format.
+
+    readstat types a column from the values it holds, so one unreadable
+    interview turns `income` from a numeric column into a text one — and
+    `100.0` into the string `"100.0"`. Every single-export test is internally
+    consistent either way; the defect only exists *between* two exports of the
+    same form. A do-file that says `summarize income` works one week and does
+    nothing the next, and what differs is which interviews were encrypted.
+
+    It cannot be fixed by choosing a type, because both types are correct: a
+    numeric column cannot hold the token, and writing the token as missing is
+    the failure item 5 names. What it can be is **stated** — so this asserts the
+    change happens, that the manifest records it in the export where it did, and
+    that the export where it did not says the declared type instead of staying
+    silent.
+    """
+    form = CompiledForm(household_ir())
+    common = [set_op("consent", "yes"), Op("repeat_add", path="members[a1]")]
+
+    readable = record(
+        "sub_plain", [*common, set_op("members[a1].income", 100.0), Op("finalize")], form=form
+    )
+    encrypted = record(
+        "sub_secret", [*common, secret_op("members[a1].income"), Op("finalize")], form=form
+    )
+
+    def income(bundle: Any) -> Any:
+        return next(
+            column
+            for table in bundle.manifest.tables
+            for column in table.columns
+            if column.column == "income"
+        )
+
+    plain = income(bundle_of([readable], [form], fmt="dta"))
+    secret = income(bundle_of([encrypted], [form], fmt="dta"))
+
+    assert plain.storage_type == "numeric"
+    assert secret.storage_type == "string"
+
+    # Both say what they declared, so a reader can tell a column that changed
+    # from one that was always text.
+    assert plain.declared_storage_type == "numeric"
+    assert secret.declared_storage_type == "numeric"
+    assert plain.storage_changed_because is None
+    assert "ENCRYPTED" in (secret.storage_changed_because or "")
+
+    changed = bundle_of([encrypted], [form], fmt="dta").manifest.notes
+    assert any("numeric one week and text the next" in note for note in changed)
+
+
+def test_a_value_that_will_not_fit_its_column_is_refused_not_dropped() -> None:
+    """The guard under the whole module, at the moment it can still be acted on.
+
+    `plan_columns` is supposed to turn a column to text when it holds the token
+    or a date that will not parse. If it ever stopped doing that, the tidy
+    outcome would be to write the offending value as missing and keep the column
+    numeric — a file with the right types, the right row count, and an answer
+    quietly deleted. So the writer refuses instead, naming the column and the
+    value, at both moments a type can go wrong: before writing, and after
+    reading the file back.
+    """
+    from app.modules.export.plan import Column
+    from app.modules.export.shape import Table
+    from app.modules.export.statistical import StatColumn, TypeChanged, write_table
+
+    def lying(name: str, storage: str) -> list[Any]:
+        return [
+            StatColumn(
+                name=name,
+                source=name,
+                storage=storage,  # type: ignore[arg-type]
+                declared_storage=storage,  # type: ignore[arg-type]
+                changed_because=None,
+                label=None,
+            )
+        ]
+
+    numeric = Table(
+        name="t",
+        kind="submissions",
+        columns=(Column(name="income", source="field", field_id="income", data_type="decimal"),),
+        rows=((ENCRYPTED,), (100.0,)),
+    )
+    with pytest.raises(TypeChanged, match="numeric column cannot carry it"):
+        write_table(numeric, lying("income", "numeric"), fmt="dta")
+
+    dated = Table(
+        name="t",
+        kind="submissions",
+        columns=(Column(name="seen_on", source="field", field_id="seen_on", data_type="date"),),
+        rows=(("last tuesday",),),
+    )
+    with pytest.raises(TypeChanged, match="is not one"):
+        write_table(dated, lying("seen_on", "date"), fmt="dta")
+
+
+def test_an_unanswered_date_column_is_still_a_date_column() -> None:
+    """Found by the read-back check, and it is why the check exists.
+
+    readstat types a column of nothing but nulls as **string**, so a date
+    question nobody answered produced a text column while the same question
+    answered once produced a date column — the same form, two schemas, decided
+    by the data. The read-back check caught it; nothing else would have, because
+    every value in both files is correct.
+    """
+    form = CompiledForm(household_ir())
+    blank = record("sub_blank", [set_op("consent", "yes"), Op("finalize")], form=form)
+
+    described = {
+        column.column: column
+        for table in bundle_of([blank], [form], fmt="dta").manifest.tables
+        for column in table.columns
+    }
+    assert described["interview_date"].storage_type == "date"
+    assert described["interview_date"].storage_changed_because is None
+
+
+def test_names_are_shortened_deterministically_and_never_merged() -> None:
+    """Two questions must not become one column, and the file must say which.
+
+    Stata caps a variable name at 32 characters and readstat does not enforce
+    it — it will write a `.dta` that Stata refuses — so the shortening is ours.
+    Two 37-character ids differing only at character 36 truncate to the same 32,
+    which would be a silent merge of two questions' answers: one column, right
+    type, right row count, wrong data.
+    """
+    from app.modules.export.statistical import NAME_LIMIT
+
+    gross = "household_member_income_monthly_gross"
+    net = "household_member_income_monthly_net"
+    assert gross[:NAME_LIMIT] == net[:NAME_LIMIT], "the test data must actually collide"
+
+    form = CompiledForm(
+        household_ir(
+            1,
+            extra=[
+                {"type": "question", "id": gross, "dataType": "decimal", "label": {"en": "G"}},
+                {"type": "question", "id": net, "dataType": "decimal", "label": {"en": "N"}},
+            ],
+        )
+    )
+    one = record(
+        "sub_long",
+        [set_op(gross, 10.0), set_op(net, 4.0), Op("finalize")],
+        form=form,
+    )
+    bundle = bundle_of([one], [form], fmt="dta")
+    described = {
+        column.column: column
+        for table in bundle.manifest.tables
+        for column in table.columns
+    }
+
+    stored = {described[gross].stored_as, described[net].stored_as}
+    assert len(stored) == 2, f"two questions share one column: {stored}"
+    assert all(len(name) <= NAME_LIMIT for name in stored)
+    # The manifest is the only place the long name and the short one are tied
+    # together, so an analysis written against the CSV can find its column.
+    assert described[gross].stored_as != described[gross].column
+    assert any("shortened name" in note for note in bundle.manifest.notes)
+
+    read = read_bundle(bundle)
+    assert read["sub_long"].top[gross] == 10.0
+    assert read["sub_long"].top[net] == 4.0
+
+
+def test_shortening_depends_on_the_form_and_not_on_the_data() -> None:
+    """A do-file written last month has to find its columns this month.
+
+    Names are claimed in plan order, and plan order is a function of the form
+    versions alone — so two exports of one form, with different submissions in
+    them, name every column identically. If the serial were assigned by which
+    rows happened to arrive, a collision-resolved name would move.
+    """
+    long_a = "household_member_income_monthly_gross"
+    long_b = "household_member_income_monthly_net"
+    form = CompiledForm(
+        household_ir(
+            1,
+            extra=[
+                {"type": "question", "id": long_a, "dataType": "decimal", "label": {"en": "G"}},
+                {"type": "question", "id": long_b, "dataType": "decimal", "label": {"en": "N"}},
+            ],
+        )
+    )
+
+    def names(ops: list[Op]) -> list[tuple[str, str]]:
+        bundle = bundle_of([record("s", ops, form=form)], [form], fmt="dta")
+        return [
+            (column.column, column.stored_as)
+            for table in bundle.manifest.tables
+            for column in table.columns
+        ]
+
+    assert names([set_op(long_a, 1.0), Op("finalize")]) == names(
+        [set_op(long_b, 2.0), set_op("consent", "yes"), Op("finalize")]
+    )
+
+
+def test_a_date_is_stored_natively_and_a_datetime_is_not() -> None:
+    """The offset is part of a datetime's value, and neither format holds one.
+
+    A date has no offset to lose, so it is written as a real Stata date — worth
+    having, because a string date has to be parsed before it can be used. A
+    datetime written natively would have to drop `+03:00` or shift the value,
+    and both change when the interview happened.
+    """
+    from app.modules.export.plan import build_plan
+    from app.modules.export.statistical import declared_storage
+
+    form = CompiledForm(household_ir())
+    columns = {column.name: column for column in build_plan([form]).parent}
+
+    assert declared_storage(columns["interview_date"]) == "date"
+    assert declared_storage(columns["visited_at"]) == "string"
+    assert declared_storage(columns["received_at"]) == "string"
+    assert declared_storage(columns["started_time"]) == "string"
+
+    one = record(
+        "sub_when",
+        [
+            set_op("interview_date", "2026-09-03"),
+            set_op("visited_at", "2026-09-03T09:25:13+03:00"),
+            Op("finalize"),
+        ],
+        form=form,
+    )
+    read = read_bundle(bundle_of([one], [form], fmt="dta"))
+    assert read["sub_when"].top["interview_date"] == "2026-09-03"
+    assert read["sub_when"].top["visited_at"] == "2026-09-03T09:25:13+03:00"
+

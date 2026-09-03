@@ -6,6 +6,12 @@ against the source submission*. It reads the **files**, using the manifest as
 the schema, so what is compared has genuinely been through CSV quoting or an
 xlsx cell — not through an in-memory structure that happens to be sitting there.
 
+It reads every format the exporter writes, and that is the point rather than a
+convenience: a type that survives a CSV and not a `.dta` — a decimal losing
+precision, a date that became a string, a boolean that came back as `0.0` — is
+invisible to a round trip that only runs over CSV. The invariant is worth
+exactly as much as the formats it runs against.
+
 It reads the **long** shape only, and that is a statement rather than an
 omission. A wide export flattens instances onto positional columns and there is
 no instance id anywhere in the file, so instance identity cannot come back out
@@ -22,6 +28,7 @@ from typing import Any
 
 from .cells import Cell, parse
 from .manifest import ColumnManifest, Manifest
+from .statistical import read_table
 from .writers import SHEET_NAME_LIMIT, Bundle, read_csv, read_xlsx
 
 
@@ -118,7 +125,9 @@ def _read_row(
     parts: dict[str, dict[str, Any]] = {}
 
     for column in columns:
-        index = at.get(column.column)
+        # `stored_as`, not `column`: a .dta shortens a name to fit Stata's 32
+        # characters, and the manifest is where the two are tied together.
+        index = at.get(column.stored_as)
         if index is None or index >= len(row):
             continue
         cell = row[index]
@@ -150,10 +159,14 @@ def _sheets(bundle: Bundle) -> Mapping[str, tuple[tuple[str, ...], tuple[tuple[C
     found: dict[str, tuple[tuple[str, ...], tuple[tuple[Cell, ...], ...]]] = {}
     for name, content in bundle.files:
         if name.endswith(".csv"):
-            header, rows = read_csv(content)
-            found[name[: -len(".csv")]] = (header, rows)
+            csv_header, csv_rows = read_csv(content)
+            found[name[: -len(".csv")]] = (csv_header, csv_rows)
         elif name.endswith(".xlsx"):
             found.update(read_xlsx(content))
+        elif name.endswith((".dta", ".sav")):
+            suffix = name[-3:]
+            header, rows = read_table(content, fmt="dta" if suffix == "dta" else "sav")
+            found[name[: -len(suffix) - 1]] = (header, rows)
     return found
 
 

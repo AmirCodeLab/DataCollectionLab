@@ -110,7 +110,13 @@ def parse(cell: Cell, data_type: str, component: str | None = None) -> Any:
             return int(number) if component == "size" else number
         return str(cell)
     if data_type == "boolean":
-        return str(cell) not in ("0", "False", "false")
+        # A CSV hands back the text `0`; a .dta hands back the float `0.0`, and
+        # `str(0.0)` is not `"0"`. Reading the number first is what makes false
+        # survive both — it did not, and only the statistical round trip saw it.
+        try:
+            return float(cell) != 0.0
+        except (TypeError, ValueError):
+            return str(cell).strip().lower() != "false"
     if data_type == "integer":
         return int(float(cell))
     if data_type == "decimal":

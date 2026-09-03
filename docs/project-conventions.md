@@ -313,6 +313,7 @@ What watches that layer, and all there is:
 | That an export contains no non-relevant answer | `test_export.py`, `test_export_reads_only_answers.py` (`backend`) | 58, 60 |
 | That a repeat row is keyed on a stable id and not a position | `test_export.py` (`backend`) | 59 |
 | Which form version and which dataset version an export explains a submission through | `test_export_binding.py` (`backend`, `-m db`) | 61 |
+| That a value survives a `.dta`/`.sav` as well as a CSV, and that a column is the type it says | `test_export.py`, `test_statistical_writers.py` (`backend`) | 62, 63, 64, 65 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -373,6 +374,12 @@ python scripts/import_xlsform.py backend/tests/fixtures/xlsform/ucl-biomass.xlsx
 # Export (item 5). Same exporter the console will use, same process.
 python scripts/export_submissions.py household --out exports/
 python scripts/export_submissions.py household --format xlsx --shape wide
+python scripts/export_submissions.py household --format dta    # Stata
+python scripts/export_submissions.py household --format sav    # SPSS
+#   .dta/.sav: names are capped at Stata's 32 chars and shortened
+#     deterministically; a column holding ENCRYPTED is stored as TEXT because a
+#     numeric column cannot carry it. Both are printed and both are per column
+#     in the manifest — read it before writing a do-file against the columns
 #   long (default): parent file + one per repeat, keyed (submission_id,
 #     instance_id) — the STABLE id, never a position
 #   wide: one row per submission, repeats flattened positionally. Offered
@@ -537,10 +544,10 @@ Both are written up below.
    a filter regression when two dataset versions are held
    (`docs/known-defects.md` 9 and 10), both downstream of defect 4 — nothing
    retires a form deployment
-5. **Export: CSV, XLSX, Stata, SPSS — IN PROGRESS.** CSV and XLSX are done, in
-   both shapes, with the manifest and the version bindings; data now leaves this
-   system. Stata and SPSS are not built, and neither is the HTTP route the
-   console needs. Scope, what landed and what is still missing are below
+5. **Export: CSV, XLSX, Stata, SPSS — IN PROGRESS.** All four formats are done,
+   in both shapes, with the manifest and the version bindings; data now leaves
+   this system. What is left is the HTTP route the console needs. Scope, what
+   landed and what is still missing are below
 
 **Label interpolation (Form IR §7.1) — done.** Split out of nothing: it was the
 `output_in_label` error class, which the UCL form hit six times and which had no
@@ -1291,6 +1298,88 @@ because without one Excel reads it as the system code page and a product that is
 RTL and Swahili from the start cannot ship an export that is mojibake on a
 double-click.
 
+#### Stata and SPSS, and what the formats decide for you
+
+`export/statistical.py`. The question docs/project-conventions.md flagged was asked **first**, as a
+probe, before any of it was written — `backend/tests/test_statistical_writers.py`
+is that probe kept, asserting library behaviour rather than ours so that a
+pyreadstat upgrade which moves one of these answers fails a build instead of
+changing what our files mean.
+
+**What the writers actually do**, measured:
+
+- **The token is not coerced to missing.** It survives — by pyreadstat
+  **silently retyping the whole column** to string, so `100.0` becomes
+  `"100.0"`. The danger is therefore not lost data, it is a column whose type
+  depends on whether anything in *this* export happened to be unreadable.
+- **A declared pandas dtype does not override that.** readstat types a column
+  from its values; there is no way to *ask* for numeric, only to write it and
+  look.
+- **readstat enforces SPSS's 64-character name limit and not Stata's 32**, so it
+  will happily write a `.dta` that Stata itself refuses. Same for variable
+  labels: SPSS truncates at 256, Stata's own 80 is not enforced at all.
+- **A value label keyed by a string code is written against `0`** in a `.dta` —
+  `V000023` labelled `Nyamburi Kati` comes back as `0` labelled `Nyamburi Kati`.
+
+So, in order, the decisions those forced:
+
+- **The exporter decides the type and then verifies it.** Storage type comes
+  from the plan; every file is read back after writing and a column that did not
+  come back as declared is a `TypeChanged` exception, not a surprise six months
+  later. That check earned itself on its first run (break 64): an all-null
+  `date` column was coming back as **string**, so an unanswered date question
+  gave the same form two schemas. A value that will not fit its column is
+  refused at write time too, for the same reason — writing it as missing would
+  keep the type tidy and delete an answer.
+- **The type change is stated, because it cannot be avoided.** A numeric column
+  cannot hold `ENCRYPTED` and writing it as missing is the failure the token
+  exists to prevent, so the column becomes text — and the manifest records
+  `storageType`, `declaredStorageType` and `storageChangedBecause` per column,
+  the notes say the same in a sentence, and the CLI prints it. The instability
+  is real: the same form exports numeric one week and text the next. It is
+  visible rather than silent, which is the whole of what can be done about it.
+- **Names are shortened by us, deterministically, and never merged.** Target is
+  `^[A-Za-z][A-Za-z0-9_]*$` at 32 characters — Stata's limit, the tighter of the
+  two, so one name works in both files. Collisions replace the tail rather than
+  appending, serials are assigned in **plan order** (a function of the form
+  versions alone, so a do-file written last month finds the same columns), and
+  every shortened name is in the manifest as `storedAs` beside the CSV name.
+  Break 63: two 37-character ids differing at character 36 truncate to the same
+  32, which would be one column holding two questions' answers.
+- **Variable labels carry the question text**, truncated to Stata's 80 and
+  qualified — `Dwelling location (lat)`, `Consent given (label)` — because four
+  columns of one geopoint all reading `Dwelling location` in `describe` looks
+  like four answers to one question rather than one answer in four parts.
+- **No value labels.** Our choice codes are strings by design (§3.1: the key is
+  the cell's value, exactly) and a `.dta` silently attaches a string-keyed label
+  to `0`. The resolved name goes in its own column, exactly as in the CSV.
+- **A `date` is stored natively; a `datetime` is not.** Neither format stores a
+  UTC offset, so a native datetime means dropping `+03:00` or shifting the
+  value, and both change when the interview happened. A date has no offset to
+  lose, and a Stata user handed a string date has to parse it before they can do
+  anything. `time`, `datetime` and the started/finalized/received stamps are ISO
+  text.
+- **A string longer than Stata's `str#` maximum of 2,045 is written whole and
+  reported**, never truncated. Whether Stata opens it is **unverified** — there
+  is no Stata in this environment to check with — and saying so is the honest
+  half of writing it.
+
+**The third question — the mistake that passes every test — and its answer.**
+The guess was right: a type that round-trips through CSV and not through `.dta`.
+It was not hypothetical. `parse`'s boolean branch read `str(cell) not in ("0",
+…)`; a CSV hands back the text `0` and a `.dta` hands back the float `0.0`, and
+`str(0.0)` is not `"0"`. **Every "no" in a boolean question became a "yes"**, in
+two of the four formats, with nothing on the face of the file to see. Break 65,
+found rather than injected — by extending the round trip to run against all four
+writers, which is the only thing that could have. A round-trip invariant is
+worth exactly as much as the formats it runs against.
+
+The second such mistake is one no single-export test can see at all, because it
+exists only *between* two exports: the column type that follows the data. That
+is why `test_a_columns_type_changes_with_the_data_and_the_manifest_says_so`
+exports the same form twice and asserts the difference **and** that both
+manifests state it.
+
 **Not done, and named rather than implied:**
 
 - **No HTTP route yet.** The exporter runs from `scripts/export_submissions.py`,
@@ -1301,12 +1390,6 @@ double-click.
   and the exemption it would need is the narrow one the request side already
   has for `application/octet-stream` — deliberate, in its own commit, with a
   break recorded, not slipped in beside a feature.
-- **Stata and SPSS.** `pyreadstat` writes both and is not yet a dependency. The
-  question docs/project-conventions.md flags is still open and is the first thing to answer:
-  check what each writer does with `ENCRYPTED` in a numeric column before
-  trusting the token there. If either coerces it to missing, that column is
-  written as a **string** column instead — the type is worth less than the
-  distinction between "encrypted" and "not answered".
 - **No per-option indicator columns for `select_multiple`.** Codes are
   space-joined (the XLSForm convention) and labels joined by ` | `. A
   `crops_maize` / `crops_beans` set of 0/1 columns is what some analyses want

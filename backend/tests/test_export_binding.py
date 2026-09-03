@@ -397,11 +397,43 @@ def test_an_unknown_form_is_none_and_a_filter_that_matches_nothing_is_an_empty_f
     assert [c.name for c in empty.tables[0].columns] != []
 
 
-def test_the_bundle_is_writable_in_both_formats(export_db: str) -> None:
-    """The zip is what a customer downloads; both formats have to produce one."""
-    for fmt in ("csv", "xlsx"):
+def test_the_bundle_is_writable_in_every_format(export_db: str) -> None:
+    """The zip is what a customer downloads; every format has to produce one."""
+    for fmt in ("csv", "xlsx", "dta", "sav"):
         bundle = asyncio.run(_export(export_db, fmt=fmt))
         assert bundle is not None
         archive = bundle.to_zip()
         assert archive[:2] == b"PK"
         assert len(archive) > 0
+
+
+def test_a_stata_export_reaches_the_same_answers_through_the_same_pins(
+    export_db: str,
+) -> None:
+    """Everything the CSV binding test proves, through the writer with types.
+
+    The bindings are the same code either way; what a `.dta` adds is a chance to
+    lose the answer on the way out. `income` arrived as ciphertext, so its column
+    is stored as **text** rather than numeric — a numeric column cannot hold the
+    token, and writing it as missing is what would make three interviews vanish
+    from a mean without a word.
+    """
+    from app.modules.export.cells import ENCRYPTED
+    from app.modules.export.readback import read_bundle
+
+    bundle = asyncio.run(_export(export_db, fmt="dta"))
+    read = read_bundle(bundle)
+
+    assert read["sub_on_v1"].top["village"] == "V000023"
+    assert read["sub_on_v2"].top["head_name"] == "Asha Mollel"
+    assert read["sub_on_v1"].top["income"] == ENCRYPTED
+
+    described = {
+        column.column: column
+        for table in bundle.manifest.tables
+        for column in table.columns
+    }
+    assert described["income"].storage_type == "string"
+    assert described["income"].declared_storage_type == "numeric"
+    assert described["income"].openable_by == (KEY_ALPHA, KEY_BETA)
+    assert described["form_version"].storage_type == "numeric"
