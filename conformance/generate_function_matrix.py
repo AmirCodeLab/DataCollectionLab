@@ -85,6 +85,7 @@ BINARY_SHAPES = ["null", "text_num", "text_bad", "text_date", "int", "dec", "boo
 UNARY_FNS = [
     "int", "dec", "str", "len", "upper", "lower", "trim", "count", "sum",
     "min", "max", "count_selected", "is_null", "is_not_null", "round",
+    "sqrt", "sin", "cos", "tan", "atan",
 ]
 BINARY_FNS = [
     "contains", "starts_with", "ends_with", "regex", "substr", "round",
@@ -96,6 +97,13 @@ BINARY_FNS = [
 #: forgotten, and "it did not fit" is exactly how forgetting happens.
 NULLARY_FNS = ["today", "now"]
 SPECIAL_FNS = ["distance", "pulldata", "coalesce"]
+
+#: Probed through `round(..., 9)`. See §4.3: a transcendental function is
+#: permitted one ulp of error by both platforms' libraries, so bit-identity is
+#: not something either engine can promise and a vector asserting it would fail
+#: for reasons no author could act on. `sqrt` is not here — IEEE-754 requires it
+#: to be correctly rounded, so it is exact on both.
+ROUNDED_FNS = {"sin", "cos", "tan", "atan"}
 
 UNARY_OPS = ["not", "neg"]
 BINARY_OPS = [
@@ -165,7 +173,16 @@ def build() -> dict[str, dict]:
 
     for fn in UNARY_FNS:
         for name, value in SHAPES.items():
-            add(f"fn.{fn}", f"fn.{fn}.{name}", {"op": "call", "fn": fn, "args": [lit(value)]})
+            call = {"op": "call", "fn": fn, "args": [lit(value)]}
+            # §4.3: the trigonometric functions are accurate to within one unit
+            # in the last place and no further — both platforms permit their
+            # libraries that much, and `tan(800.5)` was found differing between
+            # the engines in the last three digits the first time it was probed.
+            # Rounding is what makes a vector assertable at all here, and nine
+            # places is eleven orders of magnitude past any survey use.
+            if fn in ROUNDED_FNS:
+                call = {"op": "call", "fn": "round", "args": [call, lit(9)]}
+            add(f"fn.{fn}", f"fn.{fn}.{name}", call)
 
     for op in UNARY_OPS:
         for name, value in SHAPES.items():

@@ -163,11 +163,30 @@ def test_the_ucl_form_names_what_it_needed_that_we_lack() -> None:
     read it and cannot show it" are different items on a roadmap.
     """
     result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
-    assert "atan" in result.instrumentation.unsupported_functions
     assert "select_one_from_file" not in result.instrumentation.unsupported_types, (
         "the importer still reports this as a type it cannot read; it imports now"
     )
+    assert result.instrumentation.unsupported_functions == {}, (
+        f"the roadmap should be empty for this form and says {result.instrumentation}. "
+        "`atan` was on it, and behind atan were `cos` and `sqrt` — the importer "
+        "reports the first function it cannot translate per cell and atan is the "
+        "innermost, so a count could not see the other two. All three are built."
+    )
+    # Still not publishable, and now for nothing to do with functions: `${...}`
+    # in six labels (§7, the author's) and a repeat inside a repeat (§2.3, IR
+    # v0.2). Neither is dataset work and neither is a function.
     assert not result.publishable
+    # Imported with no companion files, so the missing-list errors are here
+    # too — `test_xlsform_datasets.py` is where it is imported with them.
+    codes = {d.code for d in result.diagnostics if d.severity == "error"}
+    assert codes == {
+        "companion_file_missing",
+        "question_without_its_dataset",
+        "unknown_reference",
+        "output_in_label",
+        "nested_repeat_not_supported",
+        "does_not_compile",
+    }, f"the blockers changed: {sorted(codes)}"
 
 
 def test_the_clean_form_is_clean_all_the_way_through() -> None:

@@ -70,6 +70,16 @@ _FUNCTIONS = {
     "string": "str",
     "distance": "distance",
     "pulldata": "pulldata",
+    # The slope correction a field protocol writes:
+    #   round(15 div (sqrt(cos(atan(${slope} div 100)))), 2)
+    # Three at once, and the roadmap had recorded only `atan` — the importer
+    # reports the first function it cannot translate per cell, and `atan` is the
+    # innermost. `cos` and `sqrt` were behind it and no count could see them.
+    "sqrt": "sqrt",
+    "sin": "sin",
+    "cos": "cos",
+    "tan": "tan",
+    "atan": "atan",
 }
 
 _COMPARISONS = {

@@ -260,7 +260,50 @@ rather than by an optimisation, which is why it is stated here and not in a
 client: the engine decides *what* the list is, a source decides only how
 quickly it can find it.
 
-#### What it costs, measured
+#### What it costs, measured on a device against a server
+
+Pixel 6 Pro over Wi-Fi against a server on the LAN, the UCL biomass form's own
+three cascading questions, the generated village data — 26 regions, 166
+districts, 37,852 villages. `scripts/measure_datasets_on_device.sh` and the
+`serverUrl` mode of the debug benchmark activity reproduce it.
+
+| | first sync | second sync (300 villages renamed) |
+|---|---|---|
+| Over the air, received | 7.05 MB | **0.064 MB** |
+| Sent | 37 kB | 2.2 kB |
+| Rows delivered | 38,044 | 300 |
+| Wall clock | 28–34 s | 56 s |
+| Device database | +14.9 MB | +15.1 MB (both versions held) |
+
+**The delta does what it was built for.** 66 kB instead of 7 MB is a 109×
+reduction, and it is the number that decides whether a weekly update is
+practical on a field connection.
+
+**The wall clock does not.** 56 seconds to apply a 300-row change, because the
+device seeds the new version by copying 37,852 rows and 76,000 index entries
+inside SQLCipher. The transfer is solved and the application of it is not.
+
+Per keystroke, at district → village over 37,852 villages:
+
+| | one version held | two versions held |
+|---|---|---|
+| First narrow | 13.8 ms | 86 ms |
+| Median | **7.3 ms** | 77–88 ms |
+| 95th percentile | 12.3 ms | 95–105 ms |
+
+The left column is the contract met. The right is not, and it is **not
+explained** by this session's work: a device that reached two versions by two
+full syncs measured 7.9 ms, and one that reached them by applying a delta
+measured 77 ms on the same data. Recorded as an open defect rather than
+described, because a number nobody can account for is not a result.
+
+Both columns are downstream of something else: a device holds two versions of a
+list because **nothing retires a form deployment**, so every form version ever
+deployed keeps its reference data alive on every device forever. That is
+`docs/known-defects.md` 4, and it is now the largest thing standing between this
+feature and a field.
+
+#### What it costs, on the bench
 
 Measured on a **Pixel 6 Pro**, 38,000 villages of eight columns, through
 SQLCipher, driving the real engine — `scripts/measure_datasets_on_device.sh`
@@ -374,10 +417,41 @@ One deliberate exception: a positional reference to an instance that does not cu
 | `contains` / `starts_with` / `ends_with` | `(text, text) → boolean` | |
 | `regex` | `(text, pattern) → boolean` | RE2 syntax only — see §4.6 |
 | `round` | `(number, integer?) → number` | Half away from zero |
+| `sqrt` | `(number) → decimal` | Negative → `null`, never NaN (§4.7) |
+| `sin` / `cos` / `tan` | `(number) → decimal` | Radians |
+| `atan` | `(number) → decimal` | Radians, in (-π/2, π/2) |
 | `int` / `dec` / `str` | explicit casts | No implicit coercion — see §4.3.1 |
 | `distance` | `(geopoint, geopoint) → decimal` | Metres, haversine, WGS-84, **rounded to millimetres** — see below |
 | `pulldata` | `(dataset, column, keyColumn, keyValue) → any` | Dataset lookup — resolved through the form version's pin, §3.2 |
 | `is_null` / `is_not_null` | `(any) → boolean` | Always a boolean, never null — §4.4.10 |
+
+The trigonometric functions and `sqrt` are here because a real form needed
+them. The UCL biomass survey corrects a plot radius for slope with
+`round(15 div (sqrt(cos(atan(${slope} div 100)))), 2)`, which is the ordinary
+way a field protocol turns a percentage gradient into a horizontal distance —
+and it needs three of them at once. The roadmap had recorded only `atan`,
+because the importer reports the first function it cannot translate per cell and
+`atan` is the innermost: `cos` and `sqrt` were behind it the whole time and no
+count could see them.
+
+`sin` and `tan` are not attested in the corpus and are here anyway. A form
+format with `cos` and no `sin` is a trap an author falls into once, and the
+asymmetry would cost more than the two lines do.
+
+**These four are accurate to within one unit in the last place, and no
+further.** `sin`, `cos`, `tan` and `atan` are library calls, and both platforms
+permit their libraries that much error — so two engines computing the same angle
+can legitimately differ in the last bit, exactly as `distance` was found to
+(break 50). A form that compares a trigonometric result must round it first, and
+`conformance/vectors/trig-003` asserts to nine decimal places for that reason:
+eleven orders of magnitude beyond any survey use, and comfortably inside the
+guarantee. This is the only place in §4.3 where the answer is a range rather
+than a value, and it is stated rather than discovered.
+
+`sqrt` of a negative number is `null`, not NaN. §4.7 makes evaluation total and a
+NaN is neither a number nor an absence — it compares false to everything
+including itself, which would make a constraint pass and a relevance hide, both
+silently.
 
 `distance` is rounded to three decimal places, and that is a conformance
 decision rather than a display one. The haversine is four transcendental calls

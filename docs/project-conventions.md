@@ -498,11 +498,14 @@ Both are written up below.
    neither engine read `choices` at all: a `select_one` could hold "purple" and
    both engines called the form valid and finalisable, in production. Form IR
    §6.3/§6.4, error kind `choice`, nine vectors on both engines. See below
-4. **Datasets and `select_one_from_file` — all five parts done**, and measured
-   on a Pixel. The state of it is written out below, because it is the item a
-   fresh session would otherwise have to reconstruct. What is NOT done is the
-   acceptance run: the UCL form still does not publish, for three reasons that
-   predate datasets (`atan`, `${...}` in six labels, a nested repeat)
+4. **Datasets and `select_one_from_file` — five parts built, NOT done.** All
+   five parts are implemented and measured on a Pixel against a server, and the
+   cascade works end to end. Two measured defects stand between that and done —
+   a 56-second delta application and a 10x filter regression when two versions
+   are held (`docs/known-defects.md` 9 and 10) — and both are downstream of
+   defect 4, which is that nothing retires a form deployment. The state of it is
+   written out below, because it is the item a fresh session would otherwise
+   have to reconstruct
 5. Export: CSV, XLSX, Stata, SPSS — not started
 
 Item 0 was not in the original list and had to be: `FormCatalog` read one form
@@ -865,6 +868,40 @@ the selector columns is a change to that one class, with the engine, the vectors
 and every client untouched. Whether it has to happen is what the Pixel
 measurement decides, which is part 5's.
 
+### The acceptance run, 2026-09-03
+
+**The cascade works on a real phone against a real server.** Pixel 6 Pro over
+Wi-Fi, a server on the LAN, the UCL biomass form's own three cascading questions
+lifted verbatim from the import, and the generated village data.
+
+```
+  server: http://192.168.2.44:8001
+  RESULT sync_wall_ms=33782ms
+  RESULT sync_rx_mb=7.047776222229004MB
+  RESULT dataset_rows_fetched=38044
+  RESULT db_growth_mb=14.94921875MB
+    forms held: ucl_cascade v1
+    dataset ucl_regions  v1     26 rows complete=true indexed=[name]
+    dataset ucl_districts v1   166 rows complete=true indexed=[name, region_id]
+    dataset ucl_villages v1  37852 rows complete=true indexed=[district_id, name]
+    regions offered: 26
+    region TZ01 -> 7 districts
+    a district -> 229 villages
+  RESULT filter_median_ms=7.336ms
+  RESULT chose_village_valid=1.0
+  RESULT rejects_absent_village=1.0
+```
+
+26 regions narrow to 7 districts, a district narrows to 229 villages, an answer
+taken from the list validates, and a village that is not in it is refused by
+§6.3. Nothing was bundled: the form and all three lists arrived over the network
+on a device that had been `pm clear`ed.
+
+**What it is not.** This is the UCL form's *location group*, not the UCL form.
+The whole form still does not publish, and after `atan` (done) the reasons are
+`${...}` in six labels and a repeat inside a repeat — neither of which is
+dataset work. The acceptance docs/project-conventions.md states is not met and item 4 is not done.
+
 ### Part 5 — the delta, and what a Pixel says it costs
 
 `GET /datasets/versions/{held}/delta?formVersionId=…&datasetKey=…` returns the
@@ -910,10 +947,18 @@ what reads the IR — is where it landed:
 | Storage | 8.4 MB | 11.3 MB |
 | Second sync (200 changed) | 137 ms | 2.7 s |
 
-The cost moved to write time, which is where it can be afforded: three seconds
-once at enrolment, and 2.7 seconds inside a weekly sync that is already waiting
-on a network. Neither is in front of anybody. **Per-keystroke filtering over
-38,000 villages is viable**, and it was not before this was measured.
+The cost moved to write time, which is where it can be afforded. **Per-keystroke
+filtering over 38,000 villages is viable**, and it was not before this was
+measured — 7.3 ms median on the device, against 1,589 ms for the first
+keystroke before the index existed.
+
+Those are bench figures. The device against a server says the same thing about
+filtering and something worse about everything else: the delta transfers 66 kB
+instead of 7.05 MB (a 109x saving, exactly what it was for) and then spends **56
+seconds** applying it, and filtering degrades to 77 ms once a second version is
+held. Both are recorded in `docs/known-defects.md` 9 and 10, both are open, and
+both are downstream of nothing retiring a form deployment (defect 4). The
+acceptance run above is what produced them.
 
 Two more things the device found and a laptop could not. `datasets.sq` added
 three tables with no `.sqm`, so every fresh-database test passed and the phone —

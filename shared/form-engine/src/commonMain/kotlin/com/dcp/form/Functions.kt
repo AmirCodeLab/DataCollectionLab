@@ -51,6 +51,11 @@ object Functions {
         "str" to Sig(1, 1),
         "distance" to Sig(2, 2),
         "pulldata" to Sig(4, 4),
+        "sqrt" to Sig(1, 1),
+        "sin" to Sig(1, 1),
+        "cos" to Sig(1, 1),
+        "tan" to Sig(1, 1),
+        "atan" to Sig(1, 1),
         "is_null" to Sig(1, 1),
         "is_not_null" to Sig(1, 1),
     )
@@ -124,9 +129,23 @@ object Functions {
             "regex" -> regex(args)
             "distance" -> distance(args[0], args[1])
             "pulldata" -> pulldata(args, ctx)
+            // `(number) -> decimal`. `sqrt` of a negative is null, never NaN:
+            // a NaN compares false to everything including itself, so it would
+            // make a constraint pass and a relevance hide, both silently (§4.7).
+            "sqrt" -> numberOf(args[0])
+                ?.takeIf { it >= 0 }
+                ?.let { FormValue.Decimal(kotlin.math.sqrt(it)) } ?: FormValue.Null
+            "sin" -> trig(args[0]) { kotlin.math.sin(it) }
+            "cos" -> trig(args[0]) { kotlin.math.cos(it) }
+            "tan" -> trig(args[0]) { kotlin.math.tan(it) }
+            "atan" -> trig(args[0]) { kotlin.math.atan(it) }
             else -> throw CompileException("function not implemented: $fn")
         }
     }
+
+    /** `(number) -> decimal`, in radians (§4.3). */
+    private inline fun trig(value: FormValue, fn: (Double) -> Double): FormValue =
+        numberOf(value)?.let { FormValue.Decimal(fn(it)) } ?: FormValue.Null
 
     private fun sequenceOf(v: FormValue): List<FormValue> = when (v) {
         is FormValue.Null -> emptyList()

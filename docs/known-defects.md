@@ -263,3 +263,44 @@ form version are both available, surfacing a submission whose values are not in
 their lists. Until then, §6.4's console column is a description of what should
 happen rather than what does.
 
+
+## 9. Applying a dataset delta costs 56 seconds on a Pixel
+
+Measured, 2026-09-03: a device holding v1 of a 37,852-row village list receiving
+v2 with 300 rows changed transfers **66 kB** — a 109× saving over the 7.05 MB
+full list, exactly what the delta was built for — and then spends **56 seconds**
+applying it.
+
+The time is not in the network. The device seeds the new version by copying
+37,852 rows and about 76,000 index entries from the old one inside SQLCipher,
+because a dataset version's rows are keyed by version id and another form
+version may still pin the old one.
+
+Left open rather than fixed because the cheapest fix is not in this layer: when
+nothing else pins the base version the copy could be a rename, and what keeps
+the base pinned is defect 4 below — nothing retires a form deployment, so every
+version ever deployed keeps its reference data alive. Fixing that removes most
+of this by removing the reason for the copy.
+
+It is a background cost inside a sync rather than a wait in front of an
+enumerator, which is why it is a defect and not a blocker. It is still 56
+seconds of a phone doing nothing useful, every week, per project.
+
+## 10. Per-keystroke filtering degrades 10x when a second dataset version is held
+
+Measured, 2026-09-03, and **not explained**. At district → village over 37,852
+villages a device holding one version answers in 7.3 ms (median, 12.3 ms at the
+95th percentile). A device holding two answers in 77–88 ms.
+
+The obvious explanation is the size of `dataset_cell`, and it is wrong: a device
+that reached two versions by two *full syncs* measured 7.9 ms on exactly the
+same data, and one that reached them by applying a *delta* measured 77 ms. The
+lookup is a primary-key seek with the version id as a literal in both cases.
+
+Recorded rather than guessed at. Candidates not yet ruled out: the WAL after a
+113,000-row copy transaction, page fragmentation from `INSERT ... SELECT` into a
+WITHOUT ROWID table, or SQLCipher page-cache pressure at 31.7 MB. The next step
+is `PRAGMA` diagnostics on the device, not more code.
+
+It matters because 77 ms per keystroke is at the edge of feeling broken, and
+because a device only holds two versions at all because of defect 4.

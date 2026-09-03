@@ -556,3 +556,33 @@ def _walk(nodes: list[dict]) -> list[dict]:
         found.append(node)
         found.extend(_walk(node.get("children", [])))
     return found
+
+
+def test_what_still_blocks_the_ucl_form_is_no_longer_about_functions(
+    ucl_companions: dict[str, bytes],
+) -> None:
+    """The blockers, named, so that "not done" stays specific.
+
+    `atan` was one of them and is built — and behind it were `cos` and `sqrt`,
+    which no count could see because the importer reports the first function it
+    cannot translate per cell and `atan` is the innermost.
+
+    What is left is two things, neither of them dataset work and neither of them
+    a function: `${...}` inserted into six labels and constraint messages (§7
+    carries plain text, and whether it should is a spec question), and a repeat
+    inside a repeat (§2.3 defers nested repeats to IR v0.2).
+    """
+    result = import_workbook(UCL.read_bytes(), companions=ucl_companions)
+
+    assert result.instrumentation.unsupported_functions == {}
+    assert not result.publishable
+
+    codes = sorted({d.code for d in result.diagnostics if d.severity == "error"})
+    assert codes == [
+        # A dataset-backed select cannot be presented yet — parts 3 and 4 built
+        # the engine and the store; the collection screen is next.
+        "choice_source_not_collectable",
+        "does_not_compile",
+        "nested_repeat_not_supported",
+        "output_in_label",
+    ], f"the blockers changed: {codes}"

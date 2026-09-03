@@ -163,6 +163,83 @@ object DatasetBenchmark {
         return out
     }
 
+    /**
+     * Drive a delivered cascade, and time what a keystroke costs (§3.2, §12).
+     *
+     * The acceptance, and it runs against whatever the sync actually delivered
+     * — not a generated fixture. Region narrows the districts, a district
+     * narrows the villages, and the timings are what an enumerator's thumb
+     * pays.
+     *
+     * Lives here rather than in the Android activity because this is where the
+     * engine and the store already are; the activity is a launcher.
+     */
+    fun driveCascade(
+        store: DatasetStore,
+        formVersionId: String,
+        irJson: String,
+        log: (String) -> Unit,
+    ) {
+        val missing = store.missingFor(formVersionId)
+        if (missing.isNotEmpty()) {
+            log("RESULT cascade=blocked missing=$missing")
+            return
+        }
+        val mark = TimeSource.Monotonic
+        val source = StoredDatasetSource(store, formVersionId)
+        val instance = FormInstance(
+            CompiledForm(FormIr.parse(irJson)),
+            today = "2026-09-03",
+            datasets = source,
+        )
+
+        val regions = instance.choices("region_id")
+        log("  regions offered: ${regions.size}")
+        if (regions.isEmpty()) {
+            log("RESULT cascade=blocked reason=no_regions")
+            return
+        }
+        instance.set("region_id", FormValue.Text(regions.first().value))
+        val districts = instance.choices("district_id")
+        log("  region ${regions.first().value} -> ${districts.size} districts")
+        if (districts.isEmpty()) {
+            log("RESULT cascade=blocked reason=no_districts")
+            return
+        }
+
+        val samples = mutableListOf<Long>()
+        var villages = 0
+        repeat(KEYSTROKES) { attempt ->
+            val pick = districts[attempt % districts.size].value
+            val start = mark.markNow()
+            instance.set("district_id", FormValue.Text(pick))
+            villages = instance.choices("village").size
+            samples += start.elapsedNow().inWholeMicroseconds
+        }
+        log("  a district -> $villages villages")
+        log("RESULT cascade_villages=${villages.toDouble()}")
+        log("RESULT filter_first_ms=${samples.first() / 1000.0}ms")
+        val sorted = samples.sorted()
+        log("RESULT filter_median_ms=${sorted[sorted.size / 2] / 1000.0}ms")
+        log("RESULT filter_p95_ms=${sorted[(sorted.size * 95) / 100] / 1000.0}ms")
+        // Two numbers, not one. Reading an unfiltered list is the answer to
+        // the question; falling back with a selector in hand is the failure
+        // §3.2 is about, and a single flag conflated them on the first run.
+        log("RESULT filter_scanned_rows=${source.scannedRows.toDouble()}")
+        log("RESULT filter_narrowing_unavailable=${if (source.narrowingUnavailable) 1.0 else 0.0}")
+
+        // And an answer, validated against the delivered list (§6.3) — the
+        // half of the acceptance that is about correctness rather than speed.
+        val chosen = instance.choices("village").firstOrNull()?.value
+        if (chosen != null) {
+            instance.set("village", FormValue.Text(chosen))
+            log("RESULT chose_village_valid=${if (instance.states.getValue("village").valid) 1.0 else 0.0}")
+            instance.set("village", FormValue.Text("V999999"))
+            log("RESULT rejects_absent_village=${if (!instance.states.getValue("village").valid) 1.0 else 0.0}")
+            log("  chose $chosen; a village not in the list is refused by §6.3")
+        }
+    }
+
     private const val PAGE = 2_000
     private const val KEYSTROKES = 40
     private const val CHANGED = 200

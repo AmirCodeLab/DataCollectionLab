@@ -298,6 +298,16 @@ class DatasetStore(
         datasetKey: String,
         selector: List<Pair<String, String>>,
     ): List<Pair<String, String>>? {
+        // The pinned version is resolved first so the lookups below can take it
+        // as a **literal**. With it arriving through a join SQLite could not use
+        // the leading column of `dataset_cell`'s primary key and walked the
+        // whole table — 6.9 ms per keystroke with one version held, 90 ms with
+        // two, on the same answer. Linear in the table, which is what §3.2 says
+        // it must not be.
+        val pinned = queries.pinnedDatasetVersion(formVersionId, datasetKey)
+            .executeAsOneOrNull() ?: return emptyList()
+        if (pinned.complete != 1L) return emptyList()
+
         // Only when the index actually covers every column being asked about.
         //
         // An index that does not cover a column answers "no rows" rather than
@@ -306,30 +316,20 @@ class DatasetStore(
         // holding every village, with nothing in an error state. That is the
         // stale-list failure by a different road, and a test caught it the first
         // time `filter_columns` became selective.
-        val indexed = queries.indexedColumnsForFormVersion(formVersionId, datasetKey)
-            .executeAsOneOrNull()
-            ?.split(",")
-            ?.filter { it.isNotEmpty() }
-            ?.toSet()
-            .orEmpty()
+        val indexed = pinned.filter_columns.split(",").filter { it.isNotEmpty() }.toSet()
         if (!indexed.containsAll(selector.map { it.first })) return null
-        return rowsMatchingIndexed(formVersionId, datasetKey, selector)
-    }
 
-    private fun rowsMatchingIndexed(
-        formVersionId: String,
-        datasetKey: String,
-        selector: List<Pair<String, String>>,
-    ): List<Pair<String, String>>? = when (selector.size) {
-        1 -> queries.rowsForFormVersionWhere1(
-            formVersionId, datasetKey, selector[0].first, selector[0].second,
-        ) { key, json -> key to json }.executeAsList()
-        2 -> queries.rowsForFormVersionWhere2(
-            formVersionId, datasetKey,
-            selector[0].first, selector[0].second,
-            selector[1].first, selector[1].second,
-        ) { key, json -> key to json }.executeAsList()
-        else -> null
+        val id = pinned.dataset_version_id
+        return when (selector.size) {
+            1 -> queries.rowsForVersionWhere1(
+                id, selector[0].first, selector[0].second,
+            ) { key, json -> key to json }.executeAsList()
+            2 -> queries.rowsForVersionWhere2(
+                id, selector[0].first, selector[0].second,
+                id, selector[1].first, selector[1].second,
+            ) { key, json -> key to json }.executeAsList()
+            else -> null
+        }
     }
 
     /**

@@ -1,0 +1,110 @@
+{
+  "irVersion": "0.1",
+  "formId": "ucl_cascade",
+  "version": 1,
+  "title": {
+    "sw": "UCL Biomass — Eneo"
+  },
+  "defaultLanguage": "sw",
+  "languages": [
+    "en",
+    "sw"
+  ],
+  "children": [
+    {
+      "type": "question",
+      "id": "region_id",
+      "dataType": "select_one",
+      "label": {
+        "sw": "Mkoa",
+        "en": "Region"
+      },
+      "hint": {
+        "sw": "Chagua moja",
+        "en": "Choose One"
+      },
+      "choices": {
+        "kind": "dataset",
+        "dataset": "ucl_regions",
+        "valueColumn": "name",
+        "labelColumn": {
+          "sw": "label::Swahili (sw)",
+          "en": "label::English (en)"
+        }
+      },
+      "required": true
+    },
+    {
+      "type": "question",
+      "id": "district_id",
+      "dataType": "select_one",
+      "label": {
+        "sw": "Wilaya",
+        "en": "District"
+      },
+      "hint": {
+        "sw": "Chagua moja",
+        "en": "Choose One"
+      },
+      "choices": {
+        "kind": "dataset",
+        "dataset": "ucl_districts",
+        "valueColumn": "name",
+        "labelColumn": {
+          "sw": "label::Swahili (sw)",
+          "en": "label::English (en)"
+        },
+        "filter": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "$row.region_id"
+            },
+            {
+              "op": "ref",
+              "path": "region_id"
+            }
+          ]
+        }
+      },
+      "required": true
+    },
+    {
+      "type": "question",
+      "id": "village",
+      "dataType": "select_one",
+      "label": {
+        "sw": "Kijiji",
+        "en": "Village"
+      },
+      "hint": {
+        "sw": "Chagua moja",
+        "en": "Choose One"
+      },
+      "choices": {
+        "kind": "dataset",
+        "dataset": "ucl_villages",
+        "valueColumn": "name",
+        "labelColumn": {
+          "sw": "label::Swahili (sw)",
+          "en": "label::English (en)"
+        },
+        "filter": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "$row.district_id"
+            },
+            {
+              "op": "ref",
+              "path": "district_id"
+            }
+          ]
+        }
+      },
+      "required": true
+    }
+  ]
+}

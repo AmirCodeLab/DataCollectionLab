@@ -61,14 +61,25 @@ class StoredDatasetSource(
     private val cache = mutableMapOf<String, List<Map<String, FormValue>>>()
 
     /**
-     * True once a resolution has fallen back to reading a whole version.
+     * Rows read whole because narrowing was not available, and whether that
+     * ever happened *with a selector in hand*.
      *
-     * Exposed rather than logged: the two paths differ by three orders of
-     * magnitude on real data, and which one a form gets is a property of how its
-     * filter was written. Something has to be able to say so — a benchmark, a
-     * settings screen, a support answer — without reading this file.
+     * A boolean was the first cut and it was useless the first time it ran on a
+     * device: the region question has no filter, so reading all 26 regions set
+     * the flag, and the report then said the village list had scanned 37,852
+     * rows when it had done an index lookup. A number that cannot tell 26 from
+     * 37,852 is not measuring the thing it was added for.
+     *
+     * The two are separate on purpose. An unfiltered list is not a fallback —
+     * there is nothing to narrow, and reading it is the answer to the question.
+     * [narrowingUnavailable] is the alarming one: a selector existed and the
+     * index could not serve it, which is the case §3.2's contract is about.
      */
-    var scanned: Boolean = false
+    var scannedRows: Long = 0
+        private set
+
+    /** A selector was present and could not be served by the index (§3.2). */
+    var narrowingUnavailable: Boolean = false
         private set
 
     override fun rows(
@@ -92,10 +103,13 @@ class StoredDatasetSource(
         }
         if (terms.any { it.second is FormValue.Null }) return emptyList()
 
-        // The scan. Correct, slow, and recorded.
-        scanned = true
+        // The scan. Correct, slow, and recorded — separately for the two
+        // reasons it happens, because only one of them is a problem.
+        if (terms.isNotEmpty()) narrowingUnavailable = true
         val all = cache.getOrPut(dataset) {
-            store.rowsFor(formVersionId, dataset).map { (_, dataJson) -> parse(dataJson) }
+            val read = store.rowsFor(formVersionId, dataset)
+            scannedRows += read.size.toLong()
+            read.map { (_, dataJson) -> parse(dataJson) }
         }
         // The same comparison the reference source makes — exact, §3.1 and
         // §6.3's rule — so a device and the server agree about membership.

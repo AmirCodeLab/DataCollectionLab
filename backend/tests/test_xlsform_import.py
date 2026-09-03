@@ -152,7 +152,10 @@ def test_an_untranslatable_relevant_is_an_error_not_a_warning() -> None:
             [
                 ["type", "name", "label", "relevant"],
                 ["text", "a", "A", None],
-                ["text", "b", "B", "atan(${a}) > 1"],
+                # `once()` rather than `atan()`: atan translates now (item 4
+                # part 5 added it, with `cos` and `sqrt` hiding behind it).
+                # What this test is about is severity, not which function.
+                ["text", "b", "B", "once(${a}) = 1"],
             ]
         )
     )
@@ -161,7 +164,7 @@ def test_an_untranslatable_relevant_is_an_error_not_a_warning() -> None:
     assert failures[0].severity == "error"
     assert "shown to everybody" in failures[0].message
     assert not result.publishable
-    assert result.instrumentation.unsupported_functions == {"atan": 1}
+    assert result.instrumentation.unsupported_functions == {"once": 1}
 
 
 def test_an_untranslatable_default_is_only_a_warning() -> None:
@@ -170,7 +173,7 @@ def test_an_untranslatable_default_is_only_a_warning() -> None:
         build(
             [
                 ["type", "name", "label", "default"],
-                ["text", "a", "A", "atan(${b})"],
+                ["text", "a", "A", "once(${b})"],
                 ["text", "b", "B", None],
             ]
         )

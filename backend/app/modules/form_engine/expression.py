@@ -485,6 +485,33 @@ def _fn_round(ctx: EvalContext, args: list[Any]) -> Any:
     return rounded / factor if digits > 0 else int(rounded)
 
 
+def _fn_sqrt(ctx: EvalContext, args: list[Any]) -> Any:
+    """`(number) → decimal`. Negative is null, never NaN (§4.3, §4.7).
+
+    A NaN is neither a number nor an absence: it compares false to everything
+    including itself, so it would make a constraint pass and a relevance hide,
+    both silently. Null has defined behaviour at every boundary (§4.4.7).
+    """
+    value = _number(args[0])
+    if value is None or value < 0:
+        return None
+    return math.sqrt(value)
+
+
+def _trig(fn: Callable[[float], float]) -> Callable[[EvalContext, list[Any]], Any]:
+    """`(number) → decimal`, in radians (§4.3).
+
+    Here because a real form needed them: the UCL biomass survey corrects a plot
+    radius for slope with `round(15 div (sqrt(cos(atan(slope div 100)))), 2)`.
+    """
+
+    def call(ctx: EvalContext, args: list[Any]) -> Any:
+        value = _number(args[0])
+        return None if value is None else fn(float(value))
+
+    return call
+
+
 def _fn_pulldata(ctx: EvalContext, args: list[Any]) -> Any:
     """`(dataset, column, keyColumn, keyValue) → any` — a dataset lookup (§4.3).
 
@@ -620,6 +647,11 @@ FUNCTIONS: dict[str, tuple[Callable[[EvalContext, list[Any]], Any], int, int]] =
     "str": (_cast_str, 1, 1),
     "distance": (_fn_distance, 2, 2),
     "pulldata": (_fn_pulldata, 4, 4),
+    "sqrt": (_fn_sqrt, 1, 1),
+    "sin": (_trig(math.sin), 1, 1),
+    "cos": (_trig(math.cos), 1, 1),
+    "tan": (_trig(math.tan), 1, 1),
+    "atan": (_trig(math.atan), 1, 1),
     "is_null": (lambda c, a: _is_null(a[0]), 1, 1),
     "is_not_null": (lambda c, a: not _is_null(a[0]), 1, 1),
 }

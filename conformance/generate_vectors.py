@@ -1658,6 +1658,98 @@ vector(
 
 
 
+
+# --------------------------------------------------------------------------
+# Trigonometry and sqrt (§4.3), added because a real form needed them
+# --------------------------------------------------------------------------
+
+vector(
+    "trig-001",
+    "The UCL slope correction: a plot radius corrected for gradient",
+    "4.3",
+    form("slope", [
+        q("slope", "integer"),
+        # round(15 / sqrt(cos(atan(slope/100))), 2) — the field protocol's own
+        # formula, verbatim from UCL_Biomass_Plot_Form.xlsx.
+        q("radius", "decimal", calculate=call(
+            "round",
+            op("div", lit(15), call("sqrt", call("cos", call("atan",
+                op("div", ref("slope"), lit(100)))))),
+            lit(2),
+        )),
+    ]),
+    [
+        # Flat ground: atan(0) = 0, cos(0) = 1, sqrt(1) = 1, so the radius is
+        # the uncorrected 15 m.
+        {"set": {"slope": 0}, "expect": {"values": {"radius": 15.0}}},
+        # A 100% gradient is 45 degrees; the correction is 15 / sqrt(cos(pi/4)).
+        {"set": {"slope": 100}, "expect": {"values": {"radius": 17.84}}},
+        # Checked against the closed form rather than against the engine:
+        # cos(atan(x)) is 1/sqrt(1+x^2), so the whole expression is
+        # 15*(1+x^2)^(1/4) — 15.860569 at x=0.5, which rounds to 15.86.
+        {"set": {"slope": 50}, "expect": {"values": {"radius": 15.86}}},
+        # Unanswered propagates, as everything else does (§4.4).
+        {"set": {"slope": None}, "expect": {"values": {"radius": None}}},
+    ],
+)
+
+vector(
+    "trig-002",
+    "sqrt of a negative is null, not NaN — a NaN would pass a constraint silently",
+    "4.3",
+    form("roots", [
+        q("n", "decimal"),
+        q("root", "decimal", calculate=call("sqrt", ref("n"))),
+        # The reason it matters: a NaN compares false to everything including
+        # itself, so a constraint over it would pass and nobody would know.
+        q("checked", "decimal", constraint=op("gt", ref("root"), lit(0))),
+    ]),
+    [
+        {"set": {"n": 9.0}, "expect": {"values": {"root": 3.0}}},
+        {"set": {"n": 0.0}, "expect": {"values": {"root": 0.0}}},
+        {"set": {"n": -1.0}, "expect": {"values": {"root": None}}},
+    ],
+)
+
+vector(
+    "trig-003",
+    "sin, cos, tan and atan agree between the engines to the precision §4.3 promises",
+    "4.3",
+    form("angles", [
+        q("radians", "decimal"),
+        # Rounded to 9 places, deliberately, and §4.3 says why: a
+        # transcendental function is permitted one unit in the last place by
+        # both platforms' libraries, so bit-identity is not something either
+        # engine can promise — `distance` was found differing in exactly that
+        # way (break 50). Nine places is eleven orders of magnitude beyond any
+        # survey use and comfortably inside the guarantee.
+        q("s", "decimal", calculate=call("round", call("sin", ref("radians")), lit(9))),
+        q("c", "decimal", calculate=call("round", call("cos", ref("radians")), lit(9))),
+        q("t", "decimal", calculate=call("round", call("tan", ref("radians")), lit(9))),
+        q("a", "decimal", calculate=call("round", call("atan", ref("radians")), lit(9))),
+    ]),
+    [
+        {"set": {"radians": 0.0},
+         "expect": {"values": {"s": 0.0, "c": 1.0, "t": 0.0, "a": 0.0}}},
+        {"set": {"radians": 1.0},
+         "expect": {"values": {
+             "s": 0.841470985,
+             "c": 0.540302306,
+             "t": 1.557407725,
+             "a": 0.785398163,
+         }}},
+        # Negative angles, because a slope can go downhill.
+        {"set": {"radians": -1.0},
+         "expect": {"values": {
+             "s": -0.841470985,
+             "c": 0.540302306,
+             "t": -1.557407725,
+             "a": -0.785398163,
+         }}},
+    ],
+)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):

@@ -1,0 +1,101 @@
+{
+  "id": "trig-002",
+  "description": "sqrt of a negative is null, not NaN — a NaN would pass a constraint silently",
+  "spec": "4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "roots",
+    "version": 1,
+    "title": {
+      "en": "roots"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "n",
+        "dataType": "decimal",
+        "label": {
+          "en": "N"
+        }
+      },
+      {
+        "type": "question",
+        "id": "root",
+        "dataType": "decimal",
+        "label": {
+          "en": "Root"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "path": "n"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "checked",
+        "dataType": "decimal",
+        "label": {
+          "en": "Checked"
+        },
+        "constraint": {
+          "op": "gt",
+          "args": [
+            {
+              "op": "ref",
+              "path": "root"
+            },
+            {
+              "op": "lit",
+              "value": 0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "n": 9.0
+      },
+      "expect": {
+        "values": {
+          "root": 3.0
+        }
+      }
+    },
+    {
+      "set": {
+        "n": 0.0
+      },
+      "expect": {
+        "values": {
+          "root": 0.0
+        }
+      }
+    },
+    {
+      "set": {
+        "n": -1.0
+      },
+      "expect": {
+        "values": {
+          "root": null
+        }
+      }
+    }
+  ]
+}
