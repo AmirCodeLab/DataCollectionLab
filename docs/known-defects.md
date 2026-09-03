@@ -264,6 +264,14 @@ their lists. Until then, §6.4's console column is a description of what should
 happen rather than what does.
 
 
+> **Defects 9 and 10 are both downstream of defect 4.** A device holds two
+> versions of a list only because nothing retires a form deployment, so every
+> form version ever deployed keeps its reference data alive on every device
+> forever. Fixing 4 removes the reason for the copy that costs 9 its 56 seconds,
+> and removes the second version that costs 10 its regression. Neither blocks
+> collection — the acceptance passed on a handset with both present — but they
+> are the largest thing between datasets and a field, and they are one fix.
+
 ## 9. Applying a dataset delta costs 56 seconds on a Pixel
 
 Measured, 2026-09-03: a device holding v1 of a 37,852-row village list receiving

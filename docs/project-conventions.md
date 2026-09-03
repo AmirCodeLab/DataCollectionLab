@@ -301,6 +301,7 @@ What watches that layer, and all there is:
 | The settings screen, and which forms it lists | `SettingsScreenTest`, `HeldFormsTest` (`:clients:composeApp:jvmTest`) | 32 |
 | Which form version the **server** validates against | `test_server_version_binding.py` (`backend`, `-m db`) | 40 |
 | Which dataset version a form version's lists resolve to | `test_form_dataset_pinning.py` (`backend`, `-m db`) | 42 |
+| That a collection screen was given a dataset source at all | nothing — see break 57 | 57 |
 | Companion CSVs: read, refused, or reported missing | `test_xlsform_datasets.py` (`backend`) | 43 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
@@ -313,6 +314,16 @@ evaluates perfectly. Break 42 is the cleanest example of the rule above: a
 published form with no record of which villages it offered, and nothing
 anywhere to notice, because every vector was still asking the only question a
 vector can ask.
+
+**Break 57 is the sharpest instance and the newest.** `CollectionViewModel`
+resolved choices through the engine correctly and built its `FormInstance` with
+**no `DatasetSource`**, so every dataset-backed select came back empty. 502
+backend tests, every conformance vector and every composeApp test passed — the
+UI tests construct `QuestionUi` directly and never build an instance, and the
+engine tests build one *with* a source. The seam between them is covered by
+neither, and only tapping through the form on a handset found it. The fix was
+not a test: `FormCatalog.datasetSourceForSubmission` is now the only way to
+obtain a source, so a view model cannot forget to ask for one.
 
 **So: if you are adding logic above the engine, a green conformance run is not
 evidence about your change.** It is evidence about code you did not touch. Add a
@@ -507,7 +518,9 @@ Both are written up below.
    a filter regression when two dataset versions are held
    (`docs/known-defects.md` 9 and 10), both downstream of defect 4 — nothing
    retires a form deployment
-5. Export: CSV, XLSX, Stata, SPSS — not started
+5. **Export: CSV, XLSX, Stata, SPSS — IN PROGRESS.** Nothing leaves this system
+   in any format, which blocks every customer. Scope and the decisions already
+   made are below
 
 **Label interpolation (Form IR §7.1) — done.** Split out of nothing: it was the
 `output_in_label` error class, which the UCL form hit six times and which had no
@@ -1118,6 +1131,82 @@ and whitespace-only cells, more columns than the form uses, and keys differing
 only by case or surrounding whitespace (§3.1). Documented as synthetic in
 `PROVENANCE.md`, and the report must say the acceptance proved the pipeline
 works with data *shaped like* the real thing — not with UCL's actual files.
+
+### Item 5 — export
+
+**Nothing leaves this system yet.** A customer can author a form, deliver it,
+collect on a handset and sync — and then has no way to get the data out. That
+blocks everyone, which is why it comes before nested repeats (one form in
+twenty-one, and it is UCL).
+
+**Order: CSV and XLSX first**, because every customer needs those and nothing
+else is usable without them. Stata `.dta` and SPSS `.sav` after;
+`pyreadstat` writes both.
+
+**Wide and long, both.** A household roster is unreadable in wide form past a
+few members — `member_1_name` … `member_30_name`, mostly empty — and long form
+is what anybody actually analyses. Wide is what people expect and ask for.
+
+**Encrypted values export as a literal `ENCRYPTED` token.** Never blank, never
+`NA`, never `NULL`: every statistical tool treats those three as missing and
+will compute a mean over the rows that happen to be readable, silently. A token
+is a value that no analysis can mistake for an absence.
+
+> Check what the `.dta` and `.sav` writers do with a string in a numeric
+> column before trusting this. If either coerces it to missing, that column is
+> written as a **string** column instead — the type is worth less than the
+> distinction between "encrypted" and "not answered".
+
+**A manifest ships with every export**, naming per column: the field path, why
+it is unreadable, and which project key ids can open it. An export that is
+partly encrypted and does not say so is worse than one that fails.
+
+**A dataset-backed value exports the code *and* the resolved label**, through
+the form version's pins (§3.2) — exactly what the acceptance showed on the
+server: `V000023` beside `Nyamburi Kati`. A CSV of `V000023` with no name in it
+is not something anybody can analyse, and resolving the code any other way than
+through the pin would give it last month's name.
+
+#### The mistake that passes every test
+
+Two, and the second is the one I would bet on.
+
+**A repeat flattened onto the wrong parent.** The column names are right, the
+row count is right, and household A's members are filed under household B.
+Nothing about the file looks wrong and every conclusion drawn from it is wrong.
+
+The sharp edge is specific to this IR and easy to miss: §2.3 says positional
+addressing *resolves against the current ordered list*, and deleting an instance
+removes it from that order without renumbering storage. So `members[1]` is not
+a person — it is a position, and it means a different person before and after a
+deletion. **A long-form export keyed on position is therefore not stable across
+time**: yesterday's export and today's disagree about who is who, and a join
+between them is silently wrong. The key must be the submission id plus the
+**stable instance id**, which is what the op log already carries.
+
+**A non-relevant field's retained value, exported.** §4.4 is explicit — a
+non-relevant field *retains* its value and export *excludes* it — and the two
+halves exist for different reasons: the op log must not lose an answer somebody
+gave, and an analysis must not contain answers to questions nobody was asked.
+An exporter that reads `FormInstance.values` rather than `answers()` produces a
+column where a household that said "no children" reports the three it had typed
+before changing its mind. Every count is right, every type is right, every test
+passes.
+
+This is the one I would bet on because it is the *default* mistake: `values` is
+the obvious thing to reach for, `answers()` is the one that is correct, and
+nothing about the wrong choice looks wrong. The engine already draws the
+distinction — the exporter must be unable to reach past it, the same way
+`compiledFormForSubmission` and `dataset_rows_for` are unable to name a version.
+
+Two invariants worth building the suite around, because neither is a test of a
+case somebody thought of:
+
+- **Round trip.** Export, re-import, compare against the source submission.
+- **Cross-form agreement.** Every long-form row's parent key exists exactly
+  once in the wide export, and the multiset of (submission, instance) pairs
+  matches the op log's. A flattening error breaks this and a wrong column does
+  not.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 
