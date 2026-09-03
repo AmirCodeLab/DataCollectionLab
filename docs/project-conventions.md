@@ -437,20 +437,42 @@ docker compose up
 ## CI
 
 `.github/workflows/ci.yml` — five jobs, all of them blocking: **backend**
-(ruff, mypy, the API contract check, pytest without `db`), **db** (pytest
-`-m db` against a PostGIS service), **kotlin** (`:shared:form-engine:jvmTest`,
-`:shared:core:jvmTest`, `:clients:composeApp:jvmTest`), **web** (typecheck,
-lint, test, build), and **suites**.
+(ruff and mypy over `app`, `scripts` and `conformance`, the API contract check,
+pytest without `db`), **db** (pytest `-m db` against a PostGIS service),
+**kotlin** (`:shared:form-engine:jvmTest`, `:shared:core:jvmTest`,
+`:clients:composeApp:jvmTest`), **web** (typecheck, lint, test, build), and
+**suites**.
 
 These are the same commands listed above. Run them locally before pushing —
 but the point of the workflow is that nobody has to remember to.
 
-**`suites` watches the other four.** It fails if a test suite exists in this
-repository and no CI step runs it:
+**Two guards watch the other four, and they ask different questions.**
+
+`check_every_directory_is_gated.py` asks whether every directory holding source
+is **read** by something. It exists because the answer was no for the life of
+the repository: CI ran `ruff check .` and `mypy app` from `backend/`, so
+`scripts/` and `conformance/` were outside both — the API-contract generator,
+the XLSForm importer's CLI, the dev seed and every vector generator, none of
+them ever linted or type-checked. It read as covered because the job is called
+"backend (ruff, mypy, pytest)" and was green. First run: 3 ruff errors and 602
+mypy errors, including a wrong return annotation in the function-matrix
+generator that had been there since it was written. Break 70.
+
+It parses the gates out of `ci.yml` rather than holding a list, so it tracks
+what CI does; and a directory that is neither gated nor named in `ACKNOWLEDGED`
+with a **reason** is a failure. The acknowledged gaps today are Kotlin style
+(no ktlint or detekt is configured at all), and mypy over `backend/tests` (212
+errors) and `backend/migrations`. Being on that list is a decision somebody can
+argue with. Being absent from it was the hole.
+
+`check_ci_runs_every_suite.py` asks whether every suite **runs**. It fails if a
+test suite exists in this repository and no CI step runs it:
 
 ```bash
 python scripts/check_ci_runs_every_suite.py            # local
 python scripts/check_ci_runs_every_suite.py --strict   # what CI runs
+# …and the question one layer out: is every DIRECTORY read by a gate?
+python scripts/check_every_directory_is_gated.py --strict
 # It also checks every vector on disk was EXECUTED, not merely that the suite
 # is wired up — run the Kotlin conformance suites first or it has nothing to
 # read. Adding nine vectors once left :shared:form-engine:jvmTest UP-TO-DATE

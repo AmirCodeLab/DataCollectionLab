@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
+from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
@@ -112,7 +113,7 @@ BINARY_OPS = [
 ]
 
 
-def lit(value: object) -> dict:
+def lit(value: object) -> dict[str, Any]:
     return {"op": "lit", "value": value}
 
 
@@ -139,7 +140,7 @@ def _context() -> EvalContext:
     )
 
 
-def _evaluate(expr: dict) -> tuple[object, str | None]:
+def _evaluate(expr: dict[str, Any]) -> tuple[object, str | None]:
     """The reference's answer, and the name of what it raised if it did."""
     try:
         return evaluate(expr, _context()), None
@@ -147,9 +148,9 @@ def _evaluate(expr: dict) -> tuple[object, str | None]:
         return None, type(failure).__name__
 
 
-def _probe(probe_id: str, expr: dict) -> dict:
+def _probe(probe_id: str, expr: dict[str, Any]) -> dict[str, Any]:
     value, raised = _evaluate(expr)
-    entry: dict = {"id": probe_id, "expr": expr}
+    entry: dict[str, Any] = {"id": probe_id, "expr": expr}
     if raised is not None:
         # §4.7 permits exactly one: integer overflow. Anything else appearing
         # here is a bug being frozen into the set, so it is refused outright.
@@ -165,10 +166,11 @@ def _probe(probe_id: str, expr: dict) -> dict:
     return entry
 
 
-def build() -> dict[str, dict]:
-    files: dict[str, list[dict]] = {}
+def build() -> dict[str, dict[str, Any]]:
+    # group -> its probes, wrapped into one document per group on return.
+    files: dict[str, list[dict[str, Any]]] = {}
 
-    def add(group: str, probe_id: str, expr: dict) -> None:
+    def add(group: str, probe_id: str, expr: dict[str, Any]) -> None:
         files.setdefault(group, []).append(_probe(probe_id, expr))
 
     for fn in UNARY_FNS:
@@ -387,7 +389,7 @@ SPEC_EXAMPLES = [
 ]
 
 
-def spec_file() -> dict:
+def spec_file() -> dict[str, Any]:
     probes = []
     for name, expr, expected in SPEC_EXAMPLES:
         value, raised = _evaluate(expr)

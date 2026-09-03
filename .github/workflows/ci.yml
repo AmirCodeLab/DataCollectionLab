@@ -48,13 +48,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # `.` is backend/, so these paths are what bring scripts/ and
+      # conformance/ into the gate. They were outside it entirely until
+      # 2026-09-03 — real code, including the API-contract generator and every
+      # vector generator, that ruff and mypy had never read. The `suites` job
+      # runs check_every_directory_is_gated.py, which fails if a directory with
+      # source in it is missing from these commands.
       - name: ruff
         working-directory: backend
-        run: ruff check .
+        run: ruff check . ../scripts ../conformance
 
       - name: mypy
         working-directory: backend
-        run: mypy app
+        run: mypy app ../scripts ../conformance
 
       # The API contract. specs/openapi.json and web/src/api/types.ts are both
       # generated from the FastAPI app; this fails if either is not what the
@@ -230,6 +236,12 @@ jobs:
 
       - name: Every suite is run by CI, and every vector was executed
         run: python scripts/check_ci_runs_every_suite.py --strict
+
+      # One layer out: the suites guard asks whether every suite RUNS, this
+      # asks whether every directory is READ. `scripts/` and `conformance/`
+      # answered "no" for the life of the repository.
+      - name: Every source directory is read by a gate
+        run: python scripts/check_every_directory_is_gated.py --strict
 
   web:
     name: web (typecheck, lint, test, build)

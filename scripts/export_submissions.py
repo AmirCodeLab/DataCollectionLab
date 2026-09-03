@@ -56,9 +56,9 @@ from app.core.config import get_settings  # noqa: E402
 from app.modules.export.service import (  # noqa: E402
     DEFAULT_LIMIT,
     ExportTooLarge,
-    ValueTooLong,
     export_form,
 )
+from app.modules.export.statistical import ValueTooLong  # noqa: E402
 from app.modules.export.writers import Bundle  # noqa: E402
 
 

@@ -34,7 +34,7 @@ import resource
 import sys
 import time
 import tracemalloc
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -254,9 +254,11 @@ async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
     import app.modules.export.service as export_service
     import app.modules.export.shape as shape_module
     from app.modules.export.service import export_form
+    from app.modules.export.shape import Shape
+    from app.modules.export.writers import Format
 
     tally = {"row_fetches": 0, "rows_materialised": 0, "label_lookups": 0}
-    real_rows = export_service.dataset_rows_for_submissions
+    real_rows = export_service.dataset_rows_for_submissions  # type: ignore[attr-defined]
     real_label = shape_module._label
 
     async def counting_rows(session_: Any, ids: Any, key: str) -> Any:
@@ -273,8 +275,11 @@ async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
         tally["label_lookups"] += 1
         return real_label(*args, **kwargs)
 
-    export_service.dataset_rows_for_submissions = counting_rows  # type: ignore[assignment]
-    shape_module._label = counting_label  # type: ignore[assignment]
+    # Patched on the module that CALLS it, which is the only place a patch
+    # takes effect — and reached with setattr because it is an import there,
+    # not part of that module's own surface.
+    export_service.dataset_rows_for_submissions = counting_rows  # type: ignore[attr-defined,assignment]
+    shape_module._label = counting_label
 
     gc.collect()
     engine = create_async_engine(url)
@@ -284,8 +289,13 @@ async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
     try:
         maker = async_sessionmaker(engine, expire_on_commit=False)
         async with maker() as session, session.begin():
-            bundle = await export_form(session, form_key="biomass",
-                                       shape=shape, fmt=fmt, limit=limit)
+            bundle = await export_form(
+                session,
+                form_key="biomass",
+                shape=cast(Shape, shape),
+                fmt=cast(Format, fmt),
+                limit=limit,
+            )
         elapsed = time.perf_counter() - started
         assert bundle is not None
         archive = bundle.to_zip()
@@ -294,8 +304,8 @@ async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
     finally:
         tracemalloc.stop()
         await engine.dispose()
-        export_service.dataset_rows_for_submissions = real_rows  # type: ignore[assignment]
-        shape_module._label = real_label  # type: ignore[assignment]
+        export_service.dataset_rows_for_submissions = real_rows  # type: ignore[attr-defined]
+        shape_module._label = real_label
 
     # `tracemalloc` sees Python allocations only, which is most of the CSV and
     # XLSX cost and *not* the numpy arrays a .dta or .sav builds. `ru_maxrss` is

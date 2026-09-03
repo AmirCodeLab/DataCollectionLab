@@ -6,34 +6,41 @@ and are cheap to extend. Run: python conformance/generate_vectors.py
 
 import json
 import pathlib
+from typing import Any
+
+#: Every helper here builds a fragment of a Form IR document, which is JSON and
+#: therefore `dict[str, Any]` all the way down. Annotated not because the types
+#: are interesting but because an unchecked file is one nobody notices breaking:
+#: `scripts/check_every_directory_is_gated.py` is what noticed this one.
+type Node = dict[str, Any]
 
 OUT = pathlib.Path(__file__).parent / "vectors"
 
 
-def lit(v):
+def lit(v: Any) -> Node:
     return {"op": "lit", "value": v}
 
 
-def ref(p):
+def ref(p: str) -> Node:
     return {"op": "ref", "path": p}
 
 
-def op(name, *args):
+def op(name: str, *args: Any) -> Node:
     return {"op": name, "args": list(args)}
 
 
-def call(fn, *args):
+def call(fn: str, *args: Any) -> Node:
     return {"op": "call", "fn": fn, "args": list(args)}
 
 
-def q(qid, dtype, **kw):
+def q(qid: str, dtype: str, **kw: Any) -> Node:
     node = {"type": "question", "id": qid, "dataType": dtype,
             "label": {"en": qid.replace("_", " ").title()}}
     node.update(kw)
     return node
 
 
-def form(fid, children, **kw):
+def form(fid: str, children: list[Node], **kw: Any) -> Node:
     f = {"irVersion": "0.1", "formId": fid, "version": 1,
          "title": {"en": fid}, "defaultLanguage": "en",
          "languages": ["en"], "children": children}
@@ -41,10 +48,18 @@ def form(fid, children, **kw):
     return f
 
 
-VECTORS = []
+VECTORS: list[Node] = []
 
 
-def vector(vid, description, spec, f, steps, context=None, datasets=None):
+def vector(
+    vid: str,
+    description: str,
+    spec: str,
+    f: Node,
+    steps: list[Node],
+    context: Node | None = None,
+    datasets: dict[str, list[Node]] | None = None,
+) -> None:
     entry = {
         "id": vid,
         "description": description,
@@ -372,7 +387,7 @@ vector(
 # --------------------------------------------------------------------------
 
 
-def repeat(rid, children, **kw):
+def repeat(rid: str, children: list[Node], **kw: Any) -> Node:
     node = {"type": "repeat", "id": rid, "label": {"en": rid.title()},
             "children": children}
     node.update(kw)
@@ -592,7 +607,7 @@ vector(
 # Screen flow (spec 11) — partition and navigation must match on every runtime
 # --------------------------------------------------------------------------
 
-def group(gid, children, **kw):
+def group(gid: str, children: list[Node], **kw: Any) -> Node:
     node = {"type": "group", "id": gid,
             "label": {"en": gid.replace("_", " ").title()}, "children": children}
     node.update(kw)
@@ -1002,7 +1017,7 @@ _SYMPTOMS = {"kind": "inline", "items": [
     {"value": "rash", "label": {"en": "Rash"}}]}
 
 
-def _membership_form(fid):
+def _membership_form(fid: str) -> Node:
     return form(fid, [
         q("gender", "select_one", choices=_GENDER, required=True),
         q("symptoms", "select_multiple", choices=_SYMPTOMS),
@@ -1176,7 +1191,7 @@ _REGION = q("region", "select_one", choices={
 })
 
 
-def _district(**extra):
+def _district(**extra: Any) -> Node:
     node = {
         "kind": "dataset", "dataset": "districts",
         "valueColumn": "name", "labelColumn": {"en": "label"},
@@ -1763,7 +1778,7 @@ FSI = "\u2068"
 PDI = "\u2069"
 
 
-def _tagged():
+def _tagged() -> Node:
     return form(
         "tagged",
         [

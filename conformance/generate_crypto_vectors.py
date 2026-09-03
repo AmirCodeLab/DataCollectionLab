@@ -12,6 +12,7 @@ public by design; none of them may ever appear outside conformance/.
 import json
 import pathlib
 import sys
+from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
@@ -52,10 +53,10 @@ for role, seed in [("primary", 0x40), ("backup", 0x60), ("recovery", 0x80)]:
         "publicKey": public.hex(),
     }
 
-VECTORS = []
+VECTORS: list[dict[str, Any]] = []
 
 
-def vector(vid: str, vtype: str, description: str, spec: str, **body) -> None:
+def vector(vid: str, vtype: str, description: str, spec: str, **body: Any) -> None:
     VECTORS.append(
         {
             "id": vid,
@@ -97,7 +98,7 @@ SCALAR_CASES = [
     ("control char", "bell \x07 unit sep \x1f"),
 ]
 
-STRUCTURE_CASES = [
+STRUCTURE_CASES: list[tuple[str, Any]] = [
     ("empty object", {}),
     ("empty array", []),
     ("key sorting ascii", {"b": 1, "a": 2, "B": 3, "1": 4}),
@@ -111,7 +112,7 @@ STRUCTURE_CASES = [
 ]
 
 
-def canonical_cases(pairs):
+def canonical_cases(pairs: list[tuple[str, Any]]) -> list[dict[str, Any]]:
     return [
         {"name": name, "value": value, "expected": envelope.canonical_json(value).hex()}
         for name, value in pairs
@@ -183,7 +184,9 @@ vector(
 # ---------------------------------------------------------------------------
 
 
-def wrap_case(recipient: dict, eph_seed: int, nonce_seed: int) -> dict:
+def wrap_case(
+    recipient: dict[str, Any], eph_seed: int, nonce_seed: int
+) -> dict[str, Any]:
     ephemeral_private = tb(eph_seed, 32)
     nonce = tb(nonce_seed, 12)
     wrapped = envelope.wrap_content_key(
@@ -253,7 +256,9 @@ OP_VALUE_CASES = [
 ]
 
 
-def op_value_case(name: str, value, path: str, counter: int) -> dict:
+def op_value_case(
+    name: str, value: Any, path: str, counter: int
+) -> dict[str, Any]:
     op_id = f"01J9TESTOP{counter:016d}"
     submission_id = "01J9TESTSUBMISSION0000000A"
     device_id = "device-a"

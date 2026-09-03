@@ -108,14 +108,15 @@ def _report(created: bool, kind: str, name: str) -> None:
 
 async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
     from app.core.config import get_settings
     from app.infrastructure.database import create_session_factory
     from app.modules.auth.models import PlatformOrganization
     from app.modules.forms import service as forms_service
     from app.modules.projects.models import Environment, Project
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import create_async_engine
 
     ir: dict[str, Any] = json.loads(FORM_JSON.read_text())
     form_key, version = str(ir["formId"]), int(ir["version"])

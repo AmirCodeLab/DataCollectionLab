@@ -34,7 +34,8 @@ from app.modules.export.schemas import (
     ExportTooLargeResponse,
     ExportValueTooLongResponse,
 )
-from app.modules.export.service import DEFAULT_LIMIT, ExportTooLarge, ValueTooLong
+from app.modules.export.service import DEFAULT_LIMIT, ExportTooLarge
+from app.modules.export.statistical import ValueTooLong
 from app.modules.submissions.schemas import SubmissionStatus
 
 router = APIRouter()
