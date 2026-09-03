@@ -312,3 +312,28 @@ is `PRAGMA` diagnostics on the device, not more code.
 
 It matters because 77 ms per keystroke is at the edge of feeling broken, and
 because a device only holds two versions at all because of defect 4.
+
+## 11. A text answer of exactly `ENCRYPTED` is indistinguishable from the token
+
+An unreadable value exports as the literal `ENCRYPTED`, because every
+statistical tool treats blank, `NA` and `NULL` as missing and will compute a
+mean over the rows that happen to be readable without saying so. A token is a
+value no analysis can mistake for an absence — but a respondent whose answer to
+a text question *is* the word `ENCRYPTED` produces a cell nothing in the file
+distinguishes from one the server could not read.
+
+**What an analyst sees.** A cell reading `ENCRYPTED` in a plaintext text
+column. The manifest is what resolves it: every column that can carry the token
+is listed with an `unreadable` reason, and a cell with that text in any other
+column is somebody's answer. That is stated in the manifest's own notes.
+
+**Why it is still open.** Every fix costs more than it buys. A sentinel nobody
+would type (`\x00ENCRYPTED`) is unreadable in a spreadsheet, which defeats the
+point of a token a person can see. A per-column escape rule means a reader has
+to unescape before comparing, which is a new way to be subtly wrong. A separate
+"is this readable" column per column doubles the file.
+
+It is recorded rather than fixed because the collision is narrow — a text
+question, answered with that exact word, in a project where the column is not
+encrypted — and because the manifest already answers it for anyone who reads it.
+Revisit if a real form hits it.

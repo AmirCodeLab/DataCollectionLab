@@ -14,6 +14,7 @@ the manifest behind `GET /sync/pull?scope=forms` (sync §5).
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -736,3 +737,40 @@ async def compiled_form_for_submission(
     if row is None:
         return None
     return CompiledForm(cast(dict[str, Any], row))
+
+
+async def compiled_forms_for_submissions(
+    session: AsyncSession, submission_ids: Sequence[str]
+) -> dict[str, CompiledForm]:
+    """`compiled_form_for_submission` for many submissions, in one query.
+
+    Same rule, same shape: **no version parameter and no sibling that takes
+    one.** An export runs over thousands of submissions sitting on whatever
+    version each was collected under, and asking one at a time is thousands of
+    round trips — but the fix for that is a batch of the same question, never a
+    caller that looks up a version once and reuses it, which is exactly break
+    40 with a loop around it.
+
+    Submissions whose form version has been deleted are absent from the result,
+    the same honest answer the singular gives as None. One `CompiledForm` object
+    is shared by every submission on that version: compiling is not cheap and
+    the object is immutable in every way this repository uses it.
+    """
+    if not submission_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(Submission.id, FormVersion.id, FormVersion.ir)
+            .join(FormVersion, FormVersion.id == Submission.form_version_id)
+            .where(Submission.id.in_(list(submission_ids)))
+        )
+    ).all()
+
+    compiled: dict[str, CompiledForm] = {}
+    by_version: dict[str, CompiledForm] = {}
+    for submission_id, version_id, ir in rows:
+        if version_id not in by_version:
+            by_version[version_id] = CompiledForm(cast(dict[str, Any], ir))
+        compiled[submission_id] = by_version[version_id]
+    return compiled

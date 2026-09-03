@@ -33,6 +33,7 @@ row hash is only the cheap first pass that says which rows are worth projecting.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -458,32 +459,65 @@ async def dataset_rows_for(
     None when the submission is unknown, or its form version pins no such key —
     both the honest answer rather than a fallback to some other version.
     """
+    found = await dataset_rows_for_submissions(session, [submission_id], dataset_key)
+    return found.get(submission_id)
+
+
+async def dataset_rows_for_submissions(
+    session: AsyncSession, submission_ids: Sequence[str], dataset_key: str
+) -> dict[str, list[dict[str, Any]]]:
+    """`dataset_rows_for` for many submissions, without asking many times.
+
+    Export resolves a village code to a village name for every submission in a
+    run, and the submissions are on whatever form version each was collected
+    under — so the pins differ within one export and the answer has to be per
+    submission. The batching is in **how** the question is asked, never in what
+    is asked: still no version parameter, still no overload that takes one, and
+    a submission whose version pins nothing is absent from the result rather
+    than falling back to the newest list.
+
+    Rows are fetched once per distinct pinned version and the same list object
+    is handed to every submission pinned to it. A village list is 38,000 rows;
+    copying it per submission is the difference between an export that runs and
+    one that does not.
+    """
     from app.modules.submissions.models import Submission
 
-    row = (
+    if not submission_ids:
+        return {}
+
+    pins = (
         await session.execute(
-            select(FormVersionDataset.dataset_version_id)
+            select(Submission.id, FormVersionDataset.dataset_version_id)
             .join(
-                Submission,
-                Submission.form_version_id == FormVersionDataset.form_version_id,
+                FormVersionDataset,
+                FormVersionDataset.form_version_id == Submission.form_version_id,
             )
             .where(
-                Submission.id == submission_id,
+                Submission.id.in_(list(submission_ids)),
                 FormVersionDataset.dataset_key == dataset_key,
             )
         )
-    ).scalar_one_or_none()
-    if row is None:
-        return None
+    ).all()
+    if not pins:
+        return {}
 
-    records = (
-        await session.execute(
-            select(DatasetRecord.data)
-            .where(DatasetRecord.dataset_version_id == row)
-            .order_by(DatasetRecord.ordinal)
+    rows_of: dict[str, list[dict[str, Any]]] = {}
+    for version_id in {version_id for _, version_id in pins}:
+        records = (
+            (
+                await session.execute(
+                    select(DatasetRecord.data)
+                    .where(DatasetRecord.dataset_version_id == version_id)
+                    .order_by(DatasetRecord.ordinal)
+                )
+            )
+            .scalars()
+            .all()
         )
-    ).scalars().all()
-    return [dict(r) for r in records]
+        rows_of[version_id] = [dict(record) for record in records]
+
+    return {submission_id: rows_of[version_id] for submission_id, version_id in pins}
 
 
 # ---------------------------------------------------------------------------

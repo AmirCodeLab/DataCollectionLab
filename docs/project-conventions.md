@@ -259,7 +259,7 @@ than the list:
 That is not a coverage gap to be closed by writing more vectors. A vector hands
 an engine one compiled form and one set of answers; the engine never chooses
 either. The choosing happens in a caller, and a caller is precisely what the
-format cannot express. Four instances so far, in the order they were found:
+format cannot express. Five instances so far, in the order they were found:
 
 - **Which form version a submission opens against.** `choice-008` and
   `choice-009` make v1 and v2 *disagree* about one value, which is what makes
@@ -279,6 +279,13 @@ format cannot express. Four instances so far, in the order they were found:
   way. `test_form_dataset_pinning.py`.
 - **Which form versions a device holds at all.** `FormStore` retention, breaks
   25, 28, 29 — the same shape one level further out.
+- **Which form version and which dataset version an export explains a
+  submission through.** Item 5, and the same shape at the far end of the
+  pipeline: one export spans every version its submissions sit on, so the
+  binding is per submission or it is wrong. Break 61 renames a village between
+  two published lists and watches a v1 submission acquire a name that did not
+  exist when it was collected — with every column present, correctly typed, and
+  nothing in the file to see.
 
 **The tell is grammatical.** If a change alters what an answer *evaluates to*,
 a vector can see it. If it alters *which document, version or list* the
@@ -303,6 +310,9 @@ What watches that layer, and all there is:
 | Which dataset version a form version's lists resolve to | `test_form_dataset_pinning.py` (`backend`, `-m db`) | 42 |
 | That a collection screen was given a dataset source at all | nothing — see break 57 | 57 |
 | Companion CSVs: read, refused, or reported missing | `test_xlsform_datasets.py` (`backend`) | 43 |
+| That an export contains no non-relevant answer | `test_export.py`, `test_export_reads_only_answers.py` (`backend`) | 58, 60 |
+| That a repeat row is keyed on a stable id and not a position | `test_export.py` (`backend`) | 59 |
+| Which form version and which dataset version an export explains a submission through | `test_export_binding.py` (`backend`, `-m db`) | 61 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -359,6 +369,15 @@ python scripts/import_xlsform.py survey.xlsx --out reports/ --ir form.json
 python scripts/generate_ucl_datasets.py                    # ~3 MB at real scale
 python scripts/import_xlsform.py backend/tests/fixtures/xlsform/ucl-biomass.xlsx \
     --datasets backend/tests/fixtures/xlsform/ucl-biomass-datasets --out reports/
+
+# Export (item 5). Same exporter the console will use, same process.
+python scripts/export_submissions.py household --out exports/
+python scripts/export_submissions.py household --format xlsx --shape wide
+#   long (default): parent file + one per repeat, keyed (submission_id,
+#     instance_id) — the STABLE id, never a position
+#   wide: one row per submission, repeats flattened positionally. Offered
+#     because people ask for it; the manifest says not to join on it
+#   a CSV bundle carries manifest.json, an .xlsx a `_manifest` sheet
 
 # Conformance — five sets, all of them on both engines
 python conformance/generate_vectors.py           # the evaluation vectors
@@ -518,9 +537,10 @@ Both are written up below.
    a filter regression when two dataset versions are held
    (`docs/known-defects.md` 9 and 10), both downstream of defect 4 — nothing
    retires a form deployment
-5. **Export: CSV, XLSX, Stata, SPSS — IN PROGRESS.** Nothing leaves this system
-   in any format, which blocks every customer. Scope and the decisions already
-   made are below
+5. **Export: CSV, XLSX, Stata, SPSS — IN PROGRESS.** CSV and XLSX are done, in
+   both shapes, with the manifest and the version bindings; data now leaves this
+   system. Stata and SPSS are not built, and neither is the HTTP route the
+   console needs. Scope, what landed and what is still missing are below
 
 **Label interpolation (Form IR §7.1) — done.** Split out of nothing: it was the
 `output_in_label` error class, which the UCL form hit six times and which had no
@@ -1207,6 +1227,92 @@ case somebody thought of:
   once in the wide export, and the multiset of (submission, instance) pairs
   matches the op log's. A flattening error breaks this and a wrong column does
   not.
+
+#### What landed: CSV and XLSX, both shapes
+
+`backend/app/modules/export/`, `scripts/export_submissions.py`. Both invariants
+above are the suite (`test_export.py`), and both were watched to fail — breaks
+58–61.
+
+**Both predicted mistakes are made unexpressible rather than tested for.**
+
+- **`FormInstance.values` is unreachable from the export path.**
+  `form_engine/projection.py` is the only door: it builds the instance, reads
+  `answers()`, and returns a frozen `ExportProjection` whose repeat cells are
+  called `cells` — there is no attribute named `values` anywhere downstream to
+  reach for. `test_export_reads_only_answers.py` is the lint on the door and it
+  closes all three ways back through it: naming `values`/`states`/`snapshot`,
+  constructing a `FormInstance` outside the door, and
+  `answers(include_irrelevant=True)`, which is `values` spelled differently and
+  the one that would not look wrong in review. The lint checks its own
+  instrument first, per the note at the foot of `known-breaks.md`.
+- **A repeat row is keyed on `(submission_id, instance_id)`.** The stable id was
+  already in the op log; nothing had to be invented. `instance_index` is in the
+  file too and its manifest entry says to sort by it and never join on it.
+
+Four more decisions worth not re-making:
+
+- **The fold moved.** `submissions/fold.py` is now the one implementation and
+  `sync.service` calls it. Export needs two things `submission_state` cannot
+  give it: which paths are ciphertext (it drops them, correctly, because a value
+  the server cannot read has no place in a queryable fold) and the **order**
+  repeat instances were created in — `data` is JSONB, and JSONB does not
+  preserve key order, so the order a roster is displayed and exported in does
+  not survive a round trip through it. Export therefore reads the op log in
+  `(counter, device_id)` order, which is where that order actually lives.
+- **`ENCRYPTED` propagates through `calculate`.** A total over three encrypted
+  incomes evaluates to 0, and 0 in a CSV is a number rather than a gap anybody
+  can see. Break 60. The manifest distinguishes `encrypted` from
+  `computed_from_encrypted`, which is what answers "why is this total a word".
+  A field whose *relevance* read an unreadable value is kept — §4.4 coerces null
+  to true, the safe direction — and flagged `relevanceUncertain`, because
+  "included" is then a guess and the file should not imply otherwise.
+- **Wide and long are the parent/child split, not two renderings.** Long is the
+  default: a parent table of one row per submission with `<repeat>_count`
+  columns, plus one table per repeat. Wide is the single flattened table people
+  ask for, its repeat columns are positional by construction, and its manifest
+  says so on its face — and `read_bundle` **refuses** a wide bundle rather than
+  inventing instance ids for positional rows, which would let the round trip
+  pass over a file that has genuinely lost which member is which.
+- **One export spans every version its submissions sit on.** Columns are the
+  union in document order, oldest version first; each column records the
+  versions defining it and every parent row carries `form_version`. Each
+  submission is projected through `compiled_forms_for_submissions` and its codes
+  named through `dataset_rows_for_submissions` — the **batched** forms of the two
+  functions that take no version parameter, batched in how the question is asked
+  and never in what is asked. Break 61 is the proof: with the village list
+  republished under a rename, resolving through the newest pin gives a v1
+  submission a name that did not exist when it was collected.
+
+Two format decisions and their reasons: a structured value decomposes into one
+column per component (`dwelling_lat`, `photo_filename`) rather than a packed
+string every analyst has to split first, and CSV is written UTF-8 **with a BOM**
+because without one Excel reads it as the system code page and a product that is
+RTL and Swahili from the start cannot ship an export that is mojibake on a
+double-click.
+
+**Not done, and named rather than implied:**
+
+- **No HTTP route yet.** The exporter runs from `scripts/export_submissions.py`,
+  which is enough for a self-hosted install and is not enough for the console
+  (rule 9). The route is blocked on a decision rather than on work: a bundle is
+  a zip, and `test_openapi_contract.py::test_every_success_response_names_a_schema`
+  requires a `$ref` under `application/json` for every 2xx. That guard is right
+  and the exemption it would need is the narrow one the request side already
+  has for `application/octet-stream` — deliberate, in its own commit, with a
+  break recorded, not slipped in beside a feature.
+- **Stata and SPSS.** `pyreadstat` writes both and is not yet a dependency. The
+  question docs/project-conventions.md flags is still open and is the first thing to answer:
+  check what each writer does with `ENCRYPTED` in a numeric column before
+  trusting the token there. If either coerces it to missing, that column is
+  written as a **string** column instead — the type is worth less than the
+  distinction between "encrypted" and "not answered".
+- **No per-option indicator columns for `select_multiple`.** Codes are
+  space-joined (the XLSForm convention) and labels joined by ` | `. A
+  `crops_maize` / `crops_beans` set of 0/1 columns is what some analyses want
+  and is additive.
+- **No export of media files themselves.** A photograph exports as its
+  filename, id, hash and size; the bytes stay in object storage.
 
 Phase 0 deliverables, with evidence (`./scripts/status.sh` recomputes this):
 

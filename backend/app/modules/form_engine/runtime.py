@@ -6,9 +6,8 @@ Spec: specs/form-ir-v0.1.md sections 2.3, 4.2, 5.
 from __future__ import annotations
 
 import dataclasses
-import itertools
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -26,6 +25,9 @@ from .expression import (
 from .text import render_field_text, slot_indices
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+#: An instance id this engine minted. Ids from a device may look like
+#: anything else, and `_restore_instance` leaves those alone.
+SERIAL_ID = re.compile(r"i(\d+)")
 
 #: Distinguishes "no additional equality" from "equal to None", which are
 #: different questions to ask a source: the first returns the whole selected
@@ -346,7 +348,11 @@ class FormInstance:
         self.datasets: DatasetSource = datasets or InMemoryDatasetSource({})
 
         self.instances: dict[str, list[str]] = {rid: [] for rid in form.repeats}
-        self._instance_counter = itertools.count(1)
+        # A plain serial rather than a counter object, because `restore` has to
+        # push it past ids minted on a device: a form rebuilt from storage
+        # already holds `i1`..`i4`, and a `countExpr` that grows afterwards must
+        # not mint an id one of them is using.
+        self._instance_serial = 0
 
         self.values: dict[str, Any] = {
             fid: None for fid, f in form.fields.items() if f.repeat is None
@@ -369,7 +375,8 @@ class FormInstance:
         return [fid for fid, f in self.form.fields.items() if f.repeat == repeat_id]
 
     def _create_instance(self, repeat_id: str) -> str:
-        instance_id = f"i{next(self._instance_counter)}"
+        self._instance_serial += 1
+        instance_id = f"i{self._instance_serial}"
         self.instances[repeat_id].append(instance_id)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
@@ -413,6 +420,81 @@ class FormInstance:
 
     def instance_count(self, repeat_id: str) -> int:
         return len(self.instances.get(repeat_id, []))
+
+    # -- hydration ---------------------------------------------------------
+
+    def restore(
+        self,
+        *,
+        instances: Mapping[str, Sequence[str]],
+        answers: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        """Rebuild answer state from storage, keeping the ids storage recorded.
+
+        `add_instance` mints an id; this **adopts** one. That difference is the
+        whole reason the method exists. An instance id is minted once, on the
+        device, and every operation about that instance names it for the life of
+        the submission (§2.3, §5.4) — so a server rebuilding the form to read a
+        submission back has to take the ids it is given. Minting fresh ones
+        would renumber a household's members every time anything reads them,
+        which is the failure `docs/` and docs/project-conventions.md's export section name: a key
+        that means a different person before and after a delete.
+
+        Positions are deliberately not an input. `instances[repeat]` is an
+        ordered list of **stable ids**, and the order is the order to display
+        and export them in — never an addressing scheme.
+
+        Returns the paths in `answers` this form has no field for, rather than
+        raising on the first one. A submission collected under a version whose
+        fields were later renamed still has to export the answers that did
+        survive; the ones that did not are named in the export manifest instead
+        of taking the whole run down.
+
+        One recalculation, at the end. Restoring instance by instance would
+        recompute the form once per member of a roster.
+        """
+        unplaced: list[str] = []
+
+        for repeat_id, ordered in instances.items():
+            if repeat_id not in self.form.repeats:
+                unplaced.extend(f"{repeat_id}[{iid}]" for iid in ordered)
+                continue
+            for instance_id in ordered:
+                self._restore_instance(repeat_id, instance_id)
+
+        for path, value in answers.items():
+            try:
+                canonical = self._canonical(path)
+            except CompileError:
+                unplaced.append(path)
+                continue
+            if canonical not in self.values:
+                unplaced.append(path)
+                continue
+            self.values[canonical] = value
+
+        self.recalculate()
+        return tuple(unplaced)
+
+    def _restore_instance(self, repeat_id: str, instance_id: str) -> None:
+        """Create one instance under an id that came from somewhere else."""
+        ordered = self.instances[repeat_id]
+        if instance_id in ordered:
+            return
+        ordered.append(instance_id)
+        for fid in self._fields_of(repeat_id):
+            path = f"{repeat_id}[{instance_id}].{fid}"
+            self.values[path] = None
+            self.states[path] = FieldState(
+                path=path, data_type=self.form.fields[fid].data_type
+            )
+        # A restored `i7` must not be handed out again by a later `countExpr`
+        # growth or `add_instance`. Ids from another minter are left alone —
+        # they cannot collide with `i<n>` — so nothing changes for a form that
+        # is never restored, and the ids two engines mint stay identical.
+        minted = SERIAL_ID.fullmatch(instance_id)
+        if minted is not None:
+            self._instance_serial = max(self._instance_serial, int(minted.group(1)))
 
     # -- answering ---------------------------------------------------------
 
