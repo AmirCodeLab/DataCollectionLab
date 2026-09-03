@@ -43,9 +43,21 @@ async def pull(
     the form versions this device should be running.
 
     `scope` is the comma-separated list of spec §5: `assignments`, `forms`,
-    `datasets`. Only `forms` is implemented; the others are accepted and
-    ignored, so a newer client asking for all three still works against this
-    server rather than failing on an unknown word.
+    `datasets`. `assignments` is accepted and ignored, so a newer client asking
+    for all three still works against this server rather than failing on an
+    unknown word.
+
+    `scope=datasets` returns the dataset versions the form versions deployed to
+    this device were **published against** (`form_version_dataset`), not the
+    datasets its project happens to own. The pinning that lets an answer be
+    explained later is the same thing that decides which rows travel. Like the
+    form manifest it names versions and checksums, never rows: those are fetched
+    once per version, paged, from `GET /datasets/versions/{id}/rows`.
+
+    `datasets` is **null** when nothing was asked or the device is unknown, and
+    `[]` when the answer is genuinely "none" — a device must be able to tell an
+    unanswered question from an answer, or it will delete a village list because
+    it synced against an older server.
 
     `scope=forms` needs `deviceId`, because deployment is per environment
     (`form_deployment`): a device is told about the versions deployed to its own
@@ -66,4 +78,5 @@ async def pull(
             limit=limit,
             device_id=device_id,
             want_forms="forms" in wanted,
+            want_datasets="datasets" in wanted,
         )

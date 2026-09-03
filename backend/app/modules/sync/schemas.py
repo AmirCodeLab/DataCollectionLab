@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.crypto.envelope import NONCE_BYTES
+from app.modules.entities.schemas import DeployedDatasetVersion
 from app.modules.forms.schemas import DeployedFormVersion
 
 # Sync protocol §4: batches are bounded.
@@ -255,5 +256,20 @@ class PullResponse(BaseModel):
     # because a device has to be able to notice a version being *withdrawn*, and
     # a stream of additions cannot say that.
     forms: list[DeployedFormVersion]
+    # The dataset manifest, when the request asked for `scope=datasets`.
+    #
+    # **Nullable, and `forms` above is not** — the asymmetry is deliberate and
+    # is break 28's rule applied where it was learned rather than where it was
+    # first written. `null` means nothing was said about this device's datasets
+    # (the scope was not asked for, or the server predates delivery) and the
+    # device must leave what it holds exactly as it is. `[]` means the server
+    # answered and this device's forms reference no datasets, which is a real
+    # statement it acts on — by dropping the lists it no longer needs.
+    #
+    # Collapsing them would make a sync against an older server indistinguishable
+    # from a project that stopped using reference data, and the device would
+    # delete a village list because it asked a question nobody answered. That is
+    # the stale-dataset failure with the sign flipped, and it is just as silent.
+    datasets: list[DeployedDatasetVersion] | None = None
     next_cursor: int = Field(serialization_alias="nextCursor")
     has_more: bool = Field(serialization_alias="hasMore")

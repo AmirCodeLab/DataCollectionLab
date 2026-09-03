@@ -670,12 +670,12 @@ evidence rather than guessed.
 3. **Engine — DONE.** `choices.kind = "dataset"` resolution and the `$row`
    filter, on both engines, with 14 `dataset-*` vectors and 7 `cast-*`.
    Written up below; the performance contract it settles is Form IR §3.2.
-4. **Delivery — NEXT.** A `datasets` scope on `/sync/pull`, a local store in
-   SQLCipher, retention mirroring `FormStore`'s rule one level down. The engine
-   side of this is already shaped for it: a device-side `DatasetSource` backed
-   by SQLCipher is the only new implementation, and §3.2's contract is what
-   says an index can serve it.
-5. **Incremental sync.** The hard part; decided below.
+4. **Delivery — DONE.** `scope=datasets` on `/sync/pull`,
+   `GET /datasets/versions/{id}/rows` paged and resumable, `DatasetStore` in
+   SQLCipher, and `StoredDatasetSource` bridging it to the engine. Written up
+   below.
+5. **Incremental sync — NEXT**, and the measurements are owed with it. The
+   hard part; decided below.
 
 ### Part 2 — what the importer does with a companion file
 
@@ -795,6 +795,68 @@ field **depend** on what it reads, so changing the region re-resolves the
 village list *and* re-checks the village already chosen (`dataset-004`). An
 answer that silently stops being a member of its own list is the failure that
 edge exists to prevent.
+
+### Part 4 — delivery, and the failure with no symptom
+
+The manifest shape is the form manifest's, one level down: `scope=datasets` on
+`/sync/pull` returns a **complete statement** of what this device must hold, and
+the rows are fetched once per version, paged, from
+`GET /datasets/versions/{id}/rows`. The UCL village list is 37,852 rows against
+a manifest entry of about a hundred bytes, and the manifest travels on every
+pull.
+
+**What a device is told is derived from the pins**, not from the datasets its
+project owns: every dataset version pinned by a form version deployed to it, and
+nothing else. The pinning that makes an answer explicable is the same thing that
+decides which rows travel.
+
+**The guard, and why it is a shape rather than a check.** The failure here has
+no symptom. A device holding last month's village list collects perfectly, syncs
+perfectly, and files answers against places that no longer exist; the form
+opens, the list scrolls, the search works, and nothing on any screen is in an
+error state. So:
+
+- **The resolver takes a form version, never a key alone.** `rowsFor(formVersionId,
+  datasetKey)` on the client, `dataset_rows_for(submission_id, dataset_key)` on
+  the server. There is no `rowsFor("villages")` and no overload that takes a
+  version id, because the answer to that question would have to be "whichever
+  version happens to be here". Same shape as `compiledFormForSubmission`
+  (break 30) and `_resolve_dataset_pins` (break 42): stop the caller choosing.
+- **A stale or half-transferred list resolves to nothing.** Empty, and visible —
+  `missingFor(formVersionId)` turns it into a sentence an enumerator reads
+  before they start, rather than an empty dropdown they discover in the middle.
+  A version is not readable until the page with no `nextCursor` arrives: a list
+  that stopped two thirds of the way through is one you can search, scroll and
+  choose from.
+- **`datasets` is nullable on the wire and `forms` is not.** Null is "nothing
+  was said"; `[]` is "your forms reference none", which is an instruction to
+  drop what you hold. Collapsing them would have a device delete a village list
+  because it synced against an older server — break 28's rule, sign-flipped.
+
+Break 47 is the proof: resolving by `dataset_key` instead of by the pin fails 4
+of `DatasetStoreTest`'s 14 and leaves **all 69 vectors and all 382 backend tests
+green**.
+
+**Retention is `FormStore`'s rule followed rather than restated.** A dataset
+version is kept while any form version *this device holds* pins to it, and
+nothing asks whether the server still deploys it — that is answered
+transitively, because a withdrawn form version is pruned by `FormStore` and its
+pins go with it. Orphaned pins are swept first, or a 38,000-row list would stay
+alive on the strength of a form nobody can open.
+
+**Migration 0005 exists because of break 48**, found on the first run of the
+paging test: `dataset_record.id` is a ULID, ULIDs generated in a loop are not in
+insertion order, and paging by id delivered 37,852 villages in an order nobody
+chose — stable, and scrambled. `ordinal` is the file's own order and doubles as
+the cursor.
+
+**Not yet done, and it is the honest half of part 4:** `StoredDatasetSource`
+reads a whole version out of SQLCipher and filters in memory. §3.2's contract —
+resolution proportional to the rows matching the selector — is *expressible*
+through that interface and is not yet *met* by this implementation. An index on
+the selector columns is a change to that one class, with the engine, the vectors
+and every client untouched. Whether it has to happen is what the Pixel
+measurement decides, which is part 5's.
 
 **Decision — the delta mechanism.** Per-row content hashes, delivered as a
 diff against the version the device holds.

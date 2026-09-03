@@ -90,6 +90,46 @@ export interface DatasetRefusedError {
 }
 
 /**
+ * One page of a dataset version's rows (sync §5).
+ *
+ * Paged because the first sync is the hard case and cannot be one response:
+ * a transfer that cannot resume is a transfer that never finishes on the
+ * connections this product exists for.
+ *
+ * A published version is immutable, so this page can be cached forever and a
+ * device that paused for a day resumes into the same ordering it left.
+ */
+export interface DatasetRowsPage {
+  datasetVersionId: string;
+  rows: Record<string, string>[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One entry of a device's dataset manifest (sync §5, `scope=datasets`).
+ *
+ * Deliberately not the rows. A village list is megabytes and a manifest
+ * travels on every sync; the rows are fetched once per version from
+ * `GET /datasets/versions/{id}/rows`, the same split that keeps a form
+ * manifest to a few hundred bytes.
+ *
+ * `formVersionId` is on every entry rather than implied, because the pin is
+ * per form version: two versions of a form can be deployed at once — an
+ * enumerator holding a v2 draft the morning v3 lands — and they may name
+ * different versions of the same list. A manifest keyed only by dataset would
+ * have to choose between them, which is the choice §3.2 exists to remove.
+ */
+export interface DeployedDatasetVersion {
+  formVersionId: string;
+  datasetKey: string;
+  datasetVersionId: string;
+  version: number;
+  rowCount: number;
+  checksum: string;
+}
+
+/**
  * One entry in a device's form manifest (sync §5, `scope=forms`).
  *
  * Deliberately not the IR. A 52-question form is tens of kilobytes, and a
@@ -665,6 +705,7 @@ export interface PullResponse {
   ops: PulledOp[];
   tombstones: PulledTombstone[];
   forms: DeployedFormVersion[];
+  datasets?: DeployedDatasetVersion[] | null;
   nextCursor: number;
   hasMore: boolean;
 }

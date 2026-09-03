@@ -18,6 +18,8 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 
@@ -58,6 +60,18 @@ data class SyncResult(
      * the ones it had.
      */
     val formError: String? = null,
+    /** Dataset rows fetched this pass (sync §5, `scope=datasets`). */
+    val fetchedDatasetRows: Int = 0,
+    /**
+     * Why the reference data could not be brought up to date, or null.
+     *
+     * Separate from [formError] and reported even when everything else
+     * succeeded, because this is the failure with no other symptom: a device
+     * holding last month's village list collects perfectly, syncs perfectly,
+     * and files answers against places that no longer exist. There is nothing
+     * on any screen to notice. This sentence is the whole of the noticing.
+     */
+    val datasetError: String? = null,
 ) {
     val isSuccess: Boolean get() = error == null
 }
@@ -131,6 +145,7 @@ class SyncClient(
      * nothing to do.
      */
     private val forms: FormStore? = null,
+    private val datasets: DatasetStore? = null,
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
@@ -183,6 +198,8 @@ class SyncClient(
         var uploadedMedia = 0
         var fetchedForms = 0
         var formError: String? = null
+        var fetchedDatasetRows = 0
+        var datasetError: String? = null
         // Read once, here, and used for every request in this pass.
         //
         // Not per request, and the reason is not tidiness. `refreshCrypto`
@@ -251,13 +268,20 @@ class SyncClient(
             // Null until the first page answers; still null afterwards if the
             // server said nothing about forms at all. See WirePullResponse.
             var manifest: List<WireDeployedFormVersion>? = null
+            var datasetManifest: List<WireDeployedDatasetVersion>? = null
             var first = true
             do {
                 val page = withRetry {
-                    pullPage(base, store.syncStatus().pullCursor, wantForms = first && forms != null)
+                    pullPage(
+                        base,
+                        store.syncStatus().pullCursor,
+                        wantForms = first && forms != null,
+                        wantDatasets = first && datasets != null,
+                    )
                 }
                 if (first) {
                     manifest = page.forms
+                    datasetManifest = page.datasets
                     first = false
                 }
                 store.applyPullBatch(page.ops.map { it.toSyncOp() }, page.nextCursor)
@@ -286,6 +310,30 @@ class SyncClient(
                 }
             }
 
+            // After the forms, and it has to be: what a device must hold is
+            // derived from the form versions deployed to it, so refreshing
+            // datasets first would be answering a question whose inputs had not
+            // arrived. Non-fatal for the same reason forms are — a device that
+            // could not fetch a village list keeps the one it had and can still
+            // collect — except that it says so, loudly, because this is the
+            // failure nothing else can see.
+            datasets?.let { store ->
+                try {
+                    val refresh = refreshDatasets(base, store, datasetManifest)
+                    fetchedDatasetRows = refresh.rows
+                    if (refresh.incomplete.isNotEmpty()) {
+                        datasetError = "reference data is out of date on this device: " +
+                            refresh.incomplete.joinToString(", ") +
+                            " did not finish downloading from $base. Forms using " +
+                            "those lists will not offer them until it does."
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    datasetError = e.message ?: "dataset sync failed"
+                }
+            }
+
             // Media last, and deliberately so. An op referencing a file the
             // server has never seen is accepted and marked pending (sync §9),
             // so ops-first costs nothing and gets the answers — the small,
@@ -308,6 +356,8 @@ class SyncClient(
                 pendingMedia = media?.let { it.pendingCount() } ?: 0,
                 fetchedForms = fetchedForms,
                 formError = formError,
+                fetchedDatasetRows = fetchedDatasetRows,
+                datasetError = datasetError,
             )
         } catch (e: CancellationException) {
             throw e
@@ -325,6 +375,8 @@ class SyncClient(
                 pendingMedia = media?.let { it.pendingCount() } ?: 0,
                 fetchedForms = fetchedForms,
                 formError = formError,
+                fetchedDatasetRows = fetchedDatasetRows,
+                datasetError = datasetError,
             )
         }
     }
@@ -437,14 +489,19 @@ class SyncClient(
         baseUrl: String,
         cursor: Long,
         wantForms: Boolean = false,
+        wantDatasets: Boolean = false,
     ): WirePullResponse =
         http.get("$baseUrl/api/v1/sync/pull") {
             parameter("cursor", cursor)
             parameter("limit", config.pullLimit)
-            if (wantForms) {
-                parameter("scope", "forms")
+            val scopes = buildList {
+                if (wantForms) add("forms")
+                if (wantDatasets) add("datasets")
+            }
+            if (scopes.isNotEmpty()) {
+                parameter("scope", scopes.joinToString(","))
                 // Deployment is per environment, so the server cannot answer
-                // without knowing whose forms are being asked for.
+                // either question without knowing whose device is asking.
                 parameter("deviceId", store.deviceId)
             }
         }.body()
@@ -519,6 +576,110 @@ class SyncClient(
         // effect of being applied.
         store.prune()
         return FormRefresh(documents.size, undelivered)
+    }
+
+    private data class DatasetRefresh(val rows: Int, val incomplete: List<String>)
+
+    /** A dataset row on the wire and in the store: text to text, nothing else. */
+    private val RowSerializer = MapSerializer(String.serializer(), String.serializer())
+
+    /**
+     * Bring the local reference data in line with the server's manifest.
+     *
+     * Only versions this device does not already hold **whole** are fetched,
+     * compared on the server's checksum. A version whose transfer stopped half
+     * way counts as missing and resumes from its cursor rather than starting
+     * again: 38,000 rows over a field connection is many requests and at least
+     * one of them will fail.
+     *
+     * A **null** manifest means the server said nothing about datasets, and the
+     * device leaves what it holds alone. An **empty** manifest is a real answer
+     * — this device's forms reference no lists — and it acts on it by pruning.
+     * Collapsing the two would have a device delete a village list because it
+     * synced against an older build.
+     *
+     * A list that does not finish is **reported**, and that is the whole point
+     * of the function returning anything. Every other failure in a sync has a
+     * symptom: an unsent answer sits in the outbox, a missing form leaves
+     * nothing to start. A stale village list has none — the form opens, the
+     * list scrolls, the search works, and the answers are wrong. The store
+     * refuses to serve an incomplete version so the enumerator sees an empty
+     * list rather than a short one, and this sentence is what says why.
+     */
+    private suspend fun refreshDatasets(
+        baseUrl: String,
+        store: DatasetStore,
+        manifest: List<WireDeployedDatasetVersion>?,
+    ): DatasetRefresh {
+        if (manifest == null) return DatasetRefresh(0, emptyList())
+
+        val entries = manifest.map {
+            DatasetManifestEntry(
+                formVersionId = it.formVersionId,
+                datasetKey = it.datasetKey,
+                datasetVersionId = it.datasetVersionId,
+                version = it.version,
+                rowCount = it.rowCount,
+                checksum = it.checksum,
+            )
+        }
+        store.applyManifest(entries)
+
+        var fetched = 0
+        val incomplete = mutableListOf<String>()
+        for (entry in store.missingFrom(entries)) {
+            try {
+                fetched += fetchDatasetRows(baseUrl, store, entry.datasetVersionId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Skipped so one unreachable list does not cost the device the
+                // others — and recorded, because the store will now refuse to
+                // serve this one and something has to say why.
+                incomplete += "${entry.datasetKey} v${entry.version}"
+            }
+        }
+
+        // Retention (Form IR §9) one level down from FormStore's: whatever form
+        // versions survived pruning, their lists survive with them. Run after
+        // the fetches so a manifest that arrived truncated cannot delete a list
+        // as a side effect of being applied.
+        store.prune()
+        return DatasetRefresh(fetched, incomplete)
+    }
+
+    /**
+     * Every remaining page of one dataset version, resuming from its cursor.
+     *
+     * The version is marked complete only when a page comes back with no
+     * `nextCursor`, which is the difference between the whole list and most of
+     * one. Until then the store will not serve it at all.
+     */
+    private suspend fun fetchDatasetRows(
+        baseUrl: String,
+        store: DatasetStore,
+        datasetVersionId: String,
+    ): Int {
+        var cursor = store.find(datasetVersionId)?.nextCursor
+        var rows = 0
+        while (true) {
+            val page: WireDatasetRowsPage = withRetry {
+                http.get("$baseUrl/api/v1/datasets/versions/$datasetVersionId/rows") {
+                    if (cursor != null) parameter("cursor", cursor)
+                }.body()
+            }
+            val stored = page.rows.map { row ->
+                // The record key is the value column's cell, exactly (§3.1) —
+                // and the store keys on it, so a row with none would collide
+                // with every other row that has none. The server refuses to
+                // publish such a version; this is the second lock on it.
+                val key = row["name"] ?: row.values.firstOrNull() ?: ""
+                key to SyncJson.encodeToString(RowSerializer, row)
+            }
+            store.appendRows(datasetVersionId, stored, page.nextCursor)
+            rows += stored.size
+            cursor = page.nextCursor ?: return rows
+        }
     }
 
     /**

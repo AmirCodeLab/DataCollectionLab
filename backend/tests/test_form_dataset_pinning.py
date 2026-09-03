@@ -472,3 +472,183 @@ def test_a_pinned_dataset_version_cannot_be_deleted_out_from_under_a_form(
 
     with pytest.raises(sqlalchemy.exc.IntegrityError):
         asyncio.run(attempt())
+
+
+# ---------------------------------------------------------------------------
+# Delivery (sync §5, `scope=datasets`) and the resolver
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.db
+def test_the_manifest_is_derived_from_the_pins_and_not_from_the_project(
+    pinning_db: str, versions: dict[str, str]
+) -> None:
+    """A device is told about the lists its forms were published against.
+
+    Not the datasets its project owns. A dataset nothing references is a
+    38,000-row transfer for a question nobody will be asked, and the pinning
+    that makes an answer explicable is the same thing that decides what travels.
+    """
+    import asyncio
+
+    from app.modules.entities.service import deployed_dataset_versions_for_device
+
+    published = _publish(
+        pinning_db,
+        _ir("villages"),
+        [("villages", versions[f"{PROJECT_ID}/villages"])],
+        "manifest_form",
+    )
+
+    async def run():  # noqa: ANN202
+        from app.modules.forms import service as forms_service
+        from app.modules.projects.models import Device, Environment
+
+        async with _session(pinning_db) as session, session.begin():
+            environment = Environment(id="01ENVPIN", project_id=PROJECT_ID, kind="production")
+            session.add(environment)
+            session.add(
+                Device(
+                    id="01DEVPIN",
+                    project_id=PROJECT_ID,
+                    user_id="01USERPIN",
+                    platform="android",
+                )
+            )
+        async with _session(pinning_db) as session, session.begin():
+            await forms_service.deploy_version(
+                session,
+                project_id=PROJECT_ID,
+                form_version_id=published.id,
+                kinds=["production"],
+            )
+        async with _session(pinning_db) as session:
+            return await deployed_dataset_versions_for_device(session, "01DEVPIN")
+
+    manifest = asyncio.run(run())
+    assert manifest is not None
+    keys = {(m.dataset_key, m.dataset_version_id) for m in manifest}
+    assert keys == {("villages", versions[f"{PROJECT_ID}/villages"])}, (
+        "`districts` exists in this project and no deployed form pins it, so it "
+        "must not be in the manifest"
+    )
+    assert all(m.form_version_id == published.id for m in manifest), (
+        "the pin is per form version, because two versions of a form can be "
+        "deployed at once and may name different lists"
+    )
+
+
+@pytest.mark.db
+def test_an_unknown_device_is_told_nothing_rather_than_told_there_is_nothing(
+    pinning_db: str,
+) -> None:
+    """None and [] are different answers, and this is the one that matters.
+
+    `[]` is an instruction: it means "your forms reference no lists", and a
+    device acts on it by dropping what it holds. A device the server does not
+    recognise must not be given that instruction — its answers are not ours to
+    destroy on the strength of a question it was not allowed to ask.
+    """
+    import asyncio
+
+    from app.modules.entities.service import deployed_dataset_versions_for_device
+
+    async def run():  # noqa: ANN202
+        async with _session(pinning_db) as session:
+            return await deployed_dataset_versions_for_device(session, "01NOSUCHDEVICE")
+
+    assert asyncio.run(run()) is None
+
+
+@pytest.mark.db
+def test_rows_page_resumes_from_its_cursor_and_says_when_it_is_done(
+    pinning_db: str,
+) -> None:
+    """`nextCursor` null is how a device knows it has the whole list.
+
+    It matters more here than anywhere else in this API: a village list that
+    stopped two thirds of the way through is one an enumerator can search,
+    scroll and choose from, and nothing about it looks wrong.
+    """
+    import asyncio
+
+    from app.modules.entities.service import dataset_rows_page, publish_dataset_version
+
+    async def run():  # noqa: ANN202
+        async with _session(pinning_db) as session, session.begin():
+            published = await publish_dataset_version(
+                session,
+                project_id=PROJECT_ID,
+                dataset_key="paged",
+                rows=[{"name": f"V{i:03d}", "label": f"Village {i}"} for i in range(250)],
+                key_column="name",
+            )
+        seen: list[str] = []
+        cursor = None
+        pages = 0
+        async with _session(pinning_db) as session:
+            while True:
+                page = await dataset_rows_page(
+                    session,
+                    dataset_version_id=published.dataset_version_id,
+                    cursor=cursor,
+                    limit=100,
+                )
+                assert page is not None
+                rows, cursor = page
+                seen += [r["name"] for r in rows]
+                pages += 1
+                if cursor is None:
+                    break
+        return seen, pages
+
+    seen, pages = asyncio.run(run())
+    assert pages == 3, "250 rows at 100 a page"
+    assert len(seen) == 250
+    assert seen == [f"V{i:03d}" for i in range(250)], (
+        "the file's own order, kept. A list is offered in the order its author "
+        "wrote it, and paging by ULID delivered 38,000 villages in an order "
+        "nobody chose — stable, and scrambled."
+    )
+    assert len(set(seen)) == 250, "a resumed page must not repeat what the last one sent"
+
+
+@pytest.mark.db
+def test_a_missing_dataset_version_is_none_rather_than_an_empty_page(
+    pinning_db: str,
+) -> None:
+    # An empty page and a version that does not exist lead to different next
+    # steps, and a client that could not tell them apart would mark a
+    # nonexistent list complete.
+    import asyncio
+
+    from app.modules.entities.service import dataset_rows_page
+
+    async def run():  # noqa: ANN202
+        async with _session(pinning_db) as session:
+            return await dataset_rows_page(
+                session, dataset_version_id="01NOSUCHVERSION", cursor=None, limit=10
+            )
+
+    assert asyncio.run(run()) is None
+
+
+@pytest.mark.db
+def test_the_server_resolver_takes_no_version_either(
+    pinning_db: str, versions: dict[str, str]
+) -> None:
+    """`dataset_rows_for(submission_id, dataset_key)` — break 42's shape, again.
+
+    The client's `DatasetStore.rowsFor` has no way to ask for a dataset key
+    alone and neither does this. A resolver that took a version would let a
+    caller explain a submission against whatever list is newest, which is the
+    mistake breaks 30, 40 and 42 are all the same instance of.
+    """
+    import inspect
+
+    from app.modules.entities.service import dataset_rows_for
+
+    parameters = list(inspect.signature(dataset_rows_for).parameters)
+    assert parameters == ["session", "submission_id", "dataset_key"], (
+        "a `version` parameter here would be the wrong list, on request"
+    )

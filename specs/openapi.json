@@ -5,6 +5,90 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/datasets/versions/{dataset_version_id}/rows": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Dataset Rows",
+        "description": "One page of a dataset version's rows, resumably.\n\n`cursor` is the `nextCursor` of the previous page and nothing else — not a\nrow number, not an offset. A published dataset version is immutable (§3.1),\nso the ordering cannot shift under a device that paused for a day, and a\nresumed transfer re-reads nothing.\n\n`nextCursor` is null on the last page. That is how a device knows it has the\n**whole** list rather than most of one, which matters more here than\nanywhere else in this API: a village list that stopped two thirds of the way\nthrough is a list an enumerator can search, scroll and choose from, and\nnothing about it looks wrong.\n\nImmutable, so a response may be cached forever.",
+        "operationId": "dataset_rows_api_v1_datasets_versions__dataset_version_id__rows_get",
+        "parameters": [
+          {
+            "name": "dataset_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Dataset Version Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRowsPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices": {
       "post": {
         "tags": [
@@ -1511,7 +1595,7 @@
           "sync"
         ],
         "summary": "Pull",
-        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`. Only `forms` is implemented; the others are accepted and\nignored, so a newer client asking for all three still works against this\nserver rather than failing on an unknown word.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
+        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`. `assignments` is accepted and ignored, so a newer client asking\nfor all three still works against this server rather than failing on an\nunknown word.\n\n`scope=datasets` returns the dataset versions the form versions deployed to\nthis device were **published against** (`form_version_dataset`), not the\ndatasets its project happens to own. The pinning that lets an answer be\nexplained later is the same thing that decides which rows travel. Like the\nform manifest it names versions and checksums, never rows: those are fetched\nonce per version, paged, from `GET /datasets/versions/{id}/rows`.\n\n`datasets` is **null** when nothing was asked or the device is unknown, and\n`[]` when the answer is genuinely \"none\" — a device must be able to tell an\nunanswered question from an answer, or it will delete a village list because\nit synced against an older server.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
         "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
@@ -1846,6 +1930,87 @@
         ],
         "title": "DatasetRefusedError",
         "description": "The 409 body: every reason, not the first one.\n\nA list rather than a string for the same reason the publish endpoint's is:\nwhoever is fixing the file needs every problem in one pass, and a refusal\nthat names one duplicate key at a time is a refusal somebody meets four\ntimes."
+      },
+      "DatasetRowsPage": {
+        "properties": {
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetVersionId",
+          "rows",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "DatasetRowsPage",
+        "description": "One page of a dataset version's rows (sync §5).\n\nPaged because the first sync is the hard case and cannot be one response:\na transfer that cannot resume is a transfer that never finishes on the\nconnections this product exists for.\n\nA published version is immutable, so this page can be cached forever and a\ndevice that paused for a day resumes into the same ordering it left."
+      },
+      "DeployedDatasetVersion": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "datasetKey": {
+            "type": "string",
+            "title": "Datasetkey"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "datasetKey",
+          "datasetVersionId",
+          "version",
+          "rowCount",
+          "checksum"
+        ],
+        "title": "DeployedDatasetVersion",
+        "description": "One entry of a device's dataset manifest (sync §5, `scope=datasets`).\n\nDeliberately not the rows. A village list is megabytes and a manifest\ntravels on every sync; the rows are fetched once per version from\n`GET /datasets/versions/{id}/rows`, the same split that keeps a form\nmanifest to a few hundred bytes.\n\n`formVersionId` is on every entry rather than implied, because the pin is\nper form version: two versions of a form can be deployed at once — an\nenumerator holding a v2 draft the morning v3 lands — and they may name\ndifferent versions of the same list. A manifest keyed only by dataset would\nhave to choose between them, which is the choice §3.2 exists to remove."
       },
       "DeployedFormVersion": {
         "properties": {
@@ -3749,6 +3914,20 @@
             },
             "type": "array",
             "title": "Forms"
+          },
+          "datasets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DeployedDatasetVersion"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datasets"
           },
           "nextCursor": {
             "type": "integer",

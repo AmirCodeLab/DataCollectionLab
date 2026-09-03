@@ -181,7 +181,47 @@ data class WirePullResponse(
     // whenever it syncs against an older server, or never being able to notice a
     // project that withdrew its last form.
     val forms: List<WireDeployedFormVersion>? = null,
+    // Nullable for exactly the reason `forms` is, and the consequence of
+    // collapsing it is worse. Null: nothing was said about this device's
+    // datasets. Empty: the server answered and this device's forms reference
+    // none — an instruction to drop the lists it holds.
+    //
+    // A client that read a silent server as "none" would delete a 38,000-row
+    // village list because it synced against an older build, and the next sync
+    // would spend a morning fetching it back. That is the stale-dataset failure
+    // with the sign flipped and it is just as quiet.
+    val datasets: List<WireDeployedDatasetVersion>? = null,
     val nextCursor: Long,
+    val hasMore: Boolean = false,
+)
+
+/** One entry of the dataset manifest (`GET /sync/pull?scope=datasets`). */
+@Serializable
+data class WireDeployedDatasetVersion(
+    // The pin is per form version, not per dataset: two versions of a form can
+    // be deployed at once and may name different versions of the same list.
+    val formVersionId: String,
+    val datasetKey: String,
+    val datasetVersionId: String,
+    val version: Int,
+    val rowCount: Int,
+    val checksum: String,
+)
+
+/**
+ * GET /api/v1/datasets/versions/{id}/rows — one page, resumably.
+ *
+ * `nextCursor` null is the last page, and that is how a device knows it has the
+ * whole list rather than most of one. It matters more here than anywhere else:
+ * a village list that stopped two thirds of the way through is one an
+ * enumerator can search, scroll and choose from, and nothing about it looks
+ * wrong.
+ */
+@Serializable
+data class WireDatasetRowsPage(
+    val datasetVersionId: String,
+    val rows: List<Map<String, String>> = emptyList(),
+    val nextCursor: String? = null,
     val hasMore: Boolean = false,
 )
 

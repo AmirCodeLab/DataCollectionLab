@@ -60,3 +60,55 @@ class DatasetRefusedError(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     detail: list[str]
+
+
+class DeployedDatasetVersion(BaseModel):
+    """One entry of a device's dataset manifest (sync §5, `scope=datasets`).
+
+    Deliberately not the rows. A village list is megabytes and a manifest
+    travels on every sync; the rows are fetched once per version from
+    `GET /datasets/versions/{id}/rows`, the same split that keeps a form
+    manifest to a few hundred bytes.
+
+    `formVersionId` is on every entry rather than implied, because the pin is
+    per form version: two versions of a form can be deployed at once — an
+    enumerator holding a v2 draft the morning v3 lands — and they may name
+    different versions of the same list. A manifest keyed only by dataset would
+    have to choose between them, which is the choice §3.2 exists to remove.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    form_version_id: str = Field(serialization_alias="formVersionId")
+    #: The Form IR key — what `choices.dataset` names in that form version.
+    dataset_key: str = Field(serialization_alias="datasetKey")
+    #: What the device must hold for that form version to be answerable.
+    dataset_version_id: str = Field(serialization_alias="datasetVersionId")
+    version: int
+    row_count: int = Field(serialization_alias="rowCount")
+    #: The content address. What a device compares to decide it already holds
+    #: this exact list, so a version whose content drifted cannot pass for it.
+    checksum: str
+
+
+class DatasetRowsPage(BaseModel):
+    """One page of a dataset version's rows (sync §5).
+
+    Paged because the first sync is the hard case and cannot be one response:
+    a transfer that cannot resume is a transfer that never finishes on the
+    connections this product exists for.
+
+    A published version is immutable, so this page can be cached forever and a
+    device that paused for a day resumes into the same ordering it left.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    dataset_version_id: str = Field(serialization_alias="datasetVersionId")
+    #: Rows as published: every value a string, because a CSV holds nothing
+    #: else and §3.1 makes the key the cell's value exactly.
+    rows: list[dict[str, str]]
+    #: Pass back as `cursor` for the next page. Null on the last page — which
+    #: is how a device knows it has the whole list and not most of it.
+    next_cursor: str | None = Field(serialization_alias="nextCursor")
+    has_more: bool = Field(serialization_alias="hasMore")

@@ -123,6 +123,16 @@ class DatasetRecord(Base):
     # cost a 50k-row list a transfer, and that is settled by comparing the
     # projection onto the columns the device's forms actually use.
     row_hash: Mapped[str] = mapped_column(Text, nullable=False, server_default=text(""))
+    # The row's position in the file it was published from, 0-based.
+    #
+    # The order a list is offered in is the order its author put it in, and
+    # `id` cannot carry that: a ULID generated in a loop shares its timestamp
+    # and randomises its tail, so paging by id is stable and *scrambled* — an
+    # enumerator scrolling 38,000 villages in an order nobody chose.
+    #
+    # It is also the paging cursor, which is a cheaper and more obvious thing to
+    # resume from than a ULID: an integer, within a version that cannot change.
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
 class FormVersionDataset(Base):

@@ -1,0 +1,185 @@
+-- The dataset versions this device holds (sync §5, Form IR §3, §3.2).
+--
+-- `forms.sq` one level down, and the same two rules shape it — but the second
+-- one is sharper here, because a dataset is not something a submission carries.
+--
+-- 1. **A version is kept while any form version this device holds pins to it.**
+--    The pin is what makes an answer explicable: a submission is validated
+--    against its form version (§9), that form version was published against
+--    exact dataset versions (`form_version_dataset`), and dropping one leaves a
+--    draft whose village list cannot be reconstructed. So retention is one
+--    level down from `form_version`'s and follows it exactly: whatever forms
+--    this device keeps, it keeps their lists too.
+--
+-- 2. **What a form version pins is the server's word, and it is stored.** The
+--    device does not decide which version of `villages` a form uses. It is told,
+--    per form version, and it records that — which is what makes
+--    `rowsForFormVersion` able to refuse rather than guess.
+--
+-- The refusal in rule 2 is the whole point of the schema. The failure this is
+-- built against is a stale list nobody notices: the device holds v1, the server
+-- moved to v2, and an enumerator picks a village that no longer exists while
+-- every screen looks normal. So there is no query here that answers "the rows
+-- for `villages`". There is only "the rows for `villages` **as this form
+-- version pins it**", and it returns nothing when the pinned version is not
+-- held. An empty list is visible on a screen. A wrong list is not.
+
+CREATE TABLE dataset_version (
+    -- The server's row id. What a form version's pin names, and what
+    -- GET /datasets/versions/{id}/rows takes.
+    dataset_version_id TEXT NOT NULL PRIMARY KEY,
+    -- The Form IR key — what `choices.dataset` names (§3).
+    dataset_key TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    -- The server's content address over (key, row hash) pairs. Compared against
+    -- the next manifest to decide whether this device already holds this exact
+    -- list. Never recomputed here: it is the server's word, and it is only ever
+    -- compared with more of the server's words.
+    checksum TEXT NOT NULL,
+    -- What the manifest said the version holds, so a partial transfer is
+    -- detectable as a partial transfer rather than as a short list.
+    row_count INTEGER NOT NULL,
+    -- 0 until every page has arrived. A list that stopped two thirds of the way
+    -- through is one an enumerator can search, scroll and choose from, and
+    -- nothing about it looks wrong — so it is not resolvable until it is whole.
+    complete INTEGER NOT NULL DEFAULT 0,
+    -- The paging cursor to resume from, or NULL when there is nothing to
+    -- resume. First sync is the hard case: 38,000 rows over a field connection
+    -- is many requests and at least one of them will fail.
+    next_cursor TEXT,
+    fetched_at TEXT NOT NULL
+);
+
+CREATE INDEX dataset_version_key ON dataset_version(dataset_key);
+
+-- One row per dataset version, holding every row of it.
+CREATE TABLE dataset_row (
+    dataset_version_id TEXT NOT NULL,
+    -- §3.1: the cell's value, exactly. Not trimmed, not case-folded — the same
+    -- rule as choice matching (§6.3), because a stored answer is compared
+    -- against this by exact match and a normalised key would stop matching the
+    -- very row it came from.
+    record_key TEXT NOT NULL,
+    -- The whole row as JSON. Whole rather than projected: which columns a form
+    -- reads is a property of the form, and a second form version pinning the
+    -- same dataset may read different ones.
+    data_json TEXT NOT NULL,
+    PRIMARY KEY (dataset_version_id, record_key)
+);
+
+-- Which dataset version each form version this device holds was published
+-- against. The server's statement, recorded — see rule 2 above.
+CREATE TABLE form_version_dataset (
+    form_version_id TEXT NOT NULL,
+    dataset_key TEXT NOT NULL,
+    dataset_version_id TEXT NOT NULL,
+    PRIMARY KEY (form_version_id, dataset_key)
+);
+
+CREATE INDEX form_version_dataset_version ON form_version_dataset(dataset_version_id);
+
+heldDatasetVersions:
+SELECT dataset_version_id, dataset_key, version, checksum, row_count, complete,
+       next_cursor, fetched_at
+FROM dataset_version
+ORDER BY dataset_key ASC, version DESC;
+
+-- The manifest comparison: ids and checksums only, so deciding what to fetch
+-- never reads a single row of reference data off disk. On this table that is
+-- not a nicety — reading it wrongly would mean loading 38,000 rows on every
+-- sync to discover nothing changed.
+heldDatasetChecksums:
+SELECT dataset_version_id, checksum, complete FROM dataset_version;
+
+datasetVersion:
+SELECT dataset_version_id, dataset_key, version, checksum, row_count, complete,
+       next_cursor, fetched_at
+FROM dataset_version
+WHERE dataset_version_id = ?;
+
+upsertDatasetVersion:
+INSERT OR REPLACE INTO dataset_version(dataset_version_id, dataset_key, version, checksum,
+                                       row_count, complete, next_cursor, fetched_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+markComplete:
+UPDATE dataset_version SET complete = 1, next_cursor = NULL WHERE dataset_version_id = ?;
+
+setCursor:
+UPDATE dataset_version SET next_cursor = ?, complete = 0 WHERE dataset_version_id = ?;
+
+insertRow:
+INSERT OR REPLACE INTO dataset_row(dataset_version_id, record_key, data_json)
+VALUES (?, ?, ?);
+
+countRows:
+SELECT COUNT(*) FROM dataset_row WHERE dataset_version_id = ?;
+
+deleteRows:
+DELETE FROM dataset_row WHERE dataset_version_id = ?;
+
+-- The resolver, and the ONLY way to read reference data.
+--
+-- There is deliberately no query that takes a dataset key alone. A caller
+-- cannot ask for "the rows for `villages`", because the answer would have to be
+-- "whichever version happens to be here" — which is exactly the stale list this
+-- table exists to prevent, and it is the same shape as validating a v1 answer
+-- against v2's choice list.
+--
+-- `complete = 1` is part of the join for the same reason: a half-transferred
+-- list is not the list.
+rowsForFormVersion:
+SELECT r.record_key, r.data_json
+FROM dataset_row r
+JOIN form_version_dataset p ON p.dataset_version_id = r.dataset_version_id
+JOIN dataset_version v ON v.dataset_version_id = r.dataset_version_id
+WHERE p.form_version_id = ? AND p.dataset_key = ? AND v.complete = 1
+ORDER BY r.rowid;
+
+-- Whether a form version can be collected at all: every list it pins is held
+-- and whole. What a client asks before offering the form, so "the reference
+-- data has not arrived" is a sentence an enumerator reads rather than an empty
+-- select they mistrust.
+missingDatasetsForFormVersion:
+SELECT p.dataset_key, p.dataset_version_id
+FROM form_version_dataset p
+LEFT JOIN dataset_version v ON v.dataset_version_id = p.dataset_version_id
+WHERE p.form_version_id = ? AND (v.dataset_version_id IS NULL OR v.complete = 0);
+
+replaceFormVersionPins:
+DELETE FROM form_version_dataset WHERE form_version_id = ?;
+
+insertFormVersionPin:
+INSERT OR REPLACE INTO form_version_dataset(form_version_id, dataset_key, dataset_version_id)
+VALUES (?, ?, ?);
+
+pinsForFormVersion:
+SELECT dataset_key, dataset_version_id FROM form_version_dataset WHERE form_version_id = ?;
+
+-- Retention (Form IR §9), one level down from `deletableFormVersions`.
+--
+-- A dataset version may go only when no form version **this device still
+-- holds** pins to it. `form_version` is the authority: whatever forms survive
+-- pruning, their lists survive with them, and a list is never dropped out from
+-- under a draft that could still be opened.
+--
+-- Note what is NOT a condition: whether the server still deploys it. That is
+-- already answered, transitively — a withdrawn form version is pruned by
+-- `FormStore`, and its pins go with it.
+deletableDatasetVersions:
+SELECT dataset_version_id FROM dataset_version
+WHERE NOT EXISTS (
+    SELECT 1 FROM form_version_dataset p
+    JOIN form_version f ON f.form_version_id = p.form_version_id
+    WHERE p.dataset_version_id = dataset_version.dataset_version_id
+);
+
+deleteDatasetVersion:
+DELETE FROM dataset_version WHERE dataset_version_id = ?;
+
+-- Pins whose form version this device no longer holds. Deleted with it, so the
+-- retention query above cannot be kept alive by a pin nothing refers to.
+orphanedPins:
+SELECT form_version_id FROM form_version_dataset
+WHERE NOT EXISTS (SELECT 1 FROM form_version f
+                   WHERE f.form_version_id = form_version_dataset.form_version_id);

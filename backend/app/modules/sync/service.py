@@ -654,6 +654,7 @@ async def pull(
     *,
     device_id: str | None = None,
     want_forms: bool = False,
+    want_datasets: bool = False,
 ) -> PullResponse:
     """Everything accepted after `cursor`, oldest arrival first, bounded.
 
@@ -767,10 +768,23 @@ async def pull(
         # where a revoked device learns what has happened.
         forms = await forms_service.deployed_versions_for_device(session, device_id) or []
 
+    datasets = None
+    if want_datasets and device_id is not None:
+        from app.modules.entities import service as entities_service
+
+        # None stays None here, unlike `forms` above: a device that is unknown
+        # or revoked is told nothing about datasets rather than told there are
+        # none, because "there are none" is an instruction to delete what it
+        # holds and a revoked device's answers are not ours to destroy.
+        datasets = await entities_service.deployed_dataset_versions_for_device(
+            session, device_id
+        )
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
         forms=forms,
+        datasets=datasets,
         next_cursor=next_cursor,
         has_more=has_more,
     )

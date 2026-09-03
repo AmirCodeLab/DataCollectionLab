@@ -13,6 +13,7 @@ import com.dcp.core.media.MediaUploader
 import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
+import com.dcp.core.sync.DatasetStore
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.ServerConfig
 import com.dcp.core.sync.SubmissionStore
@@ -70,6 +71,18 @@ class AppGraph(
      */
     val formStore: FormStore = FormStore(db)
     val formCatalog: FormCatalog = FormCatalog(formStore, store)
+
+    /**
+     * The reference data behind `select_one_from_file` (Form IR §3, sync §5).
+     *
+     * Held per dataset *version*, and readable only through the form version
+     * that was published against it. That is not caution: the failure it
+     * refuses has no symptom. A device holding last month's village list
+     * collects perfectly, syncs perfectly, and files answers against places
+     * that no longer exist, with every screen looking exactly right. See
+     * [DatasetStore].
+     */
+    val datasetStore: DatasetStore = DatasetStore(db)
 
     /**
      * Which server this device talks to, and the settings screen's subject.
@@ -134,5 +147,10 @@ class AppGraph(
         // without it a device asks the server for no manifest and stays on
         // whatever forms it already had, which for a fresh install is none.
         forms = formStore,
+        // And the lists those forms choose from. Passed together with `forms`
+        // for a reason: what a device must hold is derived from the form
+        // versions deployed to it, so a client that delivered one without the
+        // other would have forms whose questions offer nothing.
+        datasets = datasetStore,
     )
 }
