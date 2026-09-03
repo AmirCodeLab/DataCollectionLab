@@ -1,0 +1,146 @@
+{
+  "id": "dataset-010",
+  "description": "Two selector terms narrow together, and the emitted order is by column name",
+  "spec": "3.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds10",
+    "version": 1,
+    "title": {
+      "en": "ds10"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "region",
+        "dataType": "select_one",
+        "label": {
+          "en": "Region"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "regions",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      },
+      {
+        "type": "question",
+        "id": "district",
+        "dataType": "select_one",
+        "label": {
+          "en": "District"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "districts",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          },
+          "filter": {
+            "op": "and",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "$row.urban"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "yes"
+                  }
+                ]
+              },
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "$row.region_id"
+                  },
+                  {
+                    "op": "ref",
+                    "path": "region"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "region": "TZ01"
+      },
+      "expect": {
+        "selector": {
+          "district": {
+            "region_id": "TZ01",
+            "urban": "yes"
+          }
+        },
+        "selectorOrder": {
+          "district": [
+            "region_id",
+            "urban"
+          ]
+        },
+        "candidates": {
+          "district": 1
+        },
+        "choices": {
+          "district": [
+            "D01"
+          ]
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "regions": [
+      {
+        "name": "TZ01",
+        "label": "Arusha"
+      },
+      {
+        "name": "TZ02",
+        "label": "Kilimanjaro"
+      }
+    ],
+    "districts": [
+      {
+        "name": "D01",
+        "label": "Arusha Mjini",
+        "region_id": "TZ01",
+        "urban": "yes"
+      },
+      {
+        "name": "D02",
+        "label": "Arusha Vijijini",
+        "region_id": "TZ01",
+        "urban": "no"
+      },
+      {
+        "name": "D03",
+        "label": "Moshi",
+        "region_id": "TZ02",
+        "urban": "yes"
+      }
+    ]
+  }
+}

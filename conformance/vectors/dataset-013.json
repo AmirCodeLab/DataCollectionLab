@@ -1,0 +1,78 @@
+{
+  "id": "dataset-013",
+  "description": "Labels come from labelColumn, per language, in dataset row order",
+  "spec": "3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds13",
+    "version": 1,
+    "title": {
+      "en": "ds13"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en",
+      "sw"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "district",
+        "dataType": "select_one",
+        "label": {
+          "en": "District"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "districts_sw",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label::English (en)",
+            "sw": "label::Swahili (sw)"
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "choices": {
+          "district": [
+            "D01",
+            "D03"
+          ]
+        },
+        "labels": {
+          "district": [
+            {
+              "en": "Arusha Urban",
+              "sw": "Arusha Mjini"
+            },
+            {
+              "en": "Moshi",
+              "sw": "Moshi"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "districts_sw": [
+      {
+        "name": "D01",
+        "label::English (en)": "Arusha Urban",
+        "label::Swahili (sw)": "Arusha Mjini"
+      },
+      {
+        "name": "D03",
+        "label::English (en)": "Moshi",
+        "label::Swahili (sw)": "Moshi"
+      }
+    ]
+  }
+}

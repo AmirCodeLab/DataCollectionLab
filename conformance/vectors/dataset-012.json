@@ -1,0 +1,87 @@
+{
+  "id": "dataset-012",
+  "description": "A dataset the device does not hold is an empty list, not a crash",
+  "spec": "3.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds12",
+    "version": 1,
+    "title": {
+      "en": "ds12"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "village",
+        "dataType": "select_one",
+        "label": {
+          "en": "Village"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "not_synced_yet",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "choices": {
+          "village": []
+        },
+        "candidates": {
+          "village": 0
+        }
+      }
+    },
+    {
+      "set": {
+        "village": "V1"
+      },
+      "expect": {
+        "valid": {
+          "village": false
+        },
+        "errors": {
+          "village": [
+            "choice"
+          ]
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "districts": [
+      {
+        "name": "D01",
+        "label": "Arusha Mjini",
+        "region_id": "TZ01",
+        "urban": "yes"
+      },
+      {
+        "name": "D02",
+        "label": "Arusha Vijijini",
+        "region_id": "TZ01",
+        "urban": "no"
+      },
+      {
+        "name": "D03",
+        "label": "Moshi",
+        "region_id": "TZ02",
+        "urban": "yes"
+      }
+    ]
+  }
+}

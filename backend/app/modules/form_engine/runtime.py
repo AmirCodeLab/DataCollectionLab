@@ -5,6 +5,7 @@ Spec: specs/form-ir-v0.1.md sections 2.3, 4.2, 5.
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import re
 from collections.abc import Iterator
@@ -12,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
+from .datasets import ChoiceQuery, DatasetSource, InMemoryDatasetSource, compile_choices
 from .document import check_document
 from .expression import (
     CompileError,
@@ -22,6 +24,11 @@ from .expression import (
 )
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+#: Distinguishes "no additional equality" from "equal to None", which are
+#: different questions to ask a source: the first returns the whole selected
+#: list, the second asks whether a null answer is a member of it.
+_UNSET = object()
 
 
 @dataclass
@@ -55,6 +62,11 @@ class CompiledField:
     depends_on: set[str]
     ancestors: list[str]
     repeat: str | None  # innermost enclosing repeat id, if any
+    #: A dataset-backed `choices` block, decomposed (§3.2). None for an inline
+    #: list or no list at all. Computed at compile time because it is a pure
+    #: function of the IR: the same document must decompose the same way on
+    #: every engine, and a vector asserts that it did.
+    choice_query: ChoiceQuery | None = None
 
 
 class CompiledForm:
@@ -126,6 +138,21 @@ class CompiledForm:
                 if anc_node and isinstance(anc_node.get("relevant"), dict):
                     collect_refs(anc_node["relevant"], deps)
 
+            choices = node.get("choices")
+            query = compile_choices(choices) if isinstance(choices, dict) else None
+            if query is not None:
+                # A selector expression reads answers, so the field depends on
+                # them: changing the district must re-resolve the village list
+                # and re-check the village already chosen. `collect_refs`
+                # deliberately ignores `$row.` — those are columns, not fields —
+                # and the selector's right-hand sides are exactly the part that
+                # is not `$row`, which is why they are collected from here
+                # rather than from the filter as a whole.
+                for expression in query.selector.values():
+                    collect_refs(expression, deps)
+                if query.residual is not None:
+                    collect_refs(query.residual, deps)
+
             self.fields[node_id] = CompiledField(
                 field_id=node_id,
                 node=node,
@@ -133,6 +160,7 @@ class CompiledForm:
                 depends_on=deps,
                 ancestors=list(ancestors),
                 repeat=enclosing_repeats[0] if enclosing_repeats else None,
+                choice_query=query,
             )
             self.order.append(node_id)
 
@@ -194,11 +222,8 @@ class CompiledForm:
                     )
 
 
-def _values_outside_choices(node: dict[str, Any], value: Any) -> list[Any]:
-    """Values not present in the question's choice list (spec 6.3).
-
-    Empty when the question has no choices, when the list is dataset-backed
-    (not resolvable here yet), or when everything matches.
+def _inline_values(node: dict[str, Any], value: Any) -> list[Any]:
+    """Values not present in an **inline** choice list (spec 6.3).
 
     Matching is **exact** — no trimming, no case folding, no normalisation.
     That is §6.3's decision, not an accident of `==`: a device that accepted
@@ -239,11 +264,18 @@ class FormInstance:
         today: date | None = None,
         now: datetime | None = None,
         metadata: dict[str, Any] | None = None,
+        datasets: DatasetSource | None = None,
     ) -> None:
         self.form = form
         self.today = today or date.today()
         self.now = now or datetime.now()
         self.metadata = metadata or {}
+        # A form with no dataset-backed list never touches this; one that has
+        # them and is given no source resolves every list to empty, which shows
+        # up as a select with nothing to choose from rather than as a crash
+        # during recalculation. That is the honest state for a device that has
+        # not yet synced its reference data (§3.2).
+        self.datasets: DatasetSource = datasets or InMemoryDatasetSource({})
 
         self.instances: dict[str, list[str]] = {rid: [] for rid in form.repeats}
         self._instance_counter = itertools.count(1)
@@ -410,7 +442,7 @@ class FormInstance:
             # `null` is deliberately excluded — an unanswered question is not a
             # membership failure, it is `required`'s business (§4.4, §6.3).
             if state.value is not None:
-                offending = _values_outside_choices(node, state.value)
+                offending = self._values_outside_choices(cf, state.value, scope)
                 if offending:
                     state.valid = False
                     # One error on the field, not one per offending value: the
@@ -427,6 +459,143 @@ class FormInstance:
                             "severity": node.get("severity", "error"),
                         }
                     )
+
+    # -- dataset-backed choice lists (§3.2) --------------------------------
+
+    def _selector_values(
+        self, query: ChoiceQuery, ctx: EvalContext
+    ) -> dict[str, Any]:
+        """The selector, evaluated against the current answers.
+
+        A term evaluating to `null` selects on `null` and matches no row unless
+        the column holds one. It is deliberately not dropped: an unanswered
+        district must narrow the village list to nothing, not widen it to
+        everything (§3.2, §4.4).
+        """
+        return {column: evaluate(expr, ctx) for column, expr in query.selector.items()}
+
+    def candidate_rows(
+        self,
+        field_id: str,
+        *,
+        equals: Any = _UNSET,
+        scope: tuple[str, str] | None = _UNSET,  # type: ignore[assignment]
+    ) -> list[dict[str, Any]]:
+        """Rows the source returns for this field's selector, before residual.
+
+        Public because it is what the performance contract is measured in: it
+        is O(rows matching the selector) and never O(dataset), and a vector
+        asserts its length so that "did the engine narrow" is comparable
+        between implementations rather than only visible in a profiler.
+        """
+        cf = self.form.fields[field_id]
+        query = cf.choice_query
+        if query is None:
+            return []
+        if scope is _UNSET:
+            scope = self._scope_of(field_id)
+        ctx = self._context(scope)
+        narrowing = (
+            None if equals is _UNSET else (query.value_column, equals)
+        )
+        return [
+            dict(row)
+            for row in self.datasets.rows(
+                query.dataset, self._selector_values(query, ctx), narrowing
+            )
+        ]
+
+    def _rows_after_residual(
+        self,
+        field_id: str,
+        rows: list[dict[str, Any]],
+        scope: tuple[str, str] | None = _UNSET,  # type: ignore[assignment]
+    ) -> list[dict[str, Any]]:
+        query = self.form.fields[field_id].choice_query
+        if query is None or query.residual is None:
+            return rows
+        if scope is _UNSET:
+            scope = self._scope_of(field_id)
+        base = self._context(scope)
+        kept: list[dict[str, Any]] = []
+        for row in rows:
+            # The same context carrying that row: `$row.column` resolves from
+            # here and nowhere else (expression.py). `null_is=False` because a
+            # filter that cannot be decided must not offer the row — §4.4's
+            # boundary rule for `constraint` coerces the other way, and this is
+            # not a constraint: an undecidable row is not a permitted answer.
+            if coerce_boolean(
+                evaluate(query.residual, dataclasses.replace(base, row=row)),
+                null_is=False,
+            ):
+                kept.append(row)
+        return kept
+
+    def choices(self, field_id: str) -> list[dict[str, Any]]:
+        """The resolved option list for a field, in dataset order (§3.2).
+
+        Inline lists are returned as they stand; a dataset-backed list is the
+        selector's rows with the residual applied. Each entry is
+        `{"value": ..., "label": {lang: ...}}`, so a client renders both kinds
+        the same way and cannot end up implementing one of them itself.
+        """
+        cf = self.form.fields[field_id]
+        query = cf.choice_query
+        if query is None:
+            choices = cf.node.get("choices") or {}
+            return [dict(item) for item in choices.get("items", [])]
+
+        rows = self._rows_after_residual(field_id, self.candidate_rows(field_id))
+
+        return [
+            {
+                "value": row.get(query.value_column),
+                "label": {
+                    language: row.get(column)
+                    for language, column in query.label_columns.items()
+                },
+            }
+            for row in rows
+        ]
+
+    def _values_outside_choices(
+        self, cf: CompiledField, value: Any, scope: tuple[str, str] | None
+    ) -> list[Any]:
+        """Values not present in this question's choice list (spec 6.3).
+
+        For a dataset-backed list this is a **lookup, not a scan** (§3.2): the
+        answer is pushed into the source alongside the selector, so with no
+        residual it is one indexed question whatever the dataset's size. It is
+        never "fetch the list, then search it" — that is the difference between
+        a village select that works on a handset and one that does not.
+        """
+        query = cf.choice_query
+        if query is None:
+            return _inline_values(cf.node, value)
+
+        wanted = (
+            value
+            if cf.data_type == "select_multiple" and isinstance(value, list)
+            else [value]
+        )
+        missing: list[Any] = []
+        for one in wanted:
+            rows = self.candidate_rows(cf.field_id, equals=one, scope=scope)
+            if not self._rows_after_residual(cf.field_id, rows, scope):
+                missing.append(one)
+        return missing
+
+    def _scope_of(self, field_id: str) -> tuple[str, str] | None:
+        """The repeat instance a field id belongs to, for building a context."""
+        repeat = self.form.fields[field_id].repeat
+        if repeat is None:
+            return None
+        # Resolution inside a repeat is the instance currently being evaluated;
+        # `choices()` called from outside one uses the first instance. Repeats
+        # with dataset-backed lists are not exercised until v0.2's repeat
+        # screen flow, so this is deliberately the simple reading.
+        instances = self.instances.get(repeat) or []
+        return (repeat, instances[0]) if instances else None
 
     def recalculate(self) -> None:
         """Deterministic full pass in topological order (spec 5.2).

@@ -202,6 +202,73 @@ error — the same village entered twice — but merging them would be the platf
 deciding that two rows a customer supplied are one, which is not a decision the
 platform can make. The report names them; the publisher decides.
 
+### 3.2 Resolving a dataset-backed list
+
+**An engine never materialises a dataset.** It is given a *dataset source* and
+asks it for rows. A runtime backed by 38,000 villages in SQLCipher and one
+backed by an in-memory list of four must answer the same questions identically;
+what differs is only how the source finds the rows.
+
+#### The filter is decomposed at compile time
+
+`choices.filter` is split, once, when the form is compiled — not walked from
+scratch per candidate row:
+
+- **selector** — the top-level `and`-conjuncts of the form
+  `$row.column = <expr>` where `<expr>` contains no `$row` reference. These are
+  the terms a store can answer from an index. Every cascading select is exactly
+  this shape.
+- **residual** — every conjunct the selector could not absorb, kept as one
+  expression and evaluated per candidate row.
+
+Resolution is then: evaluate each selector expression against the current
+answers, ask the source for rows matching those column values, evaluate the
+residual over what comes back.
+
+Decomposition rules, which every engine MUST follow identically because a
+vector compares the result:
+
+- Only a top-level `and` flattens, and it flattens fully. `or` is never
+  decomposed; an `or` at the top is entirely residual.
+- An `eq` qualifies when exactly one side is `{"op":"ref","path":"$row.X"}` and
+  the other side contains no `$row` reference anywhere in its subtree. Either
+  order.
+- A column bound twice keeps its **first** binding, in document order of the
+  conjuncts; the later ones go to the residual. Nothing is merged and nothing
+  is declared contradictory — `$row.a = 1 and $row.a = 2` selects on 1 and then
+  finds nothing, which is the correct answer.
+- The selector is ordered by column name, so two engines emit it identically.
+- A selector expression evaluating to `null` selects on `null`, which matches
+  no row unless the column holds null. It is not an absent constraint (§4.4).
+
+#### Membership is a lookup, not a scan (§6.3)
+
+Validating a `select_one` against a dataset asks whether **one value** is in the
+resolved list. The engine therefore asks the source for rows matching the
+selector *and* the value column equal to the answer, and — when there is no
+residual — that is a single indexed lookup whatever the dataset's size. It is
+never "fetch the list, then search it".
+
+#### The performance contract
+
+> Resolution is **O(rows matching the selector)**, never O(dataset). A filter
+> whose selector is empty is a full scan over the dataset, and an engine says
+> so rather than hiding it.
+
+That is the contract v0.1 left open. It is met by the shape of the interface
+rather than by an optimisation, which is why it is stated here and not in a
+client: the engine decides *what* the list is, a source decides only how
+quickly it can find it.
+
+**A client MUST NOT pre-narrow the candidate set.** Handing an engine "the rows
+I think are relevant" makes the client the thing that decides what the choice
+list is — and which rows are candidates is a *which-artifact* decision, of
+exactly the kind a conformance vector is structurally unable to see (a vector
+fixes the inputs; it cannot see a caller choosing them). Two clients would
+narrow differently, both would pass every vector, and the enumerator on one
+would be offered villages the other hides. The source is allowed to be fast.
+It is not allowed to be selective.
+
 ## 4. Expressions
 
 Expressions are a **typed AST**, never strings. The builder produces the AST; importers compile XPath into it; runtimes evaluate it directly.
@@ -265,9 +332,51 @@ One deliberate exception: a positional reference to an instance that does not cu
 | `contains` / `starts_with` / `ends_with` | `(text, text) → boolean` | |
 | `regex` | `(text, pattern) → boolean` | RE2 syntax only — see §4.6 |
 | `round` | `(number, integer?) → number` | Half away from zero |
-| `int` / `dec` / `str` | explicit casts | No implicit coercion |
+| `int` / `dec` / `str` | explicit casts | No implicit coercion — see §4.3.1 |
 | `distance` | `(geopoint, geopoint) → decimal` | Metres, haversine, WGS-84 |
 | `pulldata` | `(dataset, column, keyColumn, keyValue) → any` | Dataset lookup |
+
+#### 4.3.1 The explicit casts
+
+There is no implicit coercion anywhere in this IR (§4.5), which is precisely why
+`int`, `dec` and `str` have to be defined exactly: they are the only way a form
+gets from one type to another, and a dataset column is *always text* — a CSV
+holds nothing else — so `int($row.population) > 1000` is the ordinary case
+rather than an exotic one.
+
+| Input | `int` | `dec` | `str` |
+|---|---|---|---|
+| `null` | `null` | `null` | `null` |
+| integer | itself | the same value as a decimal | its digits |
+| decimal | **truncated toward zero** | itself | see below |
+| text | parsed, then truncated toward zero | parsed | itself |
+| unparseable text | `null` | `null` | itself |
+| boolean | `null` | `null` | `"true"` / `"false"` |
+| geopoint, media, sequence | `null` | `null` | `null` |
+
+Text is parsed after **trimming surrounding whitespace only**; nothing else about
+it is normalised, and a thousands separator or a currency symbol makes it
+unparseable rather than being stripped. `int("800.7")` is `800`: it parses as a
+number and then truncates, exactly as `int(800.7)` does, because a cast that
+accepted `800.7` from one source and refused it from another would make the
+result depend on where the value came from.
+
+**Unparseable text is `null`, never an error.** A cast is an expression inside a
+`relevant` or a `constraint`, evaluated on every keystroke over whatever the
+respondent has typed so far — `int("8")` on the way to `int("800")` is fine, and
+`int("8a")` must not stop the form. Null then propagates by §4.4 and the
+boundary rules decide what it means, which is the behaviour every other partial
+value in this IR already has.
+
+`str` renders a decimal without a trailing `.0` when it is integer-valued, so
+`str(dec("800"))` is `"800"` and can be compared against a text column.
+
+> Both engines got this wrong, in opposite directions, until
+> `conformance/vectors/cast-*` existed: the Kotlin engine returned `null` for
+> `int("800")` — silently emptying any filter over a dataset column — and the
+> Python reference raised `ValueError` on `int("8a")`, which reached the API as
+> a 500. Neither had a vector, because until dataset columns existed nothing in
+> the corpus ever passed text to a cast. Break 44.
 
 ### 4.4 Null semantics
 
@@ -630,4 +739,6 @@ Navigation is over the static plan filtered by live relevance:
 - Server-only expressions and where they are declared
 - Encrypted-field addressing — can a constraint reference an encrypted field
 - External function/plugin call surface
-- Choice filter performance contract on 50k-row datasets
+- Whether a residual predicate should be expressible as a store-side operation
+  (`in`, prefix match) rather than only as equality — §3.2 extracts equality and
+  nothing else, so `$row.population > 1000` is a full scan by construction

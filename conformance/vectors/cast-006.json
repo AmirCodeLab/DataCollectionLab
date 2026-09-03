@@ -1,0 +1,90 @@
+{
+  "id": "cast-006",
+  "description": "A boolean is not a number: int and dec are null, str renders it",
+  "spec": "4.3.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "cast6",
+    "version": 1,
+    "title": {
+      "en": "cast6"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "flag",
+        "dataType": "boolean",
+        "label": {
+          "en": "Flag"
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_int",
+        "dataType": "integer",
+        "label": {
+          "en": "As Int"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "int",
+          "args": [
+            {
+              "op": "ref",
+              "path": "flag"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_str",
+        "dataType": "text",
+        "label": {
+          "en": "As Str"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "str",
+          "args": [
+            {
+              "op": "ref",
+              "path": "flag"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "flag": true
+      },
+      "expect": {
+        "values": {
+          "as_int": null,
+          "as_str": "true"
+        }
+      }
+    },
+    {
+      "set": {
+        "flag": false
+      },
+      "expect": {
+        "values": {
+          "as_int": null,
+          "as_str": "false"
+        }
+      }
+    }
+  ]
+}

@@ -32,6 +32,26 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 | `expect.valid` | Expected per-field validity |
 | `expect.errors` | Expected error kinds per field |
 | `expect.formValid` | Expected whole-form validity |
+| `expect.choices` | Expected option values, in order (§3.2) |
+| `expect.labels` | Expected option labels, per language |
+| `expect.selector` | The selector **the source was asked for** (§3.2) |
+| `expect.selectorOrder` | The selector's column order — sorted, so two engines emit it identically |
+| `expect.candidates` | Rows the source handed back, before the residual ran |
+| `expect.scans` | Whether the filter narrows at all, or is a full scan |
+
+A vector may also carry a top-level `datasets` block — `{key: [rows]}` — for the
+lists a `choices.kind = "dataset"` field chooses from.
+
+## Why a dataset vector asserts three things and not one
+
+`expect.choices` alone is not enough, and this is the one place the format does
+more than compare outputs. An engine that scanned all 38,000 villages and one
+that looked up twelve by index produce the **same list**; on a handset they are
+not the same engine. So `selector` and `candidates` are assertions about the
+*question the engine asked*, recorded by the harness's dataset source rather
+than read off the engine's own output — which was watched to catch nothing
+(break 45). A change that quietly stops narrowing fails on those two while every
+answer stays right.
 
 ## The other vector sets
 

@@ -1,0 +1,109 @@
+{
+  "id": "dataset-011",
+  "description": "A select_multiple checks every chosen value against the dataset separately",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds11",
+    "version": 1,
+    "title": {
+      "en": "ds11"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "visited",
+        "dataType": "select_multiple",
+        "label": {
+          "en": "Visited"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "districts",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "visited": [
+          "D01",
+          "D03"
+        ]
+      },
+      "expect": {
+        "valid": {
+          "visited": true
+        },
+        "errors": {
+          "visited": []
+        }
+      }
+    },
+    {
+      "set": {
+        "visited": [
+          "D01",
+          "D99"
+        ]
+      },
+      "expect": {
+        "valid": {
+          "visited": false
+        },
+        "errors": {
+          "visited": [
+            "choice"
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "visited": []
+      },
+      "expect": {
+        "valid": {
+          "visited": true
+        },
+        "errors": {
+          "visited": []
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "districts": [
+      {
+        "name": "D01",
+        "label": "Arusha Mjini",
+        "region_id": "TZ01",
+        "urban": "yes"
+      },
+      {
+        "name": "D02",
+        "label": "Arusha Vijijini",
+        "region_id": "TZ01",
+        "urban": "no"
+      },
+      {
+        "name": "D03",
+        "label": "Moshi",
+        "region_id": "TZ02",
+        "urban": "yes"
+      }
+    ]
+  }
+}

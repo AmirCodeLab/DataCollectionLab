@@ -655,19 +655,14 @@ evidence rather than guessed.
    idempotent by content, refusing empty datasets and blank or repeated keys.
 2. **Import — DONE.** An XLSForm's companion CSVs become dataset versions,
    pinned to the form version at publish. Written up below.
-3. **Engine — NEXT.** `choices.kind = "dataset"` resolution and the `$row`
-   filter, extending §6.3's membership gate rather than inventing a second one.
-   Conformance vectors on both engines **before any client work**. The
-   importer now produces the filter — `{"op":"eq","args":[{"op":"ref",
-   "path":"$row.region_id"},{"op":"ref","path":"region_id"}]}` — and
-   `expression.py` already resolves `$row.column` from `EvalContext.row`. What
-   is missing is the caller: nothing builds that context, nothing resolves a
-   dataset key to rows, and `collect_refs` deliberately excludes `$row.` from
-   the dependency graph, so a filter reading `${region_id}` does **not**
-   currently make the village list recalculate when the region changes. That
-   dependency is part 3's, not a bug in part 2.
-4. **Delivery.** A `datasets` scope on `/sync/pull`, a local store in
-   SQLCipher, retention mirroring `FormStore`'s rule one level down.
+3. **Engine — DONE.** `choices.kind = "dataset"` resolution and the `$row`
+   filter, on both engines, with 14 `dataset-*` vectors and 7 `cast-*`.
+   Written up below; the performance contract it settles is Form IR §3.2.
+4. **Delivery — NEXT.** A `datasets` scope on `/sync/pull`, a local store in
+   SQLCipher, retention mirroring `FormStore`'s rule one level down. The engine
+   side of this is already shaped for it: a device-side `DatasetSource` backed
+   by SQLCipher is the only new implementation, and §3.2's contract is what
+   says an index can serve it.
 5. **Incremental sync.** The hard part; decided below.
 
 ### Part 2 — what the importer does with a companion file
@@ -735,6 +730,59 @@ all there before: `atan` (2 errors, the only missing XPath function across 27
 real forms), `${...}` inserted into six labels and constraint messages (§7,
 the author's), and a repeat nested in a repeat (§2.3, deferred to IR v0.2).
 Plus the dataset-backed collectability gate above, which parts 3 and 4 lift.
+
+### Part 3 — how a filter resolves, and the §12 contract it closes
+
+**The decision, made before either engine implemented it, because it is far
+cheaper to decide once than to reconcile twice.** Form IR §3.2 is the normative
+version; this is why.
+
+> **The engine never materialises a dataset.** `choices.filter` is decomposed
+> once, at compile time, into a **selector** — the top-level `and`-conjuncts of
+> the form `$row.column = <expr>`, which a store can answer from an index — and
+> a **residual**, evaluated per candidate row. The engine asks a
+> `DatasetSource` for the selector's rows and filters those.
+
+Resolution is therefore O(rows matching the selector), never O(dataset), and
+that is a property of the interface rather than an optimisation somebody
+remembered. Membership (§6.3) is a *lookup*: the answer is pushed into the
+source alongside the selector, so with no residual "is this village in the
+list" is one indexed question whatever the dataset's size — never "fetch the
+list, then search it".
+
+**The alternative that was rejected, and the reason is the boundary rule
+above.** The obvious cheap answer is to let the client pass a pre-narrowed
+candidate set — it already has SQLite and an index. That makes the *client* the
+thing that decides which rows are candidates, which is deciding what the choice
+list is, which is a **which-artifact** decision: structurally invisible to a
+vector. Two clients would narrow differently, both would pass everything, and
+the enumerator on one would be offered villages the other hides. The source is
+allowed to be fast. It is not allowed to be selective.
+
+**The vectors assert the narrowing, not only the answer.** `expect.choices`
+alone would pass on an engine that scanned 38,000 rows to build the same list,
+and on a handset those are not the same engine. So `expect.selector` and
+`expect.candidates` are assertions about *the question the engine asked*,
+recorded by the harness's own dataset source. That distinction was not
+theoretical: the first version read them off the engine's output and caught
+nothing (break 45) — an engine asking for every row and filtering them itself
+produced the right selector, the right list and the right count.
+
+**What part 3 found that was already broken.** `dataset-005` and `dataset-006`
+failed on Kotlin the first time they ran, and the cause was not datasets:
+`int("800")` was `null` on Kotlin and `800` on Python, and `int("8a")` raised
+`ValueError` on Python. Both shipped. A CSV holds nothing but text, so
+`int($row.population) > 1000` is the ordinary case for a dataset filter — it
+silently emptied the list on one engine and would have reached the API as a 500
+on the other. Nothing had ever fed text to a cast, because until dataset columns
+existed nothing in the corpus could. §4.3.1 now defines the casts and
+`cast-00*` holds both engines to it. Break 44.
+
+One consequence worth knowing before part 4: a selector expression makes the
+field **depend** on what it reads, so changing the region re-resolves the
+village list *and* re-checks the village already chosen (`dataset-004`). An
+answer that silently stops being a member of its own list is the failure that
+edge exists to prevent.
 
 **Decision — the delta mechanism.** Per-row content hashes, delivered as a
 diff against the version the device holds.

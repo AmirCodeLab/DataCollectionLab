@@ -1,0 +1,91 @@
+{
+  "id": "dataset-008",
+  "description": "$row on both sides of an equality is residual, not a selector term",
+  "spec": "3.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds8",
+    "version": 1,
+    "title": {
+      "en": "ds8"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "district",
+        "dataType": "select_one",
+        "label": {
+          "en": "District"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "districts",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          },
+          "filter": {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "$row.region_id"
+              },
+              {
+                "op": "ref",
+                "path": "$row.urban"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "selector": {
+          "district": {}
+        },
+        "scans": {
+          "district": true
+        },
+        "candidates": {
+          "district": 3
+        },
+        "choices": {
+          "district": []
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "districts": [
+      {
+        "name": "D01",
+        "label": "Arusha Mjini",
+        "region_id": "TZ01",
+        "urban": "yes"
+      },
+      {
+        "name": "D02",
+        "label": "Arusha Vijijini",
+        "region_id": "TZ01",
+        "urban": "no"
+      },
+      {
+        "name": "D03",
+        "label": "Moshi",
+        "region_id": "TZ02",
+        "urban": "yes"
+      }
+    ]
+  }
+}

@@ -97,9 +97,15 @@ object Functions {
             "starts_with" -> binaryText(args) { a, b -> a.startsWith(b) }
             "ends_with" -> binaryText(args) { a, b -> a.endsWith(b) }
             "round" -> round(args)
-            "int" -> numberOf(args[0])?.let { FormValue.Integer(it.toLong()) } ?: FormValue.Null
-            "dec" -> numberOf(args[0])?.let { FormValue.Decimal(it) } ?: FormValue.Null
-            "str" -> if (args[0].isNull) FormValue.Null else FormValue.Text(render(args[0]))
+            // §4.3.1. `castNumber`, not `numberOf`: a cast is the only way this
+            // IR gets from text to a number, and a dataset column is always
+            // text — a CSV holds nothing else — so `int($row.population)` is
+            // the ordinary case. `numberOf` returns null for text and stays
+            // that way, because it is what arithmetic uses and §4.5 has no
+            // implicit coercion.
+            "int" -> castNumber(args[0])?.let { FormValue.Integer(it.toLong()) } ?: FormValue.Null
+            "dec" -> castNumber(args[0])?.let { FormValue.Decimal(it) } ?: FormValue.Null
+            "str" -> if (args[0].isNull) FormValue.Null else castText(args[0]) ?: FormValue.Null
             else -> throw CompileException("function not implemented: $fn")
         }
     }
@@ -113,6 +119,48 @@ object Functions {
     private fun numberOf(v: FormValue): Double? = when (v) {
         is FormValue.Integer -> v.value.toDouble()
         is FormValue.Decimal -> v.value
+        else -> null
+    }
+
+    /**
+     * A value as a number for `int`/`dec` (§4.3.1), or null if it is not one.
+     *
+     * Text is parsed after trimming surrounding whitespace and nothing else: a
+     * thousands separator or a currency symbol makes it unparseable rather than
+     * being stripped, because stripping one would be a coercion this IR does
+     * not have (§4.5).
+     *
+     * Unparseable text is null, never an error — a cast is evaluated on every
+     * keystroke over whatever has been typed so far, and `int("8a")` on the way
+     * to `int("81")` must not stop the form.
+     *
+     * Booleans are deliberately not numbers: §4.4 keeps booleans and numbers
+     * apart everywhere else, and a dynamically typed engine's `int(true) == 1`
+     * would be a divergence no vector had ever asked about. Break 44.
+     */
+    private fun castNumber(v: FormValue): Double? = when (v) {
+        is FormValue.Integer -> v.value.toDouble()
+        is FormValue.Decimal -> v.value
+        is FormValue.Text -> v.value.trim().toDoubleOrNull()
+        else -> null
+    }
+
+    /**
+     * A value rendered by `str` (§4.3.1), or null where §4.3.1 gives no text.
+     *
+     * A geopoint, a media reference and a sequence have no rendering the two
+     * engines could be held to, so they are null rather than each engine's
+     * `toString`.
+     */
+    private fun castText(v: FormValue): FormValue.Text? = when (v) {
+        is FormValue.Text -> v
+        is FormValue.Integer -> FormValue.Text(v.value.toString())
+        // `str(dec("800"))` is "800", so it can be compared against a text
+        // column. A trailing `.0` is an artefact of the double, not the value.
+        is FormValue.Decimal -> FormValue.Text(
+            if (v.value % 1.0 == 0.0) v.value.toLong().toString() else v.value.toString()
+        )
+        is FormValue.Bool -> FormValue.Text(if (v.value) "true" else "false")
         else -> null
     }
 

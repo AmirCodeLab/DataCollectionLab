@@ -32,6 +32,57 @@ fun vectorDir(): File {
 
 fun loadVector(file: File): JsonObject = Json.parseToJsonElement(file.readText()).jsonObject
 
+/**
+ * Dataset rows from a vector's `datasets` block, as the source hands them back.
+ *
+ * Rows are plain JSON — text, numbers, nulls — and become [FormValue] the same
+ * way an answer does, so an engine cannot be right about a filter only because
+ * the harness typed a cell for it.
+ */
+fun datasetsOf(vector: JsonObject): RecordingDatasetSource = RecordingDatasetSource(
+    vector["datasets"]?.jsonObject.orEmpty().mapValues { (_, rows) ->
+        rows.jsonArray.map { row ->
+            row.jsonObject.mapValues { (_, cell) -> formValueFromJson(cell) }
+        }
+    },
+)
+
+/** One question the engine asked a dataset source, and how it was answered. */
+data class SourceCall(
+    val dataset: String,
+    val selector: Map<String, FormValue>,
+    val equals: Pair<String, FormValue>?,
+    val returned: Int,
+)
+
+/**
+ * An in-memory source that remembers what the engine asked it for.
+ *
+ * The vectors' `selector` and `candidates` expectations are assertions about
+ * the **question the engine asked**, not about the answer it ended up with, and
+ * the difference is the entire performance contract (§3.2). Reading them off
+ * the engine's own output instead was watched to be useless: an engine that
+ * asked for every row and filtered them itself produced the right selector, the
+ * right list and the right count, and passed. It is the source that has to be
+ * the witness.
+ */
+class RecordingDatasetSource(
+    datasets: Map<String, List<Map<String, FormValue>>>,
+) : DatasetSource {
+    private val inner = InMemoryDatasetSource(datasets)
+    val calls = mutableListOf<SourceCall>()
+
+    override fun rows(
+        dataset: String,
+        selector: Map<String, FormValue>,
+        equals: Pair<String, FormValue>?,
+    ): List<Map<String, FormValue>> {
+        val found = inner.rows(dataset, selector, equals)
+        calls.add(SourceCall(dataset, selector, equals, found.size))
+        return found
+    }
+}
+
 fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit)? = null): FormInstance {
     val compiled = CompiledForm(FormIr.parse(vector.getValue("form")))
 
@@ -39,7 +90,7 @@ fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit
     val today = ctx?.get("today")?.jsonPrimitive?.content ?: "2026-08-28"
     val now = ctx?.get("now")?.jsonPrimitive?.content ?: "${today}T00:00:00"
 
-    val instance = FormInstance(compiled, today = today, now = now)
+    val instance = FormInstance(compiled, today = today, now = now, datasets = datasetsOf(vector))
 
     vector.getValue("steps").jsonArray.forEachIndexed { i, stepElement ->
         val step = stepElement.jsonObject
@@ -82,6 +133,26 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
         runSteps(vector) { instance, expect, stepIndex ->
             checkExpectations(instance, expect, vectorId, stepIndex)
         }
+    }
+
+    /**
+     * Resolve this field's list and return the one call it made to the source.
+     *
+     * Exactly one: resolving a list is one question, and an engine that asked
+     * twice — once to narrow and once to check — would be doing on a handset
+     * the thing §3.2 exists to stop.
+     */
+    private fun resolutionCall(instance: FormInstance, path: String, where: String): SourceCall {
+        val source = instance.datasets as RecordingDatasetSource
+        source.calls.clear()
+        instance.choices(path)
+        assertEquals(
+            1,
+            source.calls.size,
+            "$where: resolving $path made ${source.calls.size} calls to the dataset " +
+                "source; §3.2 is one question, asked once",
+        )
+        return source.calls.first()
     }
 
     private fun checkExpectations(
@@ -128,6 +199,60 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
         expect["instanceCount"]?.jsonObject?.forEach { (repeatId, want) ->
             val got = instance.instanceCount(repeatId)
             assertEquals(want.jsonPrimitive.content.toInt(), got, "$where: instanceCount[$repeatId]")
+        }
+
+        // --- dataset-backed choice lists (§3.2) ---------------------------
+        //
+        // Three assertions and not one, deliberately. `choices` alone would
+        // pass on an engine that scanned the whole dataset to build the same
+        // list, and on a handset those are not the same engine. `selector`
+        // compares the decomposition and `candidates` compares how many rows
+        // the source was asked to hand back, so a change that quietly stops
+        // narrowing fails here while the answer stays right.
+
+        expect["choices"]?.jsonObject?.forEach { (path, want) ->
+            val got = instance.choices(path).map { it.value }
+            assertEquals(want.jsonArray.map { it.jsonPrimitive.content }, got, "$where: choices[$path]")
+        }
+
+        expect["labels"]?.jsonObject?.forEach { (path, want) ->
+            val got = instance.choices(path).map { it.label ?: emptyMap() }
+            val wanted = want.jsonArray.map { entry ->
+                entry.jsonObject.mapValues { it.value.jsonPrimitive.content }
+            }
+            assertEquals(wanted, got, "$where: labels[$path]")
+        }
+
+        expect["selector"]?.jsonObject?.forEach { (path, want) ->
+            val got = resolutionCall(instance, path, where).selector
+            val wanted = want.jsonObject.mapValues { formValueFromJson(it.value) }
+            assertEquals(
+                wanted,
+                got,
+                "$where: selector[$path] — this is what the source was asked for, " +
+                    "not what the engine computed",
+            )
+        }
+
+        expect["selectorOrder"]?.jsonObject?.forEach { (path, want) ->
+            val got = instance.form.fields.getValue(path).choiceQuery!!.selector.keys.toList()
+            assertEquals(want.jsonArray.map { it.jsonPrimitive.content }, got, "$where: selectorOrder[$path]")
+        }
+
+        expect["candidates"]?.jsonObject?.forEach { (path, want) ->
+            val got = resolutionCall(instance, path, where).returned
+            assertEquals(
+                want.jsonPrimitive.content.toInt(),
+                got,
+                "$where: candidates[$path] — rows back from the source. The engine " +
+                    "asked a different question, which is the performance contract " +
+                    "(§3.2) and not only a count",
+            )
+        }
+
+        expect["scans"]?.jsonObject?.forEach { (path, want) ->
+            val got = instance.form.fields.getValue(path).choiceQuery!!.scans
+            assertEquals(want.jsonPrimitive.content.toBoolean(), got, "$where: scans[$path]")
         }
 
         expect["formValid"]?.let { want ->

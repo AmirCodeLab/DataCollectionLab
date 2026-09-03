@@ -44,15 +44,22 @@ def form(fid, children, **kw):
 VECTORS = []
 
 
-def vector(vid, description, spec, f, steps, context=None):
-    VECTORS.append({
+def vector(vid, description, spec, f, steps, context=None, datasets=None):
+    entry = {
         "id": vid,
         "description": description,
         "spec": spec,
         "form": f,
         "context": context or {"today": "2026-08-28"},
         "steps": steps,
-    })
+    }
+    if datasets is not None:
+        # Rows for the dataset-backed lists this form chooses from (§3.2).
+        # Inline in the vector because a vector is one self-contained file, and
+        # because these are deliberately tiny: what is being compared is the
+        # decomposition and the resolution, not a store's speed.
+        entry["datasets"] = datasets
+    VECTORS.append(entry)
 
 
 # --------------------------------------------------------------------------
@@ -1133,6 +1140,522 @@ vector(
                     "formValid": False}},
     ],
 )
+
+
+
+# --------------------------------------------------------------------------
+# Dataset-backed choice lists (§3, §3.2)
+#
+# These compare three things and not one, which is the point of the set. The
+# resolved list alone is not enough: an engine that scanned all 38,000 villages
+# and one that looked up 12 by index produce the same list and are not
+# interchangeable on a handset. So every vector also asserts
+#
+#   selector    the decomposition, evaluated — what a store is asked for
+#   candidates  how many rows came back before the residual ran
+#
+# and a change that quietly stops narrowing fails on `candidates` while the
+# answer stays right. That is the performance contract expressed as data.
+# --------------------------------------------------------------------------
+
+_DISTRICTS = [
+    {"name": "D01", "label": "Arusha Mjini", "region_id": "TZ01", "urban": "yes"},
+    {"name": "D02", "label": "Arusha Vijijini", "region_id": "TZ01", "urban": "no"},
+    {"name": "D03", "label": "Moshi", "region_id": "TZ02", "urban": "yes"},
+]
+_VILLAGES = [
+    {"name": "V1", "label": "Mtakuja", "district_id": "D01", "pop": "800"},
+    {"name": "V2", "label": "Mbuyuni", "district_id": "D01", "pop": "40"},
+    {"name": "V3", "label": "Kibaoni", "district_id": "D02", "pop": "500"},
+    {"name": "V4", "label": "Mlimani", "district_id": "D03", "pop": "900"},
+]
+
+_REGION = q("region", "select_one", choices={
+    "kind": "dataset", "dataset": "regions",
+    "valueColumn": "name", "labelColumn": {"en": "label"},
+})
+
+
+def _district(**extra):
+    node = {
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    }
+    node.update(extra)
+    return q("district", "select_one", choices=node)
+
+
+_REGIONS = [
+    {"name": "TZ01", "label": "Arusha"},
+    {"name": "TZ02", "label": "Kilimanjaro"},
+]
+
+vector(
+    "dataset-001",
+    "An unfiltered dataset list resolves to every row, and says it is a full scan",
+    "3.2",
+    form("ds1", [_REGION]),
+    [
+        {"expect": {
+            "choices": {"region": ["TZ01", "TZ02"]},
+            "selector": {"region": {}},
+            "candidates": {"region": 2},
+            "scans": {"region": True},
+        }},
+        {"set": {"region": "TZ01"},
+         "expect": {"valid": {"region": True}, "errors": {"region": []}}},
+    ],
+    datasets={"regions": _REGIONS},
+)
+
+vector(
+    "dataset-002",
+    "A value not in the dataset is a choice error, exactly as for an inline list",
+    "6.3",
+    form("ds2", [_REGION]),
+    [
+        {"set": {"region": "TZ99"},
+         "expect": {"valid": {"region": False}, "errors": {"region": ["choice"]},
+                    "formValid": False}},
+    ],
+    datasets={"regions": _REGIONS},
+)
+
+vector(
+    "dataset-003",
+    "An equality filter becomes a selector: the list narrows and only matching rows are asked for",
+    "3.2",
+    form("ds3", [_REGION, _district(
+        filter=op("eq", ref("$row.region_id"), ref("region")))]),
+    [
+        # Nothing chosen yet. The selector is null, which matches no row —
+        # narrowing to nothing rather than widening to everything (§4.4).
+        {"expect": {
+            "choices": {"district": []},
+            "selector": {"district": {"region_id": None}},
+            "candidates": {"district": 0},
+            "scans": {"district": False},
+        }},
+        {"set": {"region": "TZ01"},
+         "expect": {
+             "choices": {"district": ["D01", "D02"]},
+             "selector": {"district": {"region_id": "TZ01"}},
+             # Two, not three: the third district was never handed to the
+             # engine. This is the assertion the whole design is for.
+             "candidates": {"district": 2},
+         }},
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "choices": {"district": ["D03"]},
+             "candidates": {"district": 1},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-004",
+    "Changing the parent invalidates a child answer that is no longer in its list",
+    "3.2",
+    form("ds4", [_REGION, _district(
+        filter=op("eq", ref("$row.region_id"), ref("region")))]),
+    [
+        {"set": {"region": "TZ01", "district": "D01"},
+         "expect": {"valid": {"district": True}, "formValid": True}},
+        # The district is still answered, and its list no longer contains the
+        # answer. Nothing re-asks the question, so recalculation has to notice:
+        # the selector reads `region`, which is why the field depends on it.
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "values": {"district": "D01"},
+             "valid": {"district": False},
+             "errors": {"district": ["choice"]},
+             "choices": {"district": ["D03"]},
+             "formValid": False,
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-005",
+    "A non-equality term stays a residual: the selector narrows, the residual filters what is left",
+    "3.2",
+    form("ds5", [_REGION, q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "and",
+            op("eq", ref("$row.district_id"), lit("D01")),
+            op("gt", call("int", ref("$row.pop")), lit(100)),
+        ),
+    })]),
+    [
+        {"expect": {
+            "selector": {"village": {"district_id": "D01"}},
+            # Both D01 villages are candidates; the residual then drops V2.
+            "candidates": {"village": 2},
+            "choices": {"village": ["V1"]},
+            "scans": {"village": False},
+        }},
+        {"set": {"village": "V2"},
+         "expect": {"valid": {"village": False}, "errors": {"village": ["choice"]}}},
+    ],
+    datasets={"regions": _REGIONS, "villages": _VILLAGES},
+)
+
+vector(
+    "dataset-006",
+    "A filter with no equality term at all is a full scan, and the engine says so",
+    "3.2",
+    form("ds6", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("gt", call("int", ref("$row.pop")), lit(400)),
+    })]),
+    [
+        {"expect": {
+            "selector": {"village": {}},
+            # Every row is a candidate. `scans` is what makes that a stated
+            # limit rather than a surprise on a 38,000-row list.
+            "candidates": {"village": 4},
+            "scans": {"village": True},
+            "choices": {"village": ["V1", "V3", "V4"]},
+        }},
+    ],
+    datasets={"villages": _VILLAGES},
+)
+
+vector(
+    "dataset-007",
+    "An `or` is never decomposed: the whole filter is residual and nothing narrows",
+    "3.2",
+    form("ds7", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "or",
+            op("eq", ref("$row.region_id"), lit("TZ01")),
+            op("eq", ref("$row.urban"), lit("yes")),
+        ),
+    })]),
+    [
+        {"expect": {
+            "selector": {"district": {}},
+            "scans": {"district": True},
+            "candidates": {"district": 3},
+            "choices": {"district": ["D01", "D02", "D03"]},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-008",
+    "$row on both sides of an equality is residual, not a selector term",
+    "3.2",
+    form("ds8", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("eq", ref("$row.region_id"), ref("$row.urban")),
+    })]),
+    [
+        {"expect": {
+            "selector": {"district": {}},
+            "scans": {"district": True},
+            "candidates": {"district": 3},
+            "choices": {"district": []},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-009",
+    "A column bound twice keeps its first binding; the later one becomes residual",
+    "3.2",
+    form("ds9", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "and",
+            op("eq", ref("$row.region_id"), lit("TZ01")),
+            op("eq", ref("$row.region_id"), lit("TZ02")),
+        ),
+    })]),
+    [
+        # Nothing is merged and nothing is declared contradictory: it selects
+        # on TZ01 and the residual then finds none of those are TZ02, which is
+        # the right answer arrived at the plain way.
+        {"expect": {
+            "selector": {"district": {"region_id": "TZ01"}},
+            "candidates": {"district": 2},
+            "choices": {"district": []},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-010",
+    "Two selector terms narrow together, and the emitted order is by column name",
+    "3.2",
+    form("ds10", [_REGION, q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        # Written urban-first on purpose: the selector must come back sorted.
+        "filter": op(
+            "and",
+            op("eq", ref("$row.urban"), lit("yes")),
+            op("eq", ref("$row.region_id"), ref("region")),
+        ),
+    })]),
+    [
+        {"set": {"region": "TZ01"},
+         "expect": {
+             "selector": {"district": {"region_id": "TZ01", "urban": "yes"}},
+             "selectorOrder": {"district": ["region_id", "urban"]},
+             "candidates": {"district": 1},
+             "choices": {"district": ["D01"]},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-011",
+    "A select_multiple checks every chosen value against the dataset separately",
+    "6.3",
+    form("ds11", [q("visited", "select_multiple", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    })]),
+    [
+        {"set": {"visited": ["D01", "D03"]},
+         "expect": {"valid": {"visited": True}, "errors": {"visited": []}}},
+        {"set": {"visited": ["D01", "D99"]},
+         "expect": {"valid": {"visited": False}, "errors": {"visited": ["choice"]}}},
+        # An empty sequence is an unanswered question, not a list in which
+        # nothing matched — the same rule as an inline list (§6.3).
+        {"set": {"visited": []},
+         "expect": {"valid": {"visited": True}, "errors": {"visited": []}}},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-012",
+    "A dataset the device does not hold is an empty list, not a crash",
+    "3.2",
+    form("ds12", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "not_synced_yet",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    })]),
+    [
+        # The honest state for a device that has not synced its reference data:
+        # a select with nothing to choose from, which is visible, rather than an
+        # exception in the middle of recalculation, which is not.
+        {"expect": {
+            "choices": {"village": []},
+            "candidates": {"village": 0},
+        }},
+        {"set": {"village": "V1"},
+         "expect": {"valid": {"village": False}, "errors": {"village": ["choice"]}}},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-013",
+    "Labels come from labelColumn, per language, in dataset row order",
+    "3",
+    form(
+        "ds13",
+        [q("district", "select_one", choices={
+            "kind": "dataset", "dataset": "districts_sw",
+            "valueColumn": "name",
+            "labelColumn": {"en": "label::English (en)", "sw": "label::Swahili (sw)"},
+        })],
+        languages=["en", "sw"],
+    ),
+    [
+        {"expect": {
+            "choices": {"district": ["D01", "D03"]},
+            "labels": {"district": [
+                {"en": "Arusha Urban", "sw": "Arusha Mjini"},
+                {"en": "Moshi", "sw": "Moshi"},
+            ]},
+        }},
+    ],
+    datasets={"districts_sw": [
+        {"name": "D01", "label::English (en)": "Arusha Urban",
+         "label::Swahili (sw)": "Arusha Mjini"},
+        {"name": "D03", "label::English (en)": "Moshi",
+         "label::Swahili (sw)": "Moshi"},
+    ]},
+)
+
+vector(
+    "dataset-014",
+    "A relevance rule and a choice filter reading the same answer both follow it",
+    "3.2",
+    form("ds14", [
+        _REGION,
+        _district(filter=op("eq", ref("$row.region_id"), ref("region"))),
+        q("note_urban", "text", relevant=op("eq", ref("district"), lit("D01"))),
+    ]),
+    [
+        {"set": {"region": "TZ01", "district": "D01"},
+         "expect": {"relevant": {"note_urban": True}, "valid": {"district": True}}},
+        # One answer changing must move both, in one pass and in topological
+        # order: the list, the membership of what was chosen, and the relevance
+        # that reads it.
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "choices": {"district": ["D03"]},
+             "valid": {"district": False},
+             "relevant": {"note_urban": True},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+
+
+
+# --------------------------------------------------------------------------
+# Explicit casts (§4.3.1)
+#
+# These exist because the dataset vectors found the two engines disagreeing
+# about `int("800")` — Kotlin returned null, silently emptying any filter over
+# a dataset column, and the Python reference raised ValueError on `int("8a")`,
+# which reached the API as a 500. Both had shipped. Neither had a vector,
+# because until dataset columns existed nothing in the corpus ever passed text
+# to a cast, and a CSV holds nothing but text. Break 44.
+# --------------------------------------------------------------------------
+
+_CASTS = [
+    q("source", "text"),
+    q("as_int", "integer", calculate=call("int", ref("source"))),
+    q("as_dec", "decimal", calculate=call("dec", ref("source"))),
+    q("as_str", "text", calculate=call("str", ref("source"))),
+]
+
+vector(
+    "cast-001",
+    "int and dec parse a text value — the case a dataset column is always in",
+    "4.3.1",
+    form("cast1", _CASTS),
+    [
+        {"set": {"source": "800"},
+         "expect": {"values": {"as_int": 800, "as_dec": 800.0, "as_str": "800"}}},
+        # Surrounding whitespace only. Nothing else about the text is
+        # normalised — a thousands separator is unparseable, not stripped.
+        {"set": {"source": "  800  "},
+         "expect": {"values": {"as_int": 800, "as_dec": 800.0}}},
+        {"set": {"source": "1,000"},
+         "expect": {"values": {"as_int": None, "as_dec": None, "as_str": "1,000"}}},
+    ],
+)
+
+vector(
+    "cast-002",
+    "int truncates toward zero, from text and from a decimal identically",
+    "4.3.1",
+    form("cast2", _CASTS),
+    [
+        # A cast whose result depended on where the value came from would be
+        # worse than no cast at all.
+        {"set": {"source": "800.7"}, "expect": {"values": {"as_int": 800, "as_dec": 800.7}}},
+        {"set": {"source": "-800.7"}, "expect": {"values": {"as_int": -800, "as_dec": -800.7}}},
+    ],
+)
+
+vector(
+    "cast-003",
+    "Unparseable text is null, never an error",
+    "4.3.1",
+    form("cast3", _CASTS),
+    [
+        # A cast is evaluated on every keystroke over whatever has been typed
+        # so far: `int("8a")` on the way to `int("81")` must not stop the form.
+        # The Python reference raised ValueError here and it reached the API
+        # as a 500.
+        {"set": {"source": "8a"},
+         "expect": {"values": {"as_int": None, "as_dec": None, "as_str": "8a"},
+                    "formValid": True}},
+        {"set": {"source": ""},
+         "expect": {"values": {"as_int": None, "as_dec": None}}},
+    ],
+)
+
+vector(
+    "cast-004",
+    "A cast of null is null, and str of null is null rather than the text 'null'",
+    "4.3.1",
+    form("cast4", _CASTS),
+    [
+        {"expect": {"values": {"as_int": None, "as_dec": None, "as_str": None}}},
+    ],
+)
+
+vector(
+    "cast-005",
+    "str renders an integer-valued decimal without a trailing .0",
+    "4.3.1",
+    form("cast5", [
+        q("n", "decimal"),
+        q("as_str", "text", calculate=call("str", ref("n"))),
+        # The reason it matters: a dataset column holds text, so a number has
+        # to render back to something that can match one.
+        q("matches", "boolean",
+          calculate=op("eq", call("str", ref("n")), lit("800"))),
+    ]),
+    [
+        {"set": {"n": 800.0}, "expect": {"values": {"as_str": "800", "matches": True}}},
+        {"set": {"n": 800.5}, "expect": {"values": {"as_str": "800.5", "matches": False}}},
+    ],
+)
+
+vector(
+    "cast-006",
+    "A boolean is not a number: int and dec are null, str renders it",
+    "4.3.1",
+    form("cast6", [
+        q("flag", "boolean"),
+        q("as_int", "integer", calculate=call("int", ref("flag"))),
+        q("as_str", "text", calculate=call("str", ref("flag"))),
+    ]),
+    [
+        # §4.4 keeps booleans and numbers apart everywhere else. A dynamically
+        # typed engine's int(true) == 1 is exactly the divergence a statically
+        # typed one cannot have, and no vector had ever asked.
+        {"set": {"flag": True},
+         "expect": {"values": {"as_int": None, "as_str": "true"}}},
+        {"set": {"flag": False},
+         "expect": {"values": {"as_int": None, "as_str": "false"}}},
+    ],
+)
+
+vector(
+    "cast-007",
+    "A cast inside a choice filter is what makes a text column comparable",
+    "4.3.1",
+    form("cast7", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("gte", call("int", ref("$row.pop")), lit(500)),
+    })]),
+    [
+        # The vector that found break 44. With `int` returning null for text
+        # the filter matched nothing and the list was silently empty — a
+        # village select that shows no villages, on a device holding all of
+        # them.
+        {"expect": {"choices": {"village": ["V1", "V3", "V4"]}}},
+    ],
+    datasets={"villages": _VILLAGES},
+)
+
 
 
 def main() -> None:

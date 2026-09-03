@@ -1,0 +1,84 @@
+{
+  "id": "dataset-001",
+  "description": "An unfiltered dataset list resolves to every row, and says it is a full scan",
+  "spec": "3.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds1",
+    "version": 1,
+    "title": {
+      "en": "ds1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "region",
+        "dataType": "select_one",
+        "label": {
+          "en": "Region"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "regions",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "choices": {
+          "region": [
+            "TZ01",
+            "TZ02"
+          ]
+        },
+        "selector": {
+          "region": {}
+        },
+        "candidates": {
+          "region": 2
+        },
+        "scans": {
+          "region": true
+        }
+      }
+    },
+    {
+      "set": {
+        "region": "TZ01"
+      },
+      "expect": {
+        "valid": {
+          "region": true
+        },
+        "errors": {
+          "region": []
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "regions": [
+      {
+        "name": "TZ01",
+        "label": "Arusha"
+      },
+      {
+        "name": "TZ02",
+        "label": "Kilimanjaro"
+      }
+    ]
+  }
+}

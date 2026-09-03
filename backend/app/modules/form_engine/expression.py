@@ -266,16 +266,62 @@ def _fn_distance(ctx: EvalContext, args: list[Any]) -> Any:
     return 2 * radius * math.asin(math.sqrt(h))
 
 
+def _as_number(value: Any) -> float | None:
+    """A value as a number for `int`/`dec` (§4.3.1), or None if it is not one.
+
+    Text is parsed after trimming surrounding whitespace and nothing else:
+    a thousands separator or a currency symbol makes it unparseable rather than
+    being stripped, because stripping one would be a coercion this IR does not
+    have (§4.5).
+
+    Booleans are deliberately not numbers. `int(true)` would be 1 in Python and
+    null in a typed engine, and §4.4 keeps booleans and numbers apart
+    everywhere else.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            # Unparseable text is null, never an error. A cast is evaluated on
+            # every keystroke over whatever has been typed so far, and
+            # `int("8a")` on the way to `int("81")` must not stop the form.
+            return None
+    return None
+
+
 def _cast_int(ctx: EvalContext, args: list[Any]) -> Any:
-    return None if _is_null(args[0]) else int(args[0])
+    if _is_null(args[0]):
+        return None
+    number = _as_number(args[0])
+    # Truncated toward zero, and via int() on the float so that `int("800.7")`
+    # and `int(800.7)` are the same 800 — a cast whose result depended on where
+    # the value came from would be worse than no cast.
+    return None if number is None else int(number)
 
 
 def _cast_dec(ctx: EvalContext, args: list[Any]) -> Any:
-    return None if _is_null(args[0]) else float(args[0])
+    if _is_null(args[0]):
+        return None
+    return _as_number(args[0])
 
 
 def _cast_str(ctx: EvalContext, args: list[Any]) -> Any:
-    return None if _is_null(args[0]) else str(args[0])
+    if _is_null(args[0]):
+        return None
+    value = args[0]
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        # `str(dec("800"))` is "800", so it can be compared against a text
+        # column. A trailing `.0` is an artefact of the float, not the value.
+        return str(int(value))
+    if isinstance(value, (dict, list)):
+        return None
+    return str(value)
 
 
 FUNCTIONS: dict[str, tuple[Callable[[EvalContext, list[Any]], Any], int, int]] = {
