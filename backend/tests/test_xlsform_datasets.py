@@ -328,30 +328,87 @@ def test_two_files_that_normalise_to_one_key_are_refused() -> None:
     assert collision and collision[0].severity == "error"
 
 
-def test_a_dataset_backed_select_is_not_publishable_while_no_client_can_show_one() -> None:
-    """Defect 7, one axis over — and the reason the registry has two lists.
+def test_a_dataset_backed_select_is_collectable_and_the_registry_is_what_says_so() -> None:
+    """Defect 7, one axis over — and now on the other side of it.
 
-    `select_one` is a collectable dataType. A *dataset-backed* `select_one` is
-    not a collectable question: `CollectionViewModel` reads `choices.items`,
-    which a dataset-backed list has none of, so the question would deploy and
-    arrive with nothing under its label. Reporting it as fine because
-    `select_one` is in the type list is exactly the conflation the registry
-    exists to prevent.
+    `select_one` is a collectable dataType and a *dataset-backed* `select_one`
+    was not a collectable question, because `CollectionViewModel` read
+    `choices.items` and a dataset-backed list has none: the question deployed
+    and arrived with nothing under its label. The fix was one line in the view
+    model — resolve through `FormInstance.choices` — and one line in
+    `specs/collectable-types-v0.1.json`.
 
-    When item 4 parts 3 and 4 land, `dataset` joins `choiceSources` in
-    `specs/collectable-types-v0.1.json` and this test is what says so.
+    What is asserted here is the **mechanism**, not the answer: the importer
+    must take its verdict from the registry rather than from a constant, so that
+    the next capability flips the same way. `CollectableTypesTest` holds the
+    client to the same file from the other side.
     """
+    from app.modules.forms.xlsform import datatypes
+
     result = import_workbook(
         build_workbook(SIMPLE),
         companions={"villages.csv": csv_bytes("name,label\nV01,Mtakuja\n")},
     )
-    blocked = [d for d in result.diagnostics if d.code == "choice_source_not_collectable"]
-    assert blocked and blocked[0].severity == "error"
-    assert blocked[0].blame == "platform", "our gap, not the author's"
-    assert not result.publishable
-    # The data was still read and will still be published — the report has to
-    # be able to say that the reference half worked.
+
+    assert datatypes.classify_choice_source("dataset") == "collectable"
+    assert not [
+        d for d in result.diagnostics if d.code == "choice_source_not_collectable"
+    ], "the registry says a client can present one; the importer must agree"
+    assert result.publishable, [
+        d.message for d in result.diagnostics if d.severity == "error"
+    ]
+
+    # And the reference data is still read and still pinned — the half that was
+    # always working, asserted so a regression in one is not hidden by the other.
     assert result.datasets[0].row_count == 1
+
+
+def test_the_importer_takes_the_verdict_from_the_registry_and_not_from_a_constant(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The other direction, which is the one that decays.
+
+    A registry consulted once and then hard-coded is the SUBMISSION_STATUSES
+    problem again. With `dataset` removed from the file, the importer must go
+    back to refusing — otherwise the file is decoration and the next capability
+    silently ships as collectable.
+    """
+    import json
+
+    from app.modules.forms.xlsform import datatypes
+
+    registry = json.loads(
+        (REPO_ROOT / "specs" / datatypes.COLLECTABLE_TYPES_FILE).read_text()
+    )
+    registry["choiceSources"] = ["inline"]
+    (tmp_path / datatypes.COLLECTABLE_TYPES_FILE).write_text(json.dumps(registry))
+    (tmp_path / datatypes.FORM_IR_SPEC_FILE).write_text(
+        (REPO_ROOT / "specs" / datatypes.FORM_IR_SPEC_FILE).read_text()
+    )
+    monkeypatch.setenv("DCP_SPECS_DIR", str(tmp_path))
+    for cache in (
+        datatypes.collectable_choice_sources,
+        datatypes.collectable_types,
+        datatypes.spec_data_types,
+        datatypes.specs_dir if hasattr(datatypes.specs_dir, "cache_clear") else None,
+    ):
+        if cache is not None and hasattr(cache, "cache_clear"):
+            cache.cache_clear()
+    try:
+        result = import_workbook(
+            build_workbook(SIMPLE),
+            companions={"villages.csv": csv_bytes("name,label\nV01,Mtakuja\n")},
+        )
+        blocked = [
+            d for d in result.diagnostics if d.code == "choice_source_not_collectable"
+        ]
+        assert blocked and blocked[0].blame == "platform"
+        assert not result.publishable
+    finally:
+        monkeypatch.delenv("DCP_SPECS_DIR", raising=False)
+        datatypes.collectable_choice_sources.cache_clear()
+        datatypes.collectable_types.cache_clear()
+        datatypes.spec_data_types.cache_clear()
 
 
 # --------------------------------------------------------------------------
@@ -581,9 +638,10 @@ def test_what_still_blocks_the_ucl_form_is_no_longer_about_functions(
 
     codes = sorted({d.code for d in result.diagnostics if d.severity == "error"})
     assert codes == [
-        # A dataset-backed select cannot be presented yet — parts 3 and 4 built
-        # the engine and the store; the collection screen is next.
-        "choice_source_not_collectable",
+        # One blocker left, and it is not dataset work: a repeat inside a
+        # repeat, which §2.3 defers to IR v0.2. The eight dataset-backed selects
+        # became collectable when the collection screen started resolving
+        # through the engine.
         "does_not_compile",
         "nested_repeat_not_supported",
     ], f"the blockers changed: {codes}"

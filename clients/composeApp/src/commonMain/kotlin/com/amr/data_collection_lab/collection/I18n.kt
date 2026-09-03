@@ -28,6 +28,38 @@ object UiStrings {
     fun cancel(l: String) = if (ar(l)) "إلغاء" else "Cancel"
     fun next(l: String) = if (ar(l)) "التالي" else "Next"
     fun previous(l: String) = if (ar(l)) "السابق" else "Previous"
+
+    /**
+     * The label over a long list's search box, carrying the count.
+     *
+     * The number is the point. A dataset-backed list has already been narrowed
+     * by the form's own filter (§3.2) — a district's villages out of tens of
+     * thousands — and "229 options" is how an enumerator knows that happened.
+     * Without it an unexpectedly short list and a broken filter look identical.
+     *
+     * The count is wrapped in the same directional isolates §7.1 uses on an
+     * interpolated value, and for the same reason: a Latin numeral inside
+     * Arabic text is bidi-neutral at its edges and gets dragged out of position
+     * without one.
+     */
+    fun searchOptions(count: Int, l: String): String {
+        val n = "\u2068$count\u2069"
+        return if (ar(l)) "ابحث في $n خيارًا" else "Search $n options"
+    }
+
+    /**
+     * Said when a form's reference data has not finished arriving.
+     *
+     * The sentence exists because the alternative is silence: a select with no
+     * options is what an enumerator sees whether the list is missing or their
+     * filter matched nothing, and only one of those is theirs to fix (§3.2).
+     */
+    fun referenceDataMissing(keys: String, l: String) =
+        if (ar(l)) "لم تصل البيانات المرجعية بعد: $keys. زامن الجهاز قبل المتابعة."
+        else "Reference data has not arrived yet: $keys. Sync before collecting."
+
+    fun noOptionsMatch(l: String) =
+        if (ar(l)) "لا يوجد خيار مطابق" else "No option matches what you typed"
     fun finalize(l: String) = if (ar(l)) "إنهاء الاستمارة" else "Finalize"
     fun finalized(l: String) = if (ar(l)) "منتهية" else "Finalized"
     /**

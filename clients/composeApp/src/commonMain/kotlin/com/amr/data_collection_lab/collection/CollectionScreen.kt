@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -96,6 +97,19 @@ fun CollectionScreen(
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
                 return@Scaffold
+            }
+            if (state.missingReferenceData.isNotEmpty()) {
+                // Before the first question, not after the enumerator has met
+                // an empty dropdown and drawn their own conclusion (§3.2).
+                Text(
+                    text = UiStrings.referenceDataMissing(
+                        state.missingReferenceData.joinToString(", "),
+                        state.language,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                )
             }
             if (state.missingFormVersion != null) {
                 // Reachable only if form retention failed (Form IR §9): the
@@ -265,7 +279,7 @@ private fun QuestionItem(
             "text" -> TextAnswer(question, enabled, KeyboardType.Text, onAction)
             "integer" -> TextAnswer(question, enabled, KeyboardType.Number, onAction)
             "decimal" -> TextAnswer(question, enabled, KeyboardType.Decimal, onAction)
-            "select_one" -> SelectOneAnswer(question, enabled, onAction)
+            "select_one" -> SelectOneAnswer(question, language, enabled, onAction)
             "select_multiple" -> SelectMultipleAnswer(question, enabled, onAction)
             "date" -> DateAnswer(question, language, enabled, onAction)
             "note" -> Unit // Display only (§2.1): the label above is the whole widget.
@@ -332,6 +346,92 @@ private fun UnsupportedAnswer(question: QuestionUi, language: String) {
 }
 
 /**
+ * A long option list: type to narrow, and only what is on screen is composed.
+ *
+ * This is what a dataset-backed select looks like in the field. The engine has
+ * already narrowed the list by the form's own filter — a district's 229
+ * villages out of 37,852 (Form IR §3.2) — and what is left is still more than
+ * anybody scrolls, so the enumerator types.
+ *
+ * Two things here are load-bearing rather than styling:
+ *
+ * - **`LazyColumn`, not `Column`.** Every other answer widget in this file
+ *   composes its options eagerly, which is right for the twenty-option lists a
+ *   form is mostly made of and wrong the moment a list comes from a dataset.
+ * - **The count is shown.** "229 villages" is how an enumerator knows the
+ *   filter did something, and an empty list with a reason under it
+ *   ("no villages match") is how they tell "I typed badly" from "the reference
+ *   data has not arrived" — which is the failure §3.2 spends its length on.
+ */
+@Composable
+private fun SearchableSelectOne(
+    question: QuestionUi,
+    language: String,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    // Keyed on the question path so moving between screens does not carry one
+    // question's search text onto another's list.
+    var query by remember(question.path) { mutableStateOf("") }
+    val matching = remember(question.choices, query) {
+        if (query.isBlank()) {
+            question.choices
+        } else {
+            question.choices.filter { choice -> choice.label.contains(query, ignoreCase = true) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            enabled = enabled,
+            singleLine = true,
+            label = { Text(UiStrings.searchOptions(question.choices.size, language)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (matching.isEmpty()) {
+            Text(
+                text = UiStrings.noOptionsMatch(language),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+            return@Column
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).selectableGroup(),
+        ) {
+            items(matching, key = { it.value }) { choice ->
+                val selected = choice.value == question.selectedValue
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = selected,
+                            enabled = enabled,
+                            role = Role.RadioButton,
+                            onClick = {
+                                onAction(
+                                    CollectionAction.OnChoiceSelect(question.path, choice.value)
+                                )
+                            },
+                        )
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = selected, onClick = null, enabled = enabled)
+                    Text(
+                        text = choice.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * `select_multiple` (§2.1): zero or more choices, stored as a sequence.
  *
  * Order-insensitive per the spec, and the order the enumerator tapped in is not
@@ -374,12 +474,30 @@ private fun SelectMultipleAnswer(
     }
 }
 
+/**
+ * Beyond this many options a list is searched rather than scrolled.
+ *
+ * Not a round number chosen for looks. A district in the generated UCL data
+ * holds 229 villages, and every option below is an eager composable inside a
+ * `Column` — 229 of them is a visible pause on a handset and 37,852 is not a
+ * screen at all. The threshold sits under the smallest real cascade so that the
+ * case this feature exists for takes the searchable path, and the twenty-option
+ * lists a form is mostly made of keep the radio buttons an enumerator can tap
+ * without reading.
+ */
+private const val SEARCHABLE_ABOVE = 20
+
 @Composable
 private fun SelectOneAnswer(
     question: QuestionUi,
+    language: String,
     enabled: Boolean,
     onAction: (CollectionAction) -> Unit,
 ) {
+    if (question.choices.size > SEARCHABLE_ABOVE) {
+        SearchableSelectOne(question, language, enabled, onAction)
+        return
+    }
     Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
         question.choices.forEach { choice ->
             val selected = choice.value == question.selectedValue

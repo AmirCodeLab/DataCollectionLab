@@ -11,6 +11,7 @@ import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.form.CompiledForm
 import com.dcp.form.FormInstance
+import com.dcp.form.InMemoryDatasetSource
 import com.dcp.form.FormNavigator
 import com.dcp.form.FormValue
 import com.dcp.form.QuestionNode
@@ -133,6 +134,16 @@ data class CollectionState(
      * real data loss and would be reported as such.
      */
     val missingFormVersion: String? = null,
+    /**
+     * Dataset keys this form chooses from and this device cannot serve (§3.2).
+     *
+     * A persistent condition rather than a transient message: it is true for as
+     * long as the sync has not delivered them, and the reason it is on screen at
+     * all is that the alternative is silence. A select with no options looks the
+     * same whether the list never arrived or the enumerator's filter matched
+     * nothing, and only one of those is theirs to fix.
+     */
+    val missingReferenceData: List<String> = emptyList(),
 )
 
 sealed interface CollectionAction {
@@ -235,8 +246,17 @@ class CollectionViewModel(
                 }
                 return@launch
             }
+            // The lists this form's selects choose from, bound to the same
+            // submission the form was — never to a version this class picked
+            // (§3.2, break 30's rule with a village list instead of a form).
+            val datasets = catalog.datasetSourceForSubmission(submissionId)
+            val missingDatasets = catalog.missingDatasetsForSubmission(submissionId)
             val (loadedInstance, summary) = withContext(Dispatchers.Default) {
-                val inst = FormInstance(compiled, today = todayIsoDate())
+                val inst = FormInstance(
+                    compiled,
+                    today = todayIsoDate(),
+                    datasets = datasets ?: InMemoryDatasetSource(emptyMap()),
+                )
                 val stored = store.materialisedAnswers(submissionId)
                     .filterKeys { it in inst.values }
                 if (stored.isNotEmpty()) inst.setMany(stored)
@@ -254,6 +274,7 @@ class CollectionViewModel(
                     languages = compiled.ir.languages,
                     formTitle = compiled.ir.title.resolve(language) ?: compiled.formId,
                     finalized = summary?.status == SubmissionStatus.FINALIZED,
+                    missingReferenceData = missingDatasets.map { m -> m.datasetKey },
                 )
             }
             rebuild()
@@ -676,7 +697,12 @@ class CollectionViewModel(
             selectedValues = (fieldState.value as? FormValue.Sequence)
                 ?.items.orEmpty()
                 .mapNotNull { (it as? FormValue.Text)?.value },
-            choices = node.choices?.items.orEmpty().map {
+            // Through the engine, always. An inline list is `choices.items` and
+            // a dataset-backed one is a resolved, filtered lookup (§3.2) — and
+            // reading `items` directly is what made every dataset select render
+            // with nothing under it, which is why the collectable registry
+            // refused to publish one at all.
+            choices = instance.choices(node.id).map {
                 ChoiceUi(it.value, it.label.resolve(lang) ?: it.value)
             },
             dateIso = textValue,

@@ -63,13 +63,22 @@
     "collectable because `select_one` is in the list above would be exactly the",
     "conflation this file exists to prevent.",
     "",
-    "`dataset` joins this list when item 4 parts 3 and 4 land — engine",
-    "resolution and a local dataset store — and the XLSForm importer stops",
-    "reporting those questions as unpresentable on the same day, from this one",
-    "line, with no code change on either side."
+    "`dataset` joined this list when the collection screen began resolving",
+    "through the engine instead of reading `choices.items`. That one line is",
+    "what took eight questions in the UCL form from 'would arrive with nothing",
+    "under the label' to answerable, and the importer stopped reporting them",
+    "as unpresentable on the same day with no code change on either side —",
+    "which is what the file is for.",
+    "",
+    "The list is still not the whole story for a dataset-backed select, and the",
+    "difference is size rather than kind: rendering 229 villages is ordinary",
+    "and rendering 37,852 is not, so the screen picks a searchable lazy list",
+    "above a threshold. That is a presentation decision and not a capability —",
+    "a client that got it wrong would be slow, not incorrect."
   ],
   "choiceSources": [
-    "inline"
+    "inline",
+    "dataset"
   ],
   "notes": {
     "note": "Display only — it has no value (§2.1), so it is 'collectable' in the sense that a client can present it correctly, not in the sense that it stores an answer.",
@@ -83,6 +92,6 @@
     "drawing": "In §2.1 as a media reference. The signature canvas is the same widget and could serve it; not wired.",
     "geotrace": "In §2.1, no widget yet.",
     "geoshape": "In §2.1, no widget yet.",
-    "dataset choices": "Form IR §3 defines them and the server stores them (item 4 part 1). Nothing resolves a `choices.kind = \"dataset\"` list yet — not the engines (part 3) and not a device (part 4) — so a form using one imports, pins its data, and still cannot be collected."
+    "dataset choices": "Form IR §3. Resolved by both engines (item 4 part 3), delivered to a device (part 4), and rendered by the collection screen through `FormInstance.choices` — so a form using one imports, pins its data, and is collectable. Measured on a Pixel at 37,852 villages: see §3.2."
   }
 }

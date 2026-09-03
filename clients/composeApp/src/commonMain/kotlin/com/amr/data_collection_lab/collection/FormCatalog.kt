@@ -1,5 +1,9 @@
 package com.amr.data_collection_lab.collection
 
+import com.dcp.core.sync.DatasetStore
+import com.dcp.core.sync.MissingDataset
+import com.dcp.core.sync.StoredDatasetSource
+import com.dcp.form.DatasetSource
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.StoredFormVersion
 import com.dcp.core.sync.SubmissionStore
@@ -58,6 +62,14 @@ data class HeldForm(
 class FormCatalog(
     private val forms: FormStore,
     private val submissions: SubmissionStore,
+    /**
+     * The reference data behind `select_one_from_file` (Form IR §3).
+     *
+     * Null on a build with no dataset store — the desktop review client — where
+     * a dataset-backed list resolves to nothing and [missingDatasetsForSubmission]
+     * says so, rather than a select rendering empty for no stated reason.
+     */
+    private val datasets: DatasetStore? = null,
 ) {
     private val mutex = Mutex()
     private val compiled = mutableMapOf<String, CompiledForm>()
@@ -119,6 +131,45 @@ class FormCatalog(
         } ?: return null
         return compiledForm(summary.formId, summary.formVersion)
     }
+
+    /**
+     * Where this submission's choice lists come from — the same binding, again.
+     *
+     * **The caller does not choose a version here either, and for the same
+     * reason.** A dataset key in the IR is a key, not a version (§3.2), and the
+     * version it means is the one the *form version* was published against. A
+     * source resolved any other way would serve last month's villages to this
+     * month's answers, which is [compiledFormForSubmission]'s failure with a
+     * village list instead of a question list.
+     *
+     * So this takes a submission id and nothing else, exactly as the form does,
+     * and there is no sibling that takes a form version.
+     */
+    suspend fun datasetSourceForSubmission(submissionId: String): DatasetSource? {
+        val store = datasets ?: return null
+        val id = formVersionIdForSubmission(submissionId) ?: return null
+        return StoredDatasetSource(store, id)
+    }
+
+    /**
+     * The lists this submission's form needs and this device cannot serve.
+     *
+     * Empty is the ordinary answer. A non-empty one is what turns "the select
+     * has no options" into a sentence somebody can act on — the reference data
+     * has not finished syncing — rather than a blank space an enumerator has to
+     * interpret (§3.2).
+     */
+    suspend fun missingDatasetsForSubmission(submissionId: String): List<MissingDataset> {
+        val store = datasets ?: return emptyList()
+        val id = formVersionIdForSubmission(submissionId) ?: return emptyList()
+        return withContext(Dispatchers.Default) { store.missingFor(id) }
+    }
+
+    private suspend fun formVersionIdForSubmission(submissionId: String): String? =
+        withContext(Dispatchers.Default) {
+            val summary = submissions.getSubmission(submissionId) ?: return@withContext null
+            forms.find(summary.formId, summary.formVersion)?.formVersionId
+        }
 
     /**
      * The compiled form for one exact version.

@@ -70,7 +70,6 @@ class AppGraph(
      * entitled to collect on a form nobody deployed to it.
      */
     val formStore: FormStore = FormStore(db)
-    val formCatalog: FormCatalog = FormCatalog(formStore, store)
 
     /**
      * The reference data behind `select_one_from_file` (Form IR §3, sync §5).
@@ -83,6 +82,8 @@ class AppGraph(
      * [DatasetStore].
      */
     val datasetStore: DatasetStore = DatasetStore(db)
+
+    val formCatalog: FormCatalog = FormCatalog(formStore, store, datasetStore)
 
     /**
      * Which server this device talks to, and the settings screen's subject.

@@ -498,14 +498,15 @@ Both are written up below.
    neither engine read `choices` at all: a `select_one` could hold "purple" and
    both engines called the form valid and finalisable, in production. Form IR
    §6.3/§6.4, error kind `choice`, nine vectors on both engines. See below
-4. **Datasets and `select_one_from_file` — five parts built, NOT done.** All
-   five parts are implemented and measured on a Pixel against a server, and the
-   cascade works end to end. Two measured defects stand between that and done —
-   a 56-second delta application and a 10x filter regression when two versions
-   are held (`docs/known-defects.md` 9 and 10) — and both are downstream of
-   defect 4, which is that nothing retires a form deployment. The state of it is
-   written out below, because it is the item a fresh session would otherwise
-   have to reconstruct
+4. **Datasets and `select_one_from_file` — DONE.** The acceptance is met: the
+   UCL form's cascading region → district → village works on a Pixel 6 Pro,
+   through the real collection screen, over 37,852 villages delivered from a
+   server on the LAN, and the answers came back to the server resolvable
+   through the form version's pins. Written up below. Two measured defects
+   remain open and neither blocks collection: a 56-second delta application and
+   a filter regression when two dataset versions are held
+   (`docs/known-defects.md` 9 and 10), both downstream of defect 4 — nothing
+   retires a form deployment
 5. Export: CSV, XLSX, Stata, SPSS — not started
 
 **Label interpolation (Form IR §7.1) — done.** Split out of nothing: it was the
@@ -895,6 +896,57 @@ through that interface and is not yet *met* by this implementation. An index on
 the selector columns is a change to that one class, with the engine, the vectors
 and every client untouched. Whether it has to happen is what the Pixel
 measurement decides, which is part 5's.
+
+### The acceptance, on the handset, through the screen
+
+The earlier run drove the *engine* from a debug activity. This one is an
+enumerator's thumb: `pm clear`, launch, New submission, and tap through.
+
+```
+  1/3  Mkoa *          Search ⁨26⁩ options    Mkoa wa Arusha, Mkoa wa Dar es Salaam, …
+  2/3  Wilaya *        (7 options, no search — under the threshold)
+       Wilaya ya Arusha DC, Wilaya ya Arusha Urban, …
+  3/3  Kijiji *        Search ⁨227⁩ options   narrowed from 37,852
+       typed "Nyamburi" -> Nyamburi Mpya, Nyamburi Kati, Nyamburi Kaskazini, …
+       chose Nyamburi Kati -> button became "Finalize" (§6.2's gate)
+```
+
+Then Sync, and on the server:
+
+```
+  set       region_id    "TZ01"
+  set       district_id  "D0001"
+  set       village      "V000023"
+  finalize
+
+  resolved through the form version's pins:
+    region_id    'TZ01'    -> Mkoa wa Arusha
+    district_id  'D0001'   -> Wilaya ya Arusha DC
+    village      'V000023' -> Nyamburi Kati
+```
+
+That last block is the whole item in four lines: a code collected on a phone,
+and the name it meant, recovered months later from the exact list version the
+form was published against.
+
+**What the screen needed, and what it cost.** Two things, and the second was
+found only by doing this:
+
+- `CollectionViewModel` resolved choices through `FormInstance.choices` instead
+  of reading `choices.items` — one line, and it is what let `dataset` join
+  `choiceSources` in the collectable registry and removed eight errors from the
+  UCL report
+- **its `FormInstance` had no `DatasetSource` at all.** Every JVM test passed —
+  they construct `QuestionUi` directly — and on the handset the region question
+  rendered its label, its hint, and nothing else. `FormCatalog` now hands out
+  the source the same way it hands out the form: `datasetSourceForSubmission`,
+  bound to the submission, with no sibling that takes a version (break 30's
+  rule, again, with a village list instead of a question list)
+
+A long list is searched rather than scrolled, above 20 options. Not a round
+number: a UCL district holds 227 villages and every other answer widget composes
+its options eagerly in a `Column`, which is right for the twenty-option lists a
+form is mostly made of and a visible pause at 227.
 
 ### The acceptance run, 2026-09-03
 
