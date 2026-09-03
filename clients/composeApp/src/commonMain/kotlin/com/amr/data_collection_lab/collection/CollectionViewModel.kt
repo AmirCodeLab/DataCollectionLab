@@ -647,7 +647,13 @@ class CollectionViewModel(
             fieldState.errors.firstOrNull()?.let { err ->
                 when (err.kind) {
                     "required" -> UiStrings.requiredAnswer(lang)
-                    else -> err.message.resolve(lang) ?: UiStrings.invalidAnswer(lang)
+                    // Rendered by the engine, not read off the node: a
+                    // constraint message may quote the threshold it is about
+                    // (§7.1), and "Minimum circumference for this part of the
+                    // plot is {0} cm" on screen would be worse than the number
+                    // being absent.
+                    else -> instance.renderedConstraintMessage(node.id, lang)
+                        ?: UiStrings.invalidAnswer(lang)
                 }
             }
         } else null
@@ -655,7 +661,13 @@ class CollectionViewModel(
         return QuestionUi(
             path = node.id,
             dataType = node.dataType,
-            label = node.label.resolve(lang) ?: node.id,
+            // Through the engine, so a label that inserts an answer shows the
+            // answer (§7.1) — and shows it isolated, so a Latin number inside
+            // Arabic text stays where it was written. `resolve` is the fallback
+            // for a language the engine has no string for.
+            label = instance.renderedLabel(node.id, lang)
+                ?: node.label.resolve(lang)
+                ?: node.id,
             hint = node.hint.resolve(lang),
             required = fieldState.required,
             readOnly = fieldState.readOnly,

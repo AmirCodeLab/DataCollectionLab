@@ -179,11 +179,12 @@ def test_the_ucl_form_names_what_it_needed_that_we_lack() -> None:
     # Imported with no companion files, so the missing-list errors are here
     # too — `test_xlsform_datasets.py` is where it is imported with them.
     codes = {d.code for d in result.diagnostics if d.severity == "error"}
+    # `output_in_label` is gone: §7.1 carries interpolation now, and the six
+    # UCL labels that inserted an answer are labels rather than errors.
     assert codes == {
         "companion_file_missing",
         "question_without_its_dataset",
         "unknown_reference",
-        "output_in_label",
         "nested_repeat_not_supported",
         "does_not_compile",
     }, f"the blockers changed: {sorted(codes)}"

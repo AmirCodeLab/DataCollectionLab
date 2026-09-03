@@ -1,0 +1,74 @@
+{
+  "id": "label-009",
+  "description": "Slots are shared across languages, so a translator may reorder them",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "reordered",
+    "version": 1,
+    "title": {
+      "en": "reordered"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en",
+      "sw"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "text",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "b",
+        "dataType": "text",
+        "label": {
+          "en": "B"
+        }
+      },
+      {
+        "type": "question",
+        "id": "both",
+        "dataType": "note",
+        "label": {
+          "en": "{0} then {1}",
+          "sw": "{1} kisha {0}"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "a"
+          },
+          {
+            "op": "ref",
+            "path": "b"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": "one",
+        "b": "two"
+      },
+      "expect": {
+        "renderedLabels": {
+          "both": {
+            "en": "⁨one⁩ then ⁨two⁩",
+            "sw": "⁨two⁩ kisha ⁨one⁩"
+          }
+        }
+      }
+    }
+  ]
+}

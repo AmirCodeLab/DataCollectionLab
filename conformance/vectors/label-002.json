@@ -1,0 +1,55 @@
+{
+  "id": "label-002",
+  "description": "An unanswered argument is the empty string, exactly as concat's nulls are",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "tagged",
+    "version": 1,
+    "title": {
+      "en": "tagged"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "tag",
+        "dataType": "integer",
+        "label": {
+          "en": "Tag"
+        }
+      },
+      {
+        "type": "question",
+        "id": "stems",
+        "dataType": "note",
+        "label": {
+          "en": "Stems of tree with tag number {0}"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "tag"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "renderedLabels": {
+          "stems": {
+            "en": "Stems of tree with tag number "
+          }
+        }
+      }
+    }
+  ]
+}

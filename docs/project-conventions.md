@@ -508,6 +508,34 @@ Both are written up below.
    have to reconstruct
 5. Export: CSV, XLSX, Stata, SPSS — not started
 
+**Label interpolation (Form IR §7.1) — done.** Split out of nothing: it was the
+`output_in_label` error class, which the UCL form hit six times and which had no
+rewrite for the case that mattered. `Minimum circumference for this part of the
+plot is ${size_constraint} cm` cannot be written statically because the
+threshold is computed, so "rewrite it" meant "delete the number".
+
+Counted before it was built, because that is what decides it: **7 of 22 distinct
+corpus forms, 47 cells, 49 references** — and 37 of those 49 point at a
+`calculate` or device metadata, values that do not exist until the form runs.
+
+Four decisions worth not re-making:
+
+- **`label` did not change type.** It is still `{lang: string}`; slots are
+  `{0}` and the expressions live beside it in `labelArgs`. Every renderer kept
+  compiling, and one that ignores the args shows `{0}` — visibly broken rather
+  than silently missing a number
+- **The isolates are the feature.** Every value is wrapped in U+2068/U+2069 by
+  the *engine*, so both engines emit the same string and one vector asserts the
+  codepoints by number. Break 55. Without them a Latin number inside Arabic text
+  gets dragged out of position — the page-indicator bug again
+- **Arguments are dependencies**, which gets the sensitivity refusal and the
+  unresolvable-reference check for free. Break 56 is the one that would have
+  shipped: dropping the edge leaves every rendered string correct, so the vector
+  asserts the edge and not the render
+- **Choice labels are excluded** and still report `output_in_label`. One corpus
+  form does it, and an option list whose wording changes as answers change is
+  confusing to read
+
 Item 0 was not in the original list and had to be: `FormCatalog` read one form
 out of the app's own resources, so "a form authored by someone other than us,
 collected on a real phone" was not a thing the system could do at all. The other

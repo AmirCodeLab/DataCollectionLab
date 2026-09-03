@@ -1750,6 +1750,225 @@ vector(
 )
 
 
+
+# --------------------------------------------------------------------------
+# Interpolated labels (§7.1)
+# --------------------------------------------------------------------------
+
+#: U+2068 / U+2069. Written as escapes here so the expectations below are
+#: readable *as codepoints* — the whole point of label-004 is that removing them
+#: fails, and a vector containing invisible characters nobody can see would be a
+#: poor way to prove it.
+FSI = "\u2068"
+PDI = "\u2069"
+
+
+def _tagged():
+    return form(
+        "tagged",
+        [
+            q("tag", "integer"),
+            q("stems", "note", label={"en": "Stems of tree with tag number {0}"},
+              labelArgs=[ref("tag")]),
+        ],
+    )
+
+
+vector(
+    "label-001",
+    "A slot is filled from the answer it names",
+    "7.1",
+    _tagged(),
+    [
+        {"set": {"tag": 42},
+         "expect": {"renderedLabels": {"stems": {
+             "en": f"Stems of tree with tag number {FSI}42{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-002",
+    "An unanswered argument is the empty string, exactly as concat's nulls are",
+    "7.1",
+    _tagged(),
+    [
+        # Not a placeholder. Which glyph a gap should show is a translation
+        # decision, and `coalesce` is what an author reaches for — see label-003.
+        {"expect": {"renderedLabels": {"stems": {
+            "en": "Stems of tree with tag number "}}}},
+    ],
+)
+
+vector(
+    "label-003",
+    "coalesce is how an author chooses the placeholder the IR will not choose",
+    "7.1",
+    form("placeheld", [
+        q("tag", "integer"),
+        q("stems", "note",
+          label={"en": "Tag {0}"},
+          labelArgs=[call("coalesce", call("str", ref("tag")), lit("—"))]),
+    ]),
+    [
+        {"expect": {"renderedLabels": {"stems": {"en": f"Tag {FSI}—{PDI}"}}}},
+        {"set": {"tag": 7},
+         "expect": {"renderedLabels": {"stems": {"en": f"Tag {FSI}7{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-004",
+    "Every interpolated value is isolated — U+2068 and U+2069, by number",
+    "7.1",
+    form(
+        "bidi",
+        [
+            q("radius", "decimal"),
+            q("note_ar", "note", label={
+                # Arabic, with a Latin-digit number inserted. Without the
+                # isolates the bidirectional algorithm resolves the digit run
+                # against the surrounding paragraph and can move it — the same
+                # bug that rendered a page indicator "5 / 25" as "25 / 5".
+                "ar": "الشعاع {0} م",
+                "en": "The radius is {0} m",
+            }, labelArgs=[ref("radius")]),
+        ],
+        languages=["ar", "en"],
+        defaultLanguage="ar",
+    ),
+    [
+        {"set": {"radius": 15.5},
+         "expect": {"renderedLabels": {"note_ar": {
+             "ar": f"الشعاع {FSI}15.5{PDI} م",
+             "en": f"The radius is {FSI}15.5{PDI} m",
+         }}}},
+        # An empty value is NOT wrapped: an isolate protects a run of text and
+        # there is no run. Asserted so the rule is a rule rather than a habit.
+        {"set": {"radius": None},
+         "expect": {"renderedLabels": {"note_ar": {"ar": "الشعاع  م"}}}},
+    ],
+)
+
+vector(
+    "label-005",
+    "A label re-renders when what it reads changes — the dependency, not the render",
+    "7.1",
+    _tagged(),
+    [
+        {"set": {"tag": 41},
+         "expect": {"renderedLabels": {"stems": {
+             "en": f"Stems of tree with tag number {FSI}41{PDI}"}}}},
+        # The case that would ship, and `dependsOn` is asserted rather than
+        # inferred because **the render alone does not catch it**: both engines
+        # render a label on demand, so dropping the edge leaves every rendered
+        # string correct. What breaks is everything downstream of the edge — the
+        # sensitivity refusal reads `depends_on`, `_check_references` catches an
+        # unresolvable label reference through it, and a client that re-renders
+        # on dependency change stops re-rendering. Watched: removing the edge
+        # fails this vector and nothing else.
+        {"set": {"tag": 42},
+         "expect": {
+             "renderedLabels": {"stems": {
+                 "en": f"Stems of tree with tag number {FSI}42{PDI}"}},
+             "dependsOn": {"stems": ["tag"]},
+         }},
+    ],
+)
+
+vector(
+    "label-006",
+    "A constraint message quotes the threshold it is about — the UCL case",
+    "7.1",
+    form("threshold", [
+        q("distance", "decimal"),
+        q("minimum", "integer",
+          calculate=op("if", op("gt", ref("distance"), lit(5)), lit(15), lit(6))),
+        q("cbh", "integer",
+          constraint=op("gte", ref("cbh"), ref("minimum")),
+          constraintMessage={
+              "en": "Minimum circumference for this part of the plot is {0} cm."},
+          constraintMessageArgs=[ref("minimum")]),
+    ]),
+    [
+        # Without interpolation this sentence reads "…is cm.", and there is no
+        # rewrite: the threshold is computed, so it cannot be written in.
+        {"set": {"distance": 9.0, "cbh": 10},
+         "expect": {
+             "valid": {"cbh": False},
+             "errors": {"cbh": ["constraint"]},
+             "renderedMessages": {"cbh": {
+                 "en": f"Minimum circumference for this part of the plot is {FSI}15{PDI} cm."}},
+         }},
+        {"set": {"distance": 1.0},
+         "expect": {"renderedMessages": {"cbh": {
+             "en": f"Minimum circumference for this part of the plot is {FSI}6{PDI} cm."}}}},
+    ],
+)
+
+vector(
+    "label-007",
+    "A decimal renders as str() renders it — 800 and not 800.0",
+    "7.1",
+    form("rendering", [
+        q("n", "decimal"),
+        q("shown", "note", label={"en": "n is {0}"}, labelArgs=[ref("n")]),
+    ]),
+    [
+        {"set": {"n": 800.0},
+         "expect": {"renderedLabels": {"shown": {"en": f"n is {FSI}800{PDI}"}}}},
+        {"set": {"n": 800.5},
+         "expect": {"renderedLabels": {"shown": {"en": f"n is {FSI}800.5{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-008",
+    "Braces are escapable, and a template with no arguments is untouched",
+    "7.1",
+    form("braces", [
+        q("a", "text"),
+        q("escaped", "note", label={"en": "{{0}} is a literal, {0} is not"},
+          labelArgs=[ref("a")]),
+        # No labelArgs at all: a document that predates §7.1 is substituted not
+        # at all, so an old label containing {0} keeps reading {0}.
+        q("untouched", "note", label={"en": "{0} stays {0}"}),
+    ]),
+    [
+        {"set": {"a": "x"},
+         "expect": {"renderedLabels": {
+             "escaped": {"en": f"{{0}} is a literal, {FSI}x{PDI} is not"},
+             "untouched": {"en": "{0} stays {0}"},
+         }}},
+    ],
+)
+
+vector(
+    "label-009",
+    "Slots are shared across languages, so a translator may reorder them",
+    "7.1",
+    form(
+        "reordered",
+        [
+            q("a", "text"),
+            q("b", "text"),
+            q("both", "note", label={
+                "en": "{0} then {1}",
+                # The same two arguments, the other way round.
+                "sw": "{1} kisha {0}",
+            }, labelArgs=[ref("a"), ref("b")]),
+        ],
+        languages=["en", "sw"],
+    ),
+    [
+        {"set": {"a": "one", "b": "two"},
+         "expect": {"renderedLabels": {"both": {
+             "en": f"{FSI}one{PDI} then {FSI}two{PDI}",
+             "sw": f"{FSI}two{PDI} kisha {FSI}one{PDI}",
+         }}}},
+    ],
+)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for existing in OUT.glob("*.json"):

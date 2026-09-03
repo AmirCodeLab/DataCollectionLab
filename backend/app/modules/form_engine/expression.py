@@ -600,6 +600,15 @@ def _cast_dec(ctx: EvalContext, args: list[Any]) -> Any:
     return _as_number(args[0])
 
 
+def cast_str(ctx: EvalContext, args: list[Any]) -> Any:
+    """`str()` (§4.3.1), public because §7.1 renders interpolated values with it.
+
+    One implementation, so a value shown in a label is spelled exactly as the
+    same value compared in an expression — `800` and not `800.0`.
+    """
+    return _cast_str(ctx, args)
+
+
 def _cast_str(ctx: EvalContext, args: list[Any]) -> Any:
     if _is_null(args[0]):
         return None

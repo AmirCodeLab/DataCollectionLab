@@ -10,6 +10,22 @@ package com.dcp.form
 
 private val ID_PATTERN = Regex("^[a-z][a-z0-9_]*$")
 
+/** `${'$'}row.` — assembled so Kotlin does not read it as a template. */
+private val ROW_REF_PREFIX = "" + '$' + "row."
+
+/**
+ * Every `ref` path in an expression, including the `${'$'}row.` ones.
+ *
+ * `collectRefs` deliberately drops those — they are columns, not fields — so a
+ * check *about* them needs its own walk.
+ */
+private fun refPaths(expr: Expr): Set<String> = when (expr) {
+    is Expr.Ref -> setOf(expr.path)
+    is Expr.Op -> expr.args.flatMap { refPaths(it) }.toSet()
+    is Expr.Call -> expr.args.flatMap { refPaths(it) }.toSet()
+    else -> emptySet()
+}
+
 data class FieldError(
     val kind: String,
     val message: Map<String, String>? = null,
@@ -70,6 +86,7 @@ class CompiledForm(val ir: FormIr) {
         checkIrVersion(ir.irVersion)
 
         compile()
+        checkInterpolation()
         checkReferences()
         topoOrder = topologicalOrder()
         lint()
@@ -131,6 +148,19 @@ class CompiledForm(val ir: FormIr) {
                 if (expr != null) collectRefs(expr, deps)
             }
 
+            // Interpolated labels are dependencies too (§7.1). A label reading
+            // `{0}` from `tag` must re-render when `tag` changes, and a runtime
+            // that did not record it would leave "tag number 41" on screen after
+            // the answer became 42 — correct on every static check and wrong the
+            // moment anybody types.
+            //
+            // It also gets the sensitivity rule for nothing: the propagation
+            // check reads `dependsOn`, so a label interpolating a sensitive
+            // field is refused at publish by a check that already exists
+            // (encryption envelope §5.2).
+            question.labelArgs?.forEach { collectRefs(it, deps) }
+            question.constraintMessageArgs?.forEach { collectRefs(it, deps) }
+
             // a field inherits relevance from every enclosing container
             for (anc in ancestors) {
                 containers[anc]?.relevant?.let { collectRefs(it, deps) }
@@ -159,6 +189,51 @@ class CompiledForm(val ir: FormIr) {
                 choiceQuery = query,
             )
             order.add(node.id)
+        }
+    }
+
+    /**
+     * Slots and arguments agree, and no argument reads a row (§7.1).
+     *
+     * Both are static properties of the document, so they are compile errors
+     * rather than something a renderer discovers. `{5}` with three arguments
+     * would otherwise be an empty gap in a sentence nobody could explain.
+     */
+    private fun checkInterpolation() {
+        for ((fieldId, compiled) in fields) {
+            val pairs = listOf(
+                Triple("label", compiled.node.label, compiled.node.labelArgs),
+                Triple(
+                    "constraintMessage",
+                    compiled.node.constraintMessage,
+                    compiled.node.constraintMessageArgs,
+                ),
+            )
+            for ((key, strings, args) in pairs) {
+                if (args.isNullOrEmpty()) continue
+                strings?.forEach { (language, template) ->
+                    val missing = Interpolation.slotIndices(template)
+                        .filter { it >= args.size }
+                        .minOrNull()
+                    if (missing != null) {
+                        throw CompileException(
+                            "$fieldId: $key[$language] uses slot {$missing} and " +
+                                "${key}Args has ${args.size} argument(s)"
+                        )
+                    }
+                }
+                for (expr in args) {
+                    val row = refPaths(expr).firstOrNull { path ->
+                        path.startsWith(ROW_REF_PREFIX)
+                    }
+                    if (row != null) {
+                        throw CompileException(
+                            "$fieldId: ${key}Args reads '$row'. A label has no " +
+                                "candidate row (§7.1)."
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -400,6 +475,49 @@ class FormInstance(
         // client's form-version binding covers both (§3.2).
         datasets = datasets,
     )
+
+    // -- interpolated text (§7.1) ------------------------------------------
+
+    /**
+     * This field's label in one language, with its slots filled.
+     *
+     * Rendered on demand rather than stored on [FieldState]: a form has as many
+     * labels as it has languages, and computing every one of them on every
+     * recalculation would be work nobody asked for. A client asks for the
+     * language it is showing.
+     */
+    fun renderedLabel(fieldId: String, language: String): String? =
+        render(fieldId, language) { it.label to it.labelArgs }
+
+    /**
+     * The message a failed constraint shows, with its slots filled.
+     *
+     * The case that made §7.1 worth building: "Minimum circumference for this
+     * part of the plot is {0} cm", where the threshold is itself computed and
+     * so cannot be written into the sentence.
+     */
+    fun renderedConstraintMessage(fieldId: String, language: String): String? =
+        render(fieldId, language) { it.constraintMessage to it.constraintMessageArgs }
+
+    private fun render(
+        fieldId: String,
+        language: String,
+        pick: (QuestionNode) -> Pair<Map<String, String>?, List<Expr>?>,
+    ): String? {
+        val compiled = form.fields[fieldId] ?: return null
+        val (strings, args) = pick(compiled.node)
+        val template = strings?.get(language) ?: return null
+        if (args.isNullOrEmpty()) return template
+
+        val ctx = context(scopeOf(fieldId))
+        val values = args.map { expr ->
+            // `str()` of null is null (§4.3.1); in text that is the empty
+            // string, the same rule `concat` has and for the same reason.
+            val rendered = Functions.call("str", listOf(Evaluator.evaluate(expr, ctx)), ctx)
+            (rendered as? FormValue.Text)?.value ?: ""
+        }
+        return Interpolation.render(template, values)
+    }
 
     // -- dataset-backed choice lists (§3.2) --------------------------------
 

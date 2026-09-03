@@ -1,0 +1,73 @@
+{
+  "id": "label-004",
+  "description": "Every interpolated value is isolated — U+2068 and U+2069, by number",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "bidi",
+    "version": 1,
+    "title": {
+      "en": "bidi"
+    },
+    "defaultLanguage": "ar",
+    "languages": [
+      "ar",
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "radius",
+        "dataType": "decimal",
+        "label": {
+          "en": "Radius"
+        }
+      },
+      {
+        "type": "question",
+        "id": "note_ar",
+        "dataType": "note",
+        "label": {
+          "ar": "الشعاع {0} م",
+          "en": "The radius is {0} m"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "radius"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "radius": 15.5
+      },
+      "expect": {
+        "renderedLabels": {
+          "note_ar": {
+            "ar": "الشعاع ⁨15.5⁩ م",
+            "en": "The radius is ⁨15.5⁩ m"
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "radius": null
+      },
+      "expect": {
+        "renderedLabels": {
+          "note_ar": {
+            "ar": "الشعاع  م"
+          }
+        }
+      }
+    }
+  ]
+}

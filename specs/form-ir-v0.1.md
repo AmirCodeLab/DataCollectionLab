@@ -828,6 +828,119 @@ closed by this section.
 
 Missing translations fall back to `defaultLanguage`. The compiler emits a warning, not an error, for missing translations.
 
+### 7.1 Interpolation
+
+A `label` or `constraintMessage` may carry **positional slots** filled from
+expressions, so a form can say what it computed:
+
+```json
+{
+  "type": "question", "id": "note3", "dataType": "note",
+  "label": {
+    "en": "The corrected full plot radius is {0} m, the inner {1} m.",
+    "sw": "Radius ya kupima ya plot kubwa ni {0} m, ndogo {1} m."
+  },
+  "labelArgs": [
+    { "op": "ref", "path": "slope_radius" },
+    { "op": "ref", "path": "slope_radius_inner" }
+  ]
+}
+```
+
+`constraintMessage` takes `constraintMessageArgs` the same way.
+
+**`label` does not change type.** It is `{lang: string}` as it always was; the
+slots are `{0}`, `{1}`, … in the string, `{{` is a literal `{`, and a document
+with no `…Args` is substituted not at all. That keeps every existing renderer
+compiling, and it keeps the failure mode of a renderer that ignores the args
+*visible* — a label reading `{0}` is obviously broken, where a label quietly
+missing its number is not.
+
+Slots are shared across languages: argument *n* is the same expression in every
+translation, so a translator may reorder them freely. `{5}` with three arguments
+is a compile error (§10.2), not an empty string.
+
+This is **not** an optional capability. Unlike a widget for a dataType, filling
+a slot needs no affordance a client might lack — anything that can render a
+string can do it — so a client that does not is simply wrong, and there is
+nothing for a registry to gate.
+
+Choice labels are excluded. A `choices.items[].label` is plain text with no
+slots and no arguments: an option list whose wording changes as answers change
+is confusing to read, and the corpus has exactly one form that does it. The
+XLSForm importer keeps reporting `output_in_label` there.
+
+#### What is interpolated
+
+Any expression valid in the field's scope, except `$row` — a label has no
+candidate row, and one is a compile error. Values render exactly as `str()`
+renders them (§4.3.1), so an integer-valued decimal is `800` and not `800.0`.
+
+#### Null is the empty string
+
+The same rule `concat` already has (§4.3), and for the same reason: this is
+text built from parts that may be missing. So a label reads `"Radius is  m"`
+until its input is answered.
+
+The IR does **not** substitute a placeholder. Whether the gap should read `—`
+or `...` or nothing is a translation decision, and an author who wants one
+writes `coalesce(${slope_radius}, "—")` — which is what `coalesce` is for, and
+is the reason arguments are expressions rather than bare references.
+
+#### Every value is isolated (bidi)
+
+> An engine MUST wrap each non-empty interpolated value in
+> **U+2068 FIRST STRONG ISOLATE** and **U+2069 POP DIRECTIONAL ISOLATE**.
+
+Not a rendering hint and not the client's business — the engine emits the
+codepoints, both engines emit the same string, and
+`conformance/vectors/label-004` asserts them by number so that removing them
+fails rather than merely looking different.
+
+The reason is the reason RTL is a rule in this project rather than a
+preference. A run of Latin digits inside Arabic text is directionally neutral at
+its edges, so the Unicode bidirectional algorithm resolves it against the
+surrounding paragraph and can drag it out of position: `الشعاع 15 م` renders
+with the number in the wrong place, and a two-number string reorders outright.
+That is exactly the bug that produced `25 / 5` for a page indicator reading
+`5 / 25`. An isolate makes the inserted run opaque to the paragraph's
+resolution, which is the only fix that works for *every* value rather than the
+ones somebody tested.
+
+An empty value is not wrapped: an isolate exists to protect a run of text and
+there is no run.
+
+#### Arguments are dependencies
+
+`labelArgs` and `constraintMessageArgs` participate in the dependency graph
+(§5.1) exactly as `relevant` and `calculate` do. A label that reads `${tag}`
+depends on `tag`, and a runtime that did not record that would leave `tag
+number 41` on screen after the answer became 42 — correct on every static
+check and wrong the moment anybody types.
+
+It follows that a reference to a name nothing answers is a **compile error**
+(§4.2), where today it is a label that silently reads `${plot_id}` to a
+respondent.
+
+#### Sensitivity: refused, and this is precaution
+
+A label interpolating a `sensitive` field is refused at publish by the same
+propagation rule as a calculation (encryption envelope §5.2). It comes free —
+the arguments are in `depends_on`, and that is what the check reads.
+
+**Being exact about why: this is not a live disclosure.** A rendered label is
+never stored, never synced and never encrypted; it exists on a screen for as
+long as the question is on it, and the value it shows is one the enumerator can
+already see in the field it came from. The refusal is precaution.
+
+The condition that would change it, written down so the next person meets a
+decision rather than an oddity: **any feature that logs, exports or caches a
+rendered label** — a crash report carrying the visible screen, an export that
+includes question text, a client that persists rendered strings for offline
+display. Any of those turns this from precaution into a leak, and at that point
+the refusal is load-bearing and must not be relaxed. Until then it is cheap,
+and a refusal that costs nothing is not worth removing for tidiness.
+
 ## 8. Metadata
 
 Automatically captured, addressable under `_metadata`:

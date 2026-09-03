@@ -93,6 +93,35 @@ def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int
             f"{where}: instanceCount[{repeat_id}] expected {want}, got {got}"
         )
 
+    # --- interpolated text (§7.1) -----------------------------------------
+
+    for path, want_by_language in expect.get("renderedLabels", {}).items():
+        for language, want_text in want_by_language.items():
+            got_text = instance.rendered_label(path, language)
+            assert got_text == want_text, (
+                f"{where}: renderedLabels[{path}][{language}]\n"
+                f"  expected {want_text!r}\n"
+                f"  got      {got_text!r}"
+            )
+
+    for path, want_by_language in expect.get("renderedMessages", {}).items():
+        for language, want_text in want_by_language.items():
+            got_text = instance.rendered_constraint_message(path, language)
+            assert got_text == want_text, (
+                f"{where}: renderedMessages[{path}][{language}]\n"
+                f"  expected {want_text!r}\n"
+                f"  got      {got_text!r}"
+            )
+
+    for path, want_deps in expect.get("dependsOn", {}).items():
+        # Asserted directly, not inferred from a re-render. A label that
+        # happened to be recomputed for another reason would pass a render
+        # check; this is the edge itself.
+        got_deps = sorted(instance.form.fields[path].depends_on)
+        assert got_deps == sorted(want_deps), (
+            f"{where}: dependsOn[{path}] expected {sorted(want_deps)}, got {got_deps}"
+        )
+
     # --- dataset-backed choice lists (§3.2) -------------------------------
     #
     # Three assertions and not one, deliberately. `choices` alone would pass on

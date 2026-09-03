@@ -201,6 +201,39 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
             assertEquals(want.jsonPrimitive.content.toInt(), got, "$where: instanceCount[$repeatId]")
         }
 
+        // --- interpolated text (§7.1) -------------------------------------
+
+        expect["renderedLabels"]?.jsonObject?.forEach { (path, want) ->
+            want.jsonObject.forEach { (language, wantText) ->
+                assertEquals(
+                    wantText.jsonPrimitive.content,
+                    instance.renderedLabel(path, language),
+                    "$where: renderedLabels[$path][$language]",
+                )
+            }
+        }
+
+        expect["renderedMessages"]?.jsonObject?.forEach { (path, want) ->
+            want.jsonObject.forEach { (language, wantText) ->
+                assertEquals(
+                    wantText.jsonPrimitive.content,
+                    instance.renderedConstraintMessage(path, language),
+                    "$where: renderedMessages[$path][$language]",
+                )
+            }
+        }
+
+        expect["dependsOn"]?.jsonObject?.forEach { (path, want) ->
+            // Asserted directly, not inferred from a re-render. A label that
+            // happened to be recomputed for another reason would pass a render
+            // check; this is the edge itself.
+            assertEquals(
+                want.jsonArray.map { it.jsonPrimitive.content }.sorted(),
+                instance.form.fields.getValue(path).dependsOn.sorted(),
+                "$where: dependsOn[$path]",
+            )
+        }
+
         // --- dataset-backed choice lists (§3.2) ---------------------------
         //
         // Three assertions and not one, deliberately. `choices` alone would

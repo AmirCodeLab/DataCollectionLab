@@ -567,10 +567,12 @@ def test_what_still_blocks_the_ucl_form_is_no_longer_about_functions(
     which no count could see because the importer reports the first function it
     cannot translate per cell and `atan` is the innermost.
 
-    What is left is two things, neither of them dataset work and neither of them
-    a function: `${...}` inserted into six labels and constraint messages (§7
-    carries plain text, and whether it should is a spec question), and a repeat
-    inside a repeat (§2.3 defers nested repeats to IR v0.2).
+    `${...}` in six labels and constraint messages was next, and is gone too:
+    §7.1 carries interpolation now, so those six are labels rather than errors.
+
+    What is left is a repeat inside a repeat (§2.3 defers nested repeats to IR
+    v0.2), and the dataset-backed selects that no client can present yet.
+    Neither is a function and neither is an afternoon.
     """
     result = import_workbook(UCL.read_bytes(), companions=ucl_companions)
 
@@ -584,5 +586,4 @@ def test_what_still_blocks_the_ucl_form_is_no_longer_about_functions(
         "choice_source_not_collectable",
         "does_not_compile",
         "nested_repeat_not_supported",
-        "output_in_label",
     ], f"the blockers changed: {codes}"

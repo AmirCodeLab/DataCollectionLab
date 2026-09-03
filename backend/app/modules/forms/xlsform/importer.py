@@ -20,6 +20,7 @@ uses that column. See `test_xlsform_coverage.py`.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -318,6 +319,10 @@ class _Importer:
         #: Node id -> the survey row it came from, for diagnostics that only
         #: know a node.
         self.node_rows: dict[str, int] = {}
+        #: Interpolated labels, so an unresolvable `${name}` is reported against
+        #: **the label's own cell** rather than the question's type cell. An
+        #: author with the file open is looking at the sentence, not the row.
+        self.label_arg_cells: list[tuple[str, str, CellRef, str, list[str]]] = []
 
     # -- settings ------------------------------------------------------------
 
@@ -532,9 +537,11 @@ class _Importer:
 
         node: dict[str, Any] = {"type": kind, "id": name, "children": []}
         self.node_rows[name] = row.number
-        labels = self._labels(row, node_id=name)
+        labels, label_args = self._labels(row, node_id=name)
         if labels:
             node["label"] = labels
+        if label_args:
+            node["labelArgs"] = label_args
 
         # A group or repeat carries `relevant` too (§2.2, §2.3), and the engine
         # reads it for the whole subtree — relevance is inherited. This ran only
@@ -645,12 +652,26 @@ class _Importer:
 
         node: dict[str, Any] = {"type": "question", "id": name, "dataType": data_type}
 
-        labels = self._labels(row, node_id=name)
+        labels, label_args = self._labels(row, node_id=name)
         if labels:
             node["label"] = labels
-        hints = self._labels(row, node_id=name, base="hint")
+        if label_args:
+            node["labelArgs"] = label_args
+        # A hint carries no arguments: §7.1 gives slots to `label` and
+        # `constraintMessage` only, and the corpus has no hint that inserts one.
+        hints, hint_args = self._labels(row, node_id=name, base="hint")
         if hints:
             node["hint"] = hints
+        if hint_args:
+            self.log.warning(
+                "output_in_hint",
+                "This hint inserts an answer. Form IR §7.1 gives slots to labels "
+                "and constraint messages; a hint carries plain text, so the "
+                "insert was left as written.",
+                ref=row.ref("hint"),
+                node_id=name,
+            )
+            node["hint"] = {k: _from_slots(v, hint_args) for k, v in hints.items()}
 
         if choice_ref is not None and choice_ref[0] == "inline":
             choice_list = choice_ref[1]
@@ -1163,8 +1184,19 @@ class _Importer:
         )
         return None, None
 
-    def _labels(self, row: Row, node_id: str | None, base: str = "label") -> dict[str, str]:
+    def _labels(
+        self, row: Row, node_id: str | None, base: str = "label"
+    ) -> tuple[dict[str, str], list[dict[str, Any]]]:
+        """One text column across its languages, and the arguments it inserts.
+
+        `${slope_radius}` becomes a `{0}` slot and an expression (Form IR §7.1).
+        Slots are numbered from a list shared by every language, in order of
+        first appearance across the languages sorted by name — so a translator
+        who reorders the inserts still gets the right values, and two runs of
+        this importer over the same workbook produce the same numbering.
+        """
         found: dict[str, str] = {}
+        sources: dict[str, tuple[str, CellRef]] = {}
         for column, cell in row.cells.items():
             column_base, language = _language_of(column)
             if column_base != base:
@@ -1173,22 +1205,27 @@ class _Importer:
             key = language or self.default_language or "en"
             if language:
                 self.languages.add(language)
-            text = cell.value
-            outputs = substitutions(text)
-            if outputs:
-                inserted = ", ".join("${" + o + "}" for o in outputs)
-                self.log.error(
-                    "output_in_label",
-                    f"This {base} inserts the answer to {inserted}. "
-                    "The Form IR carries plain text (§7), so a respondent would see "
-                    "the ${...} literally.",
-                    ref=cell.ref,
-                    cell_value=text,
-                    node_id=node_id,
-                    remedy="Rewrite the text without the ${...} insert.",
-                )
-            found[key] = text
-        return found
+            sources[key] = (cell.value, cell.ref)
+
+        # One argument list per node, so the order has to be decided across all
+        # the languages at once rather than per column.
+        order: list[str] = []
+        for key in sorted(sources):
+            for name in substitutions(sources[key][0]):
+                if name not in order:
+                    order.append(name)
+
+        for key, (text, ref) in sources.items():
+            found[key] = _to_slots(text, order) if order else text
+            if order:
+                # `node_id or ""` rather than a nullable: a label with slots is
+                # always attached to a named node by the time it is registered,
+                # and a nullable here would push the None three frames away to
+                # the report.
+                self.label_arg_cells.append((node_id or "", base, ref, text, order))
+
+        args = [{"op": "ref", "path": name} for name in order]
+        return found, args
 
     def _expressions(self, row: Row, node: dict[str, Any], name: str) -> None:
         # (column, IR key, severity when it will not translate)
@@ -1242,9 +1279,11 @@ class _Importer:
             ("constraint_message", "constraintMessage"),
             ("bind:jr:constraintmsg", "constraintMessage"),
         ):
-            messages = self._labels(row, node_id=name, base=column)
+            messages, message_args = self._labels(row, node_id=name, base=column)
             if messages:
                 node[key] = messages
+            if message_args:
+                node[key + "Args"] = message_args
 
     def _default(self, row: Row, node: dict[str, Any], name: str) -> None:
         cell = row.cells.get("default")
@@ -1408,6 +1447,35 @@ class _Importer:
                 )
 
 
+def _walk_nodes(nodes: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for node in nodes:
+        yield node
+        yield from _walk_nodes(node.get("children", []) or [])
+
+
+def _to_slots(text: str, order: list[str]) -> str:
+    """`${slope_radius}` -> `{0}`, and existing braces escaped (§7.1).
+
+    The escaping matters and is easy to skip: a label that already contains a
+    brace would otherwise gain a slot it never asked for.
+    """
+    escaped = text.replace("{", "{{").replace("}", "}}")
+    for index, name in enumerate(order):
+        for spelling in ("${" + name + "}", "${ " + name + " }"):
+            escaped = escaped.replace(
+                spelling.replace("{", "{{").replace("}", "}}"), "{" + str(index) + "}"
+            )
+    return escaped
+
+
+def _from_slots(text: str, args: list[dict[str, Any]]) -> str:
+    """Put `${name}` back, for text §7.1 does not give slots to."""
+    out = text
+    for index, arg in enumerate(args):
+        out = out.replace("{" + str(index) + "}", "${" + str(arg["path"]) + "}")
+    return out.replace("{{", "{").replace("}}", "}")
+
+
 def _is_platform(importer: _Importer, missing: list[str]) -> bool:
     """True when every dropped target went because *we* cannot do something."""
     keys = [importer.dropped_questions.get(m) for m in missing]
@@ -1535,6 +1603,60 @@ def import_workbook(
                 if cascade
                 else "Check the spelling, or the order of the questions.",
             )
+
+    # A label inserting a name nothing answers (§7.1).
+    #
+    # Reported against the LABEL's cell, not the question's type cell: an author
+    # with the workbook open is looking at the sentence they wrote, and "row 28,
+    # column label::english (en)" is where the mistake is. Silent before §7.1 —
+    # the text simply reached a respondent reading `${plot_id}`.
+    #
+    # The arguments are dropped and the original `${...}` text restored, so the
+    # IR stays compilable and the report is the only thing that changes. A form
+    # left with a dangling slot would fail to compile and bury this under a
+    # second error about something the author did not write.
+    for owner_id, base, ref_cell, source, order in importer.label_arg_cells:
+        missing_names = sorted(
+            name for name in order
+            if name.split(".")[0] not in known and not name.startswith("_")
+        )
+        if not missing_names:
+            continue
+        target = next(
+            (n for n in _walk_nodes(children) if n.get("id") == owner_id), None
+        )
+        if target is not None:
+            args_key = "labelArgs" if base == "label" else "constraintMessageArgs"
+            text_key = "label" if base == "label" else "constraintMessage"
+            target.pop(args_key, None)
+            if isinstance(target.get(text_key), dict):
+                target[text_key] = {
+                    language: _from_slots(text, [{"path": n} for n in order])
+                    for language, text in target[text_key].items()
+                }
+        cause = {
+            importer.dropped_questions[m]
+            for m in missing_names
+            if m in importer.dropped_questions
+        }
+        importer.log.error(
+            "unknown_reference_in_label",
+            f"This {base} inserts the answer to "
+            + ", ".join(f"`${{{m}}}`" for m in missing_names)
+            + (
+                ", which was not imported (see above), so the insert was left as "
+                "written."
+                if cause
+                else ", which no question in this form answers, so a respondent "
+                "would read it literally."
+            ),
+            ref=ref_cell,
+            cell_value=source,
+            node_id=owner_id or None,
+            caused_by=sorted(cause)[0] if len(cause) == 1 else None,
+            blame="platform" if cause else "author",
+            remedy=None if cause else "Check the spelling, or the order of the questions.",
+        )
 
     # A file supplied that nothing asked for. Almost always a filename typo on
     # one side or the other, and the symptom without this is a question whose

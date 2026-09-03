@@ -1,0 +1,69 @@
+{
+  "id": "label-008",
+  "description": "Braces are escapable, and a template with no arguments is untouched",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "braces",
+    "version": 1,
+    "title": {
+      "en": "braces"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "text",
+        "label": {
+          "en": "A"
+        }
+      },
+      {
+        "type": "question",
+        "id": "escaped",
+        "dataType": "note",
+        "label": {
+          "en": "{{0}} is a literal, {0} is not"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "a"
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "untouched",
+        "dataType": "note",
+        "label": {
+          "en": "{0} stays {0}"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "a": "x"
+      },
+      "expect": {
+        "renderedLabels": {
+          "escaped": {
+            "en": "{0} is a literal, ⁨x⁩ is not"
+          },
+          "untouched": {
+            "en": "{0} stays {0}"
+          }
+        }
+      }
+    }
+  ]
+}

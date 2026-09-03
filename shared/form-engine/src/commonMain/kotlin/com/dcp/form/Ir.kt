@@ -138,6 +138,17 @@ data class QuestionNode(
     val appearance: String? = null,
     val severity: String? = null,
     val choices: Choices? = null,
+    /**
+     * Expressions filling this label's `{n}` slots (§7.1).
+     *
+     * Beside `label` rather than inside it, so `label` stays
+     * `Map<String, String>` and every renderer that predates §7.1 keeps
+     * compiling. Slots are shared across languages, so a translator may reorder
+     * them.
+     */
+    val labelArgs: List<@Serializable(ExprSerializer::class) Expr>? = null,
+    /** The same, for `constraintMessage` — see §7.1. */
+    val constraintMessageArgs: List<@Serializable(ExprSerializer::class) Expr>? = null,
 ) : FormNode
 
 @Serializable

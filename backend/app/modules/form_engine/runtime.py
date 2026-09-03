@@ -18,10 +18,12 @@ from .document import check_document
 from .expression import (
     CompileError,
     EvalContext,
+    cast_str,
     coerce_boolean,
     collect_refs,
     evaluate,
 )
+from .text import render_field_text, slot_indices
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -133,6 +135,22 @@ class CompiledForm:
                 if isinstance(expr, dict):
                     collect_refs(expr, deps)
 
+            # Interpolated labels are dependencies too (§7.1), and the edge is
+            # load-bearing in three places rather than one. A client re-renders
+            # on it; `_check_references` turns a label reading a name nothing
+            # answers into a compile error through it; and
+            # `check_sensitivity_propagation` reads `depends_on`, so a label
+            # interpolating a sensitive field is refused at publish by a check
+            # that already exists (envelope §5.2).
+            #
+            # Dropping it leaves every rendered string correct — both engines
+            # render on demand — so `conformance/vectors/label-005` asserts the
+            # edge itself rather than a render.
+            for args_key in ("labelArgs", "constraintMessageArgs"):
+                for expression in node.get(args_key) or []:
+                    if isinstance(expression, dict):
+                        collect_refs(expression, deps)
+
             for anc in ancestors:
                 anc_node = self.containers.get(anc)
                 if anc_node and isinstance(anc_node.get("relevant"), dict):
@@ -164,9 +182,44 @@ class CompiledForm:
             )
             self.order.append(node_id)
 
+        self._check_interpolation()
         self._check_references()
         self.topo_order = self._topological_order()
         self._lint()
+
+    def _check_interpolation(self) -> None:
+        """Slots and arguments agree, and no argument reads a row (§7.1).
+
+        Both are static properties of the document, so they are compile errors
+        rather than something a renderer discovers. `{5}` with three arguments
+        would otherwise be an empty gap in a sentence nobody could explain.
+        """
+        for field_id, compiled in self.fields.items():
+            for key, args_key in (
+                ("label", "labelArgs"),
+                ("constraintMessage", "constraintMessageArgs"),
+            ):
+                args = compiled.node.get(args_key) or []
+                if not args:
+                    continue
+                strings = compiled.node.get(key) or {}
+                for language, template in strings.items():
+                    if not isinstance(template, str):
+                        continue
+                    missing = sorted(i for i in slot_indices(template) if i >= len(args))
+                    if missing:
+                        raise CompileError(
+                            f"{field_id}: {key}[{language}] uses slot "
+                            f"{{{missing[0]}}} and {args_key} has {len(args)} "
+                            "argument(s)"
+                        )
+                for expression in args:
+                    for path in _paths(expression):
+                        if path.startswith("$row."):
+                            raise CompileError(
+                                f"{field_id}: {args_key} reads {path!r}. A label "
+                                "has no candidate row (§7.1)."
+                            )
 
     def _check_references(self) -> None:
         known = set(self.fields) | set(self.containers)
@@ -220,6 +273,21 @@ class CompiledForm:
                     self.warnings.append(
                         f"{f.field_id}: direct equality comparison on a decimal field"
                     )
+
+
+def _paths(expr: Any) -> set[str]:
+    """Every `ref` path in an expression, including the `$row.` ones.
+
+    `collect_refs` deliberately drops `$row.` — they are columns, not fields —
+    so a check *about* them needs its own walk.
+    """
+    found: set[str] = set()
+    if isinstance(expr, dict):
+        if expr.get("op") == "ref":
+            found.add(str(expr.get("path", "")))
+        for arg in expr.get("args") or []:
+            found |= _paths(arg)
+    return found
 
 
 def _inline_values(node: dict[str, Any], value: Any) -> list[Any]:
@@ -599,6 +667,44 @@ class FormInstance:
         # screen flow, so this is deliberately the simple reading.
         instances = self.instances.get(repeat) or []
         return (repeat, instances[0]) if instances else None
+
+    # -- interpolated text (§7.1) ------------------------------------------
+
+    def rendered_label(self, field_id: str, language: str) -> str | None:
+        """This field's label in one language, with its slots filled.
+
+        Rendered on demand rather than stored on `FieldState`: a form has as
+        many labels as it has languages, and computing every one of them on
+        every recalculation would be work nobody asked for. A client asks for
+        the language it is showing.
+        """
+        return self._render(field_id, "label", "labelArgs", language)
+
+    def rendered_constraint_message(self, field_id: str, language: str) -> str | None:
+        """The message a failed constraint shows, with its slots filled.
+
+        The case that made §7.1 worth building: "Minimum circumference for this
+        part of the plot is {0} cm", where the threshold is itself computed and
+        so cannot be written into the sentence.
+        """
+        return self._render(
+            field_id, "constraintMessage", "constraintMessageArgs", language
+        )
+
+    def _render(
+        self, field_id: str, key: str, args_key: str, language: str
+    ) -> str | None:
+        field = self.form.fields.get(field_id)
+        if field is None:
+            return None
+        return render_field_text(
+            field.node,
+            key,
+            args_key,
+            language,
+            self._context(self._scope_of(field_id)),
+            cast_str,
+        )
 
     def recalculate(self) -> None:
         """Deterministic full pass in topological order (spec 5.2).
