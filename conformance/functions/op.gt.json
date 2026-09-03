@@ -1,0 +1,843 @@
+{
+ "id": "op.gt",
+ "description": "Every value shape through `gt`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "op.gt.null.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.null.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_num.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_num.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_num.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_num.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "op.gt.text_num.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_num.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_num.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_bad.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_bad.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "op.gt.text_bad.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_bad.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "op.gt.text_bad.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_bad.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_bad.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_date.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_date.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_date.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_date.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.text_date.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_date.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.text_date.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.int.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.int.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.int.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.int.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.int.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.int.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.int.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.dec.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.dec.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.dec.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.dec.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.dec.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "op.gt.dec.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "op.gt.dec.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.null",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.text_num",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.text_bad",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.text_date",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.int",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.dec",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.gt.bool.bool",
+   "expr": {
+    "op": "gt",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

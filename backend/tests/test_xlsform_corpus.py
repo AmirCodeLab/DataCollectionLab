@@ -390,3 +390,56 @@ def test_a_report_leads_with_whose_problem_it_is() -> None:
     assert "knock-on effects" in markdown
     # The old headline counted consequences as problems.
     assert "22 problem" not in markdown
+
+
+def test_a_regex_the_engine_cannot_run_is_refused_at_publish() -> None:
+    """§4.6 forbids lookahead; §4.7 made evaluation stop reporting it.
+
+    The two together are what makes this a publish check and not a runtime one.
+    An expression is evaluated on every keystroke and has no channel to explain
+    itself, so §4.7 makes it null — and a null constraint passes (§4.4.7). The
+    validation the author wrote then silently does not happen, for everybody,
+    forever. This is the only place left that can say so.
+    """
+    form = {
+        "irVersion": "0.1",
+        "formId": "lookahead",
+        "version": 1,
+        "title": {"en": "Lookahead"},
+        "defaultLanguage": "en",
+        "languages": ["en"],
+        "children": [
+            {
+                "type": "question",
+                "id": "password",
+                "dataType": "text",
+                "label": {"en": "Password"},
+                "constraint": {
+                    "op": "call",
+                    "fn": "regex",
+                    "args": [
+                        {"op": "ref", "path": "password"},
+                        {"op": "lit", "value": "^(?=.*[0-9]).{8,}$"},
+                    ],
+                },
+            }
+        ],
+    }
+    # It compiles and evaluates perfectly happily. That is the point.
+    CompiledForm(form)
+
+    with pytest.raises(PublishRefused) as refusal:
+        check_publishable(form)
+    assert any("(?=" in v for v in refusal.value.violations)
+    assert any("pass for everybody" in v for v in refusal.value.violations)
+
+
+def test_an_ordinary_regex_still_publishes() -> None:
+    """The control. A rule that refused every pattern would also pass the test
+    above, and the UCL form's phone-number constraint is a real one."""
+    result = import_workbook((FIXTURES / "ucl-biomass.xlsx").read_bytes())
+    patterns = [
+        d for d in result.diagnostics if d.code == "untranslatable_expression"
+        and "regex" in (d.cell_value or "")
+    ]
+    assert not patterns, "the phone-number regex must still translate"

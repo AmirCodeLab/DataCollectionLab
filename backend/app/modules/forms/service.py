@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ulid import new_ulid
 from app.modules.crypto.envelope import check_sensitivity_propagation
 from app.modules.entities.models import Dataset, DatasetVersion, FormVersionDataset
+from app.modules.form_engine.expression import forbidden_regex_feature
 from app.modules.form_engine.runtime import CompiledForm
 from app.modules.forms.models import Form, FormDeployment, FormVersion
 from app.modules.forms.schemas import (
@@ -114,10 +115,49 @@ def check_publishable(ir: dict[str, Any]) -> CompiledForm:
             ]
         )
 
-    violations = check_sensitivity_propagation(compiled)
+    # A regex §4.6 forbids.
+    #
+    # This has to be refused here because evaluation can no longer report it.
+    # §4.7 makes evaluation total — a pattern using lookahead is null, the
+    # constraint coerces null to true (§4.4.7), and the validation an author
+    # wrote silently does not happen. That is the right behaviour on a device,
+    # where there is nobody to tell; it makes this the only place left that can
+    # say so, and a rule that never fires is worse than no rule.
+    violations = [
+        f"{field_id}: the pattern {pattern!r} uses `{feature}`, which RE2 cannot "
+        "express (Form IR §4.6). Backtracking on a respondent's answer is a way "
+        "to hang a phone, so this pattern would never be applied — the "
+        "constraint would pass for everybody."
+        for field_id, pattern, feature in _forbidden_patterns(compiled)
+    ]
+    violations += check_sensitivity_propagation(compiled)
     if violations:
         raise PublishRefused(violations)
     return compiled
+
+
+def _forbidden_patterns(compiled: CompiledForm) -> list[tuple[str, str, str]]:
+    """Every `regex()` literal pattern in the form that §4.6 does not permit."""
+    found: list[tuple[str, str, str]] = []
+
+    def walk(node: Any, field_id: str) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("op") == "call" and node.get("fn") == "regex":
+            args = node.get("args") or []
+            if len(args) > 1 and isinstance(args[1], dict) and args[1].get("op") == "lit":
+                pattern = args[1].get("value")
+                if isinstance(pattern, str):
+                    feature = forbidden_regex_feature(pattern)
+                    if feature is not None:
+                        found.append((field_id, pattern, feature))
+        for arg in node.get("args") or []:
+            walk(arg, field_id)
+
+    for field_id, field in compiled.fields.items():
+        for key in ("relevant", "constraint", "calculate", "required", "readOnly", "default"):
+            walk(field.node.get(key), field_id)
+    return found
 
 
 async def list_forms(session: AsyncSession, *, include_archived: bool) -> FormListResponse:

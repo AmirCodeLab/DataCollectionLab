@@ -1,0 +1,27 @@
+{
+ "id": "op.overflow.add",
+ "description": "Every value shape through `overflow.add`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "op.overflow.add",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 9223372036854775807
+     },
+     {
+      "op": "lit",
+      "value": 1
+     }
+    ]
+   },
+   "raises": "integer overflow"
+  }
+ ]
+}

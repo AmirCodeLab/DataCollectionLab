@@ -78,10 +78,20 @@ does not need a Node runtime beside Python.
 2. **Conformance vectors are the contract.** Every engine — Python reference and
    Kotlin — must pass every vector identically. A vector passing on one and
    failing on the other is a release blocker, never a platform difference.
-   Four sets, because one format cannot express all four questions:
+   Five sets, because one format cannot express all five questions:
    `conformance/vectors` (evaluation), `crypto` (envelope bytes),
    `sensitivity` (which forms publish refuses, §10.2), `malformed` (which
-   documents are refused before compilation, §10.1).
+   documents are refused before compilation, §10.1), `functions` (every §4.3
+   function against every value shape, §4.7).
+
+   **`functions` is the only one that is not a selection**, and that is what it
+   is for. Every other set holds cases somebody thought of, which is the same
+   limitation the coverage ledger exists to work around one layer up. The
+   function surface had that hole for its whole existence: nothing in the
+   corpus had ever put text where a number belongs, because until dataset
+   columns existed nothing could. When the cross product was finally run, 762
+   of 1,395 probes disagreed between the engines and three §4.3 functions
+   turned out to be unimplemented in Kotlin. Break 46.
 
 3. **Never "fix" a failing vector by editing the expectation.** Change the
    expectation only alongside a spec change explaining why.
@@ -339,10 +349,12 @@ python scripts/generate_ucl_datasets.py                    # ~3 MB at real scale
 python scripts/import_xlsform.py backend/tests/fixtures/xlsform/ucl-biomass.xlsx \
     --datasets backend/tests/fixtures/xlsform/ucl-biomass-datasets --out reports/
 
-# Conformance — four sets, all of them on both engines
-python conformance/generate_vectors.py     # regenerate the evaluation vectors
+# Conformance — five sets, all of them on both engines
+python conformance/generate_vectors.py           # the evaluation vectors
+python conformance/generate_function_matrix.py   # the §4.3 function surface
 cd backend && pytest tests/test_conformance.py -v
 cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, §10.1
+cd backend && pytest tests/test_function_conformance.py -v    # §4.3 x every shape
 ./gradlew :shared:form-engine:jvmTest      # the Kotlin half of all of them
 
 # Kotlin engine (from the repo root — one build)

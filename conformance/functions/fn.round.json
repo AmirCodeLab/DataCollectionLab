@@ -1,0 +1,1035 @@
+{
+ "id": "fn.round",
+ "description": "Every value shape through `round`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "fn.round.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_pad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": " 800 "
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_empty",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": ""
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.round.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": 801
+  },
+  {
+   "id": "fn.round.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.seq",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": [
+       "a",
+       "b"
+      ]
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.null.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_num.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_bad.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.text_date.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.round.int.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.int.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": 801
+  },
+  {
+   "id": "fn.round.dec.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.dec.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.null",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.int",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.dec",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.round.bool.bool",
+   "expr": {
+    "op": "call",
+    "fn": "round",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

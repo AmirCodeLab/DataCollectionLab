@@ -1,0 +1,843 @@
+{
+ "id": "op.add",
+ "description": "Every value shape through `add`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "op.add.null.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.null.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_num.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_bad.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.text_date.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.int.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.int.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.int.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.int.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.int.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": 1600
+  },
+  {
+   "id": "op.add.int.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": 1600.5
+  },
+  {
+   "id": "op.add.int.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.dec.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.dec.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.dec.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.dec.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.dec.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": 1600.5
+  },
+  {
+   "id": "op.add.dec.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": 1601.0
+  },
+  {
+   "id": "op.add.dec.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.null",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.text_num",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.text_bad",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.text_date",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.int",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.dec",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "op.add.bool.bool",
+   "expr": {
+    "op": "add",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

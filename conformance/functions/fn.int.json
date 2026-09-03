@@ -1,0 +1,153 @@
+{
+ "id": "fn.int",
+ "description": "Every value shape through `int`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "fn.int.null",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.int.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.int.text_pad",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": " 800 "
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.int.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.int.text_empty",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": ""
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.int.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.int.int",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.int.dec",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": 800
+  },
+  {
+   "id": "fn.int.bool",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.int.seq",
+   "expr": {
+    "op": "call",
+    "fn": "int",
+    "args": [
+     {
+      "op": "lit",
+      "value": [
+       "a",
+       "b"
+      ]
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

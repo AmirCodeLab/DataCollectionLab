@@ -405,6 +405,97 @@ value in this IR already has.
 - Decimal comparison uses exact IEEE-754 semantics. The builder warns on direct equality comparison of decimals.
 - `round` uses half-away-from-zero, not banker's rounding.
 
+### 4.7 Type mismatch, and the totality of evaluation
+
+§4.4 says what happens when a value is missing. This says what happens when a
+value is *present and of the wrong type* — which the specification did not say
+at all until dataset columns made it an everyday case, and which both engines
+had therefore been answering differently for their whole existence.
+
+> **An argument that is not of the type its signature (§4.3) declares is
+> `null`, and a function or operator with such an argument yields `null`. It is
+> never an evaluation error.**
+>
+> **Evaluating an expression raises for exactly one reason: integer overflow
+> (§4.5).** Everything else — a text where a number belongs, a sequence where
+> text belongs, a boolean in arithmetic — is `null` and propagates by §4.4.
+
+#### Why null and not an error
+
+An expression is not evaluated once when a form is written. It is evaluated on
+every keystroke, on a handset, in the middle of an interview, over whatever the
+respondent has said so far. There is no channel in that situation for a type
+error: nothing on the screen can explain it, the enumerator cannot act on it,
+and the only thing an exception can do is stop the form.
+
+`null` already has a defined meaning in exactly that situation, and the
+boundary rules in §4.4.7 already say what it does for the person holding the
+device — `relevant` shows the question, `constraint` passes. Those are the
+right answers for "this rule could not be worked out", and they are the same
+answers whether the reason was a missing value or a nonsensical one.
+
+**This is not an argument for silence.** A form comparing a text field to a
+number is a form with a bug in it, and the place to report that is the publish
+gate, where an author is reading a report — not the device, where nobody is.
+That check does not exist yet; §12 records it. Reporting a type error at
+evaluation time reports it to the one audience that cannot use it.
+
+#### What follows from the signatures
+
+Every case below is the rule above applied to §4.3's table, listed because
+"derivable" and "agreed by two engines" are different claims:
+
+| Expression | Result | Because |
+|---|---|---|
+| `len(["a","b"])` | `null` | `len` takes text; `count` is the one for sequences |
+| `upper(800)` | `null` | takes text |
+| `substr(800, 0)` | `null` | takes text |
+| `contains(true, "a")` | `null` | takes text |
+| `round("800.7")` | `null` | takes a number — `round(dec("800.7"))` is the way |
+| `round(1.5, "2")` | `null` | the digits argument takes an integer |
+| `sum(["a", 3])` | `3` | non-numbers are ignored, exactly as nulls are |
+| `min(["a","b"])` | `null` | takes a sequence of numbers; no numbers, no minimum |
+| `date_diff_days("8a", today())` | `null` | takes dates |
+| `date_add_days(today(), "3")` | `null` | takes an integer |
+| `"800" + 1` | `null` | `add` is arithmetic; `+` never concatenates |
+| `true + true` | `null` | a boolean is not a number (§4.3.1) |
+| `-("800")` | `null` | `neg` is arithmetic |
+| `not("yes")` | `null` | takes a boolean |
+| `"800" < 100` | `null` | a comparison across types has no ordering |
+| `"800" == 800` | `false` | **not** null — see below |
+| `if("yes", a, b)` | `null` | the condition takes a boolean |
+| `distance("a", b)` | `null` | takes geopoints |
+
+`concat` is the one function that renders rather than refuses: it takes text and
+its job is to build some, so each argument is rendered as `str` renders it
+(§4.3.1) and a `null` contributes the empty string. `concat("n=", 3)` is
+`"n=3"`.
+
+#### Equality is the exception, and deliberately
+
+`eq` and `ne` are **total across types**: two non-null values of different types
+are simply not equal, so `eq` is `false` and `ne` is `true`. They are not
+`null`.
+
+This is the one place where "no implicit coercion" (§4.5) produces an *answer*
+rather than an absence, and it has to: `"800" == 800` is a question with a
+correct answer under a no-coercion rule, and that answer is no. Ordering
+comparisons are different — there is no ordering *between* types to appeal to,
+so `<` genuinely cannot say.
+
+The rule reaches further than it looks. A dataset cell is always text (§3.2),
+so a filter written `$row.population = ${count}` against an integer answer
+matches nothing at all — correctly, and silently. `str(${count})` is what makes
+it work, which is why §4.3.1 defines `str` over numbers so precisely.
+
+> Found by running every §4.3 function and operator against every value shape
+> on both engines and diffing: **762 of 1,395 probes disagreed.** Not one had a
+> vector, because until a dataset column existed nothing in the corpus could put
+> text where a number belonged. Most were one engine raising while the other
+> returned `null`; the worst were both returning a value and the values
+> differing. `conformance/functions` is that matrix, with the expectations this
+> section defines. Break 46.
+
 ### 4.6 Regular expressions
 
 Only **RE2** syntax is permitted — no backreferences, no lookaround. This is the only subset that is available and performs identically on Kotlin/JVM, Kotlin/Native, JavaScript and Python without catastrophic backtracking.
@@ -739,6 +830,10 @@ Navigation is over the static plan filtered by live relevance:
 - Server-only expressions and where they are declared
 - Encrypted-field addressing — can a constraint reference an encrypted field
 - External function/plugin call surface
+- **A static type check at publish time.** §4.7 makes evaluation total, which
+  is right for a device and moves the reporting of a genuine type error to the
+  one place somebody is reading: the publish gate. Nothing checks it there yet,
+  so `${text_field} + 1` publishes and evaluates to null forever
 - Whether a residual predicate should be expressible as a store-side operation
   (`in`, prefix match) rather than only as equality — §3.2 extracts equality and
   nothing else, so `$row.population > 1000` is a full scan by construction

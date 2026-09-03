@@ -64,6 +64,7 @@ cannot express, each with its own README and its own runner on both engines:
 | `crypto/` | Envelope bytes are identical across engines |
 | `sensitivity/` | Which forms the publish gate refuses, and with which message (§10.2) |
 | `malformed/` | Which documents are refused before compilation, and why (§10.1) |
+| `functions/` | Every §4.3 function against every value shape (§4.7) |
 
 `malformed/` exists because there is no way to write "this document must be
 refused" here — every step above assumes a form that compiled, so a document

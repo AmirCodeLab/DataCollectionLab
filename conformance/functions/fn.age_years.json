@@ -1,0 +1,892 @@
+{
+ "id": "fn.age_years",
+ "description": "Every value shape through `age_years`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "fn.age_years.null.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.null.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_num.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_bad.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_date.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": 0
+  },
+  {
+   "id": "fn.age_years.text_date.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_date.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_date.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": 0
+  },
+  {
+   "id": "fn.age_years.text_date.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_date.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.text_date.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.int.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.dec.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.null",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.int",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.dec",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.age_years.bool.bool",
+   "expr": {
+    "op": "call",
+    "fn": "age_years",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

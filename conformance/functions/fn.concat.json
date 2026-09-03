@@ -1,0 +1,892 @@
+{
+ "id": "fn.concat",
+ "description": "Every value shape through `concat`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "probes": [
+  {
+   "id": "fn.concat.null.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": ""
+  },
+  {
+   "id": "fn.concat.null.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "800"
+  },
+  {
+   "id": "fn.concat.null.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "8a"
+  },
+  {
+   "id": "fn.concat.null.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "2026-01-15"
+  },
+  {
+   "id": "fn.concat.null.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "800"
+  },
+  {
+   "id": "fn.concat.null.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "800.5"
+  },
+  {
+   "id": "fn.concat.null.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "fn.concat.text_num.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "800"
+  },
+  {
+   "id": "fn.concat.text_num.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "800800"
+  },
+  {
+   "id": "fn.concat.text_num.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "8008a"
+  },
+  {
+   "id": "fn.concat.text_num.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "8002026-01-15"
+  },
+  {
+   "id": "fn.concat.text_num.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "800800"
+  },
+  {
+   "id": "fn.concat.text_num.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "800800.5"
+  },
+  {
+   "id": "fn.concat.text_num.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "800true"
+  },
+  {
+   "id": "fn.concat.text_bad.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "8a"
+  },
+  {
+   "id": "fn.concat.text_bad.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "8a800"
+  },
+  {
+   "id": "fn.concat.text_bad.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "8a8a"
+  },
+  {
+   "id": "fn.concat.text_bad.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "8a2026-01-15"
+  },
+  {
+   "id": "fn.concat.text_bad.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "8a800"
+  },
+  {
+   "id": "fn.concat.text_bad.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "8a800.5"
+  },
+  {
+   "id": "fn.concat.text_bad.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "8atrue"
+  },
+  {
+   "id": "fn.concat.text_date.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "2026-01-15"
+  },
+  {
+   "id": "fn.concat.text_date.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "2026-01-15800"
+  },
+  {
+   "id": "fn.concat.text_date.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "2026-01-158a"
+  },
+  {
+   "id": "fn.concat.text_date.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "2026-01-152026-01-15"
+  },
+  {
+   "id": "fn.concat.text_date.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "2026-01-15800"
+  },
+  {
+   "id": "fn.concat.text_date.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "2026-01-15800.5"
+  },
+  {
+   "id": "fn.concat.text_date.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "2026-01-15true"
+  },
+  {
+   "id": "fn.concat.int.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "800"
+  },
+  {
+   "id": "fn.concat.int.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "800800"
+  },
+  {
+   "id": "fn.concat.int.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "8008a"
+  },
+  {
+   "id": "fn.concat.int.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "8002026-01-15"
+  },
+  {
+   "id": "fn.concat.int.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "800800"
+  },
+  {
+   "id": "fn.concat.int.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "800800.5"
+  },
+  {
+   "id": "fn.concat.int.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "800true"
+  },
+  {
+   "id": "fn.concat.dec.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "800.5"
+  },
+  {
+   "id": "fn.concat.dec.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "800.5800"
+  },
+  {
+   "id": "fn.concat.dec.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "800.58a"
+  },
+  {
+   "id": "fn.concat.dec.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "800.52026-01-15"
+  },
+  {
+   "id": "fn.concat.dec.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "800.5800"
+  },
+  {
+   "id": "fn.concat.dec.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "800.5800.5"
+  },
+  {
+   "id": "fn.concat.dec.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "800.5true"
+  },
+  {
+   "id": "fn.concat.bool.null",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": "true"
+  },
+  {
+   "id": "fn.concat.bool.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": "true800"
+  },
+  {
+   "id": "fn.concat.bool.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": "true8a"
+  },
+  {
+   "id": "fn.concat.bool.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": "true2026-01-15"
+  },
+  {
+   "id": "fn.concat.bool.int",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": "true800"
+  },
+  {
+   "id": "fn.concat.bool.dec",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": "true800.5"
+  },
+  {
+   "id": "fn.concat.bool.bool",
+   "expr": {
+    "op": "call",
+    "fn": "concat",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     },
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": "truetrue"
+  }
+ ]
+}

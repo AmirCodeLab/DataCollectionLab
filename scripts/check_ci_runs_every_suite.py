@@ -493,6 +493,12 @@ VECTOR_SETS: dict[str, tuple[str, str, str]] = {
         "TEST-com.dcp.form.MalformedConformanceTest.xml",
         "backend/tests/test_malformed_conformance.py",
     ),
+    "functions": (
+        "the §4.3 function surface",
+        "shared/form-engine/build/test-results/jvmTest/"
+        "TEST-com.dcp.form.FunctionConformanceTest.xml",
+        "backend/tests/test_function_conformance.py",
+    ),
 }
 
 #: Vector ids appear in a JUnit test name as `vector[choice-002][jvm]`, or as
