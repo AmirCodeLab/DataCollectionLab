@@ -338,6 +338,49 @@ question, answered with that exact word, in a project where the column is not
 encrypted — and because the manifest already answers it for anyone who reads it.
 Revisit if a real form hits it.
 
+## 13. An export holds every submission in memory at once
+
+Measured, 2026-09-03, by `scripts/measure_export.py`. **Time is fine and memory
+is not.** 5,000 submissions export in 7–16 seconds depending on format and peak
+at about 530 MB of process RSS; 12,000 submissions peak at **1,083 MB**. One
+export request can therefore exhaust a 2 GB self-hosted box, and two concurrent
+ones certainly can.
+
+**What an enumerator or reviewer sees.** Nothing, up to the limit. Past it the
+process is killed by the OOM killer and the request dies with no useful error —
+which is the worst available symptom, because it looks like the server falling
+over rather than like a request that asked for too much.
+
+**Where it goes, and where it does not.** The dataset is not the problem, and
+that was worth measuring rather than assuming: at 12,000 submissions a 500-row
+village list and a 37,852-row one both peak at 506 MB of Python allocations.
+Label resolution is already cached per dataset version — three row fetches for a
+whole export, O(1) per cell — so there is nothing to gain there. The cost is
+`export_form` holding the entire run alive simultaneously: every op as an ORM
+object, every fold, every projection, every table row, and the writer's copy on
+top. Roughly 40 KB per submission above a 130–150 MB floor.
+
+**Why it is still open.** The fix is streaming — fold, project and write one
+submission at a time, so peak memory is a function of the *widest row* rather
+than of the row count — and that is a redesign of `service.export_form` and of
+`Table`, which currently holds `rows` as a materialised tuple. Doing it blind,
+on the strength of a number nobody had measured, is exactly what §3.2 says not
+to do: the first dataset cut cost 1,589 ms per keystroke and only a Pixel said
+so. Now the number exists, so the redesign can be judged against it.
+
+Two things narrow it in the meantime, both deliberate rather than accidental:
+
+- `DEFAULT_LIMIT` is 5,000 and the HTTP route caps at it, so the endpoint cannot
+  be asked for the 12,000-submission case at all.
+- `scripts/export_submissions.py --limit` is **not** capped, because a CLI run is
+  one at a time and an operator knows their machine. A customer who needs all
+  12,000 rows today can have them on a box with the memory.
+
+The honest statement of the boundary: **this exporter is sized for a project,
+not for a country.** A form with more than about 10,000 submissions needs either
+the streaming rewrite or an export sliced by environment, status or date — and
+there is no date filter yet, which is the cheapest of the three to add.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be

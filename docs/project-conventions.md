@@ -382,6 +382,14 @@ python scripts/export_submissions.py household --format sav    # SPSS
 #     in the manifest — read it before writing a do-file against the columns
 # …and the same thing over HTTP, which is what the console uses:
 #   GET /api/v1/exports/{formId}?format=dta&shape=long   -> a zip
+
+# What an export costs, across the three form versions a real project has
+python scripts/measure_export.py                        # 3000 submissions
+python scripts/measure_export.py --submissions 12000 --villages 37852
+#   Needs Postgres. Seeds its own scratch database and drops it (--keep to
+#   keep it, --reuse to skip reseeding). Reports wall clock, Python peak,
+#   process RSS and file sizes per format, and counts dataset row fetches so
+#   "is a label resolved per row or per version" is measured, not assumed.
 #   long (default): parent file + one per repeat, keyed (submission_id,
 #     instance_id) — the STABLE id, never a position
 #   wide: one row per submission, repeats flattened positionally. Offered
@@ -1299,6 +1307,79 @@ string every analyst has to split first, and CSV is written UTF-8 **with a BOM**
 because without one Excel reads it as the system code page and a product that is
 RTL and Swahili from the start cannot ship an export that is mojibake on a
 double-click.
+
+#### What an export costs, measured across three form versions
+
+`scripts/measure_export.py` reproduces this. The shape measured is the one that
+actually happens rather than the big one: a project six months in has v1, v2 and
+v3 of its form in a single export, **each pinned to its own dataset version**
+(§3.2), so one run resolves codes through three separate village lists. Nothing
+had exercised that, and it is strictly more work than one version at scale.
+
+Apple Silicon, Postgres 16 in Docker. Three form versions; three dataset
+versions each of 37,852 villages, 166 districts and 26 regions; three stems per
+submission. `py` is `tracemalloc` (Python allocations); `rss` is the process
+high-water mark, one format per process.
+
+**At 5,000 submissions — the current `DEFAULT_LIMIT`:**
+
+| | build | py peak | rss | files |
+|---|---|---|---|---|
+| csv | 6.8 s | 162 MB | 530 MB | 1.08 + 0.53 MB |
+| xlsx | 13.8 s | 162 MB | 551 MB | 0.81 MB |
+| dta | 7.9 s | 162 MB | 555 MB | 1.22 + 0.60 MB |
+| sav | 8.0 s | 162 MB | 558 MB | 1.56 + 0.84 MB |
+
+**Three findings, and the third decides what to do about it.**
+
+**Label resolution is cached per dataset version, not per row.** Three row
+fetches for the whole export whatever the submission count — one per dataset
+key, not one per submission and emphatically not one per cell — and per-cell
+resolution is an O(1) dict hit. The counter in the script measures this rather
+than trusting the source, because the source is what you would be checking. A
+naive implementation doing one lookup per cell is the difference between seconds
+and hours, and it is not what this does. Identical dataset content across form
+versions also dedupes at publish, so three form versions pin **one** region list
+and one district list, and only the villages are held three times.
+
+**Multi-version costs little and works.** 27 columns as the union of the three
+versions, each submission read through its own pins. The rows-per-lookup ratio
+falling as submissions rise — 16.3 at 120, 7.2 at 5,000, 3.0 at 12,000 — is just
+the fixed cache amortising over more cells.
+
+**Time is fine. Memory is the limit, and it is per-submission, not
+per-dataset.** That distinction is the whole finding, because streaming and
+caching are different fixes and only one of them is called for:
+
+| submissions | villages | py peak | rss |
+|---|---|---|---|
+| 1,000 | 37,852 | 143 MB | 522 MB |
+| 3,000 | 500 | 127 MB | 350 MB |
+| 3,000 | 37,852 | 155 MB | — |
+| 5,000 | 37,852 | 162 MB | 530 MB |
+| 12,000 | **500** | **506 MB** | — |
+| 12,000 | **37,852** | **506 MB** | **1,083 MB** |
+
+The last two rows are the measurement that settles it: **a 75x larger dataset
+changes peak memory by nothing at all.** The dataset sets a floor of roughly
+130–150 MB which submissions overtake somewhere around 4,000–5,000 — which is
+where `DEFAULT_LIMIT` happens to sit — and above that it grows about 40 KB per
+submission. At 12,000 submissions one export request peaks over a **gigabyte**.
+
+The cause is that `export_form` holds everything at once: every op as an ORM
+object, every fold, every projection, every table row, and then the writer's own
+copy on top. The writers are not where it goes — csv and sav differ by 28 MB,
+and xlsx costs twice the *time* of the others and no more memory. So the fix is
+**streaming**, and caching would buy nothing because the caching is already
+right. That is not done, and `docs/known-defects.md` 13 is the honest record of
+it rather than a blind optimisation.
+
+**The limit stays at 5,000, and it is now a measured number rather than a
+guess** — about 530 MB for one request, which a 2 GB self-hosted box survives
+and two concurrent requests would not. The HTTP route caps at it
+(`Query(le=DEFAULT_LIMIT)`); the CLI's `--limit` deliberately does not, because a
+CLI run is one at a time and an operator knows how much memory their machine
+has. That asymmetry existed before this measurement and is what justifies it now.
 
 #### The route, and the one exemption it needed
 
