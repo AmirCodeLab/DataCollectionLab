@@ -33,6 +33,11 @@ name; and a column that holds an unreadable value is stored as **text** where it
 would otherwise be numeric, because a numeric column cannot carry the
 `ENCRYPTED` token and writing it as missing is the failure the token exists to
 prevent. Both are printed below and both are in the manifest per column.
+
+Exit 3 means an answer will not fit the format asked for — in practice a value
+over SPSS's 32,767-byte maximum for a `.sav`. It is refused rather than
+truncated, and the message names the formats that do hold it (a `.dta` stores
+anything over 2,045 bytes as a Stata `strL`, so it always does).
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ from app.core.config import get_settings  # noqa: E402
 from app.modules.export.service import (  # noqa: E402
     DEFAULT_LIMIT,
     ExportTooLarge,
+    ValueTooLong,
     export_form,
 )
 from app.modules.export.writers import Bundle  # noqa: E402
@@ -96,6 +102,11 @@ def main() -> int:
     except ExportTooLarge as refused:
         print(f"ERROR  {refused}", file=sys.stderr)
         return 2
+    except ValueTooLong as refused:
+        # Refused, never truncated. Shortening an answer to fit a file format is
+        # the silent data loss this whole exporter is built against.
+        print(f"ERROR  {refused}", file=sys.stderr)
+        return 3
 
     if bundle is None:
         print(f"ERROR  no form with key {arguments.form!r}", file=sys.stderr)

@@ -67,6 +67,14 @@ STORAGE_TYPE_NOTE = (
     "one week and text the next, and this list is where that is visible."
 )
 
+STRING_LIMIT_NOTE = (
+    "Long answers: a .dta stores anything over 2,045 bytes as a Stata `strL`, "
+    "which holds up to 2 GB, so nothing is shortened. A .sav cannot exceed "
+    "SPSS's 32,767-byte maximum, and an export that would need to is refused "
+    "rather than truncated or written out of spec. Both limits are in bytes, "
+    "not characters."
+)
+
 DATETIME_NOTE = (
     "A `datetime` answer, and the started/finalized/received stamps, are "
     "stored as ISO 8601 text rather than as a native date-time. Neither format "
@@ -182,7 +190,6 @@ def build_manifest(
     shape: Shape,
     ciphertext_fields: Mapping[str, Sequence[str]],
     stored: Mapping[str, Sequence[StatColumn]] | None = None,
-    long_strings: Sequence[tuple[str, int]] = (),
     exported_at: datetime | None = None,
 ) -> Manifest:
     """Describe what was written.
@@ -249,18 +256,12 @@ def build_manifest(
     notes.append(WIDE_POSITION_NOTE if shape == "wide" else INSTANCE_KEY_NOTE)
     if stored is not None:
         notes.append(DATETIME_NOTE)
+        notes.append(STRING_LIMIT_NOTE)
         every = [column for table in described for column in table.columns]
         if any(column.stored_as != column.column for column in every):
             notes.append(SHORTENED_NAME_NOTE)
         if any(column.storage_changed_because for column in every):
             notes.append(STORAGE_TYPE_NOTE)
-    for name, longest in long_strings:
-        notes.append(
-            f"`{name}` holds a value of {longest:,} characters. Stata's `str#` "
-            "maximum is 2,045. It is written whole rather than truncated, and "
-            "whether Stata opens it has not been checked here."
-        )
-
     return Manifest(
         form_id=form_id,
         form_title=form_title,

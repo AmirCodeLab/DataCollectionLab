@@ -267,6 +267,29 @@ export interface ExportTooLargeResponse {
 }
 
 /**
+ * A value will not fit the format that was asked for.
+ *
+ * Names the formats that *do* hold it, because that is what a caller acts on:
+ * an SPSS user with one very long answer needs a different flag, not a
+ * truncated file and not a 500.
+ */
+export interface ExportValueTooLong {
+  /** the column in the file, as `storedAs` names it */
+  column: string;
+  /** the value's length in UTF-8 bytes */
+  found: number;
+  /** the most this format's strings hold, in bytes */
+  limit: number;
+  format: ExportFormat;
+  message: string;
+}
+
+/** 409 from GET /exports/{formId}. */
+export interface ExportValueTooLongResponse {
+  detail: ExportValueTooLong;
+}
+
+/**
  * One field after recalculation — `FieldState.to_dict()` in the engine.
  *
  * Written out rather than left as a free-form object because this is the

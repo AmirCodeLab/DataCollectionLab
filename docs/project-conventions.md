@@ -1329,7 +1329,9 @@ Two things about it worth not rediscovering:
   match the schema; this request matched it and asked for too much. The body is
   the `{"detail": {found, limit, message}}` envelope — declared as the envelope,
   and asserted against a real request as well as against the document, because
-  only one of those two can tell you what the server sends.
+  only one of those two can tell you what the server sends. **409** is the other
+  refusal: this form's data will not fit the format asked for, which in practice
+  means an answer over SPSS's 32,767-byte maximum.
 
 #### Stata and SPSS, and what the formats decide for you
 
@@ -1392,10 +1394,18 @@ So, in order, the decisions those forced:
   lose, and a Stata user handed a string date has to parse it before they can do
   anything. `time`, `datetime` and the started/finalized/received stamps are ISO
   text.
-- **A string longer than Stata's `str#` maximum of 2,045 is written whole and
-  reported**, never truncated. Whether Stata opens it is **unverified** — there
-  is no Stata in this environment to check with — and saying so is the honest
-  half of writing it.
+- **Each format's longest string is decided here, in bytes.** Measured rather
+  than assumed, by reading the file instead of asking the library: over 2,045
+  bytes a `.dta` writes a Stata **`strL`** — the type code in
+  `<variable_types>` is `32768` — which holds 2 GB, so a long answer is not a
+  problem there and needs no limit of ours. A `.sav` is the opposite: readstat
+  wrote 40,000 bytes past SPSS's documented 32,767-byte maximum without a word,
+  the same shape as its writing a `.dta` name Stata refuses. So that one is
+  enforced and **refused**, never truncated and never written out of spec, with
+  the refusal naming the formats that do hold it. Breaks 68 and 69. In **bytes**
+  and not characters, because 20,000 Arabic characters are 40,000 of them and
+  this product meets that case first — `docs/known-defects.md`'s withdrawn entry
+  12 records the wrong version of this and why it was wrong.
 
 **The third question — the mistake that passes every test — and its answer.**
 The guess was right: a type that round-trips through CSV and not through `.dta`.

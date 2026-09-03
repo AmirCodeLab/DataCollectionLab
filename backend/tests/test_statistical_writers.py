@@ -23,6 +23,11 @@ The four answers that decided the design:
 4. **A value label keyed by a string code is silently written against `0`** in
    a `.dta`. Our choice codes are strings, so value labels are not usable and
    the resolved name goes in its own column instead.
+5. **A long string is a `strL` in a `.dta` and out of spec in a `.sav`.** Read
+   out of the file rather than asked of the library: over 2,045 **bytes** the
+   `.dta` type code becomes `32768`, which is `strL` and holds 2 GB. A `.sav`
+   took 40,000 bytes past SPSS's 32,767-byte maximum without a word — the same
+   shape as the name limit, so the same answer: we enforce it ourselves.
 """
 
 from __future__ import annotations
@@ -233,3 +238,69 @@ def test_what_each_scalar_type_becomes(tmp_path: Path, fmt: str) -> None:
     assert back["real_datetime"].iloc[0] == pandas.Timestamp("2026-09-03 09:25:13")
     assert back["a_string"].iloc[0] == "09:25:13"
     assert back["a_null"].iloc[0] == ""
+
+
+# --- long strings: what the file declares, not what the library returns ------
+
+#: `<variable_types>` in a .dta 117/118 is one uint16 per variable:
+#: 1..2045 is `str#N`, 32768 is `strL`, 65526 is `double`.
+DTA_STRL = 32768
+
+
+def _dta_type_code(path: Path, index: int = 0) -> int:
+    raw = path.read_bytes()
+    start = raw.index(b"<variable_types>") + len(b"<variable_types>")
+    return int.from_bytes(raw[start + index * 2 : start + index * 2 + 2], "little")
+
+
+@pytest.mark.parametrize(
+    "text, expected, why",
+    [
+        ("s" * 2044, 2044, "under the limit: a fixed-width str#"),
+        ("s" * 2045, DTA_STRL, "at the limit: promoted to strL"),
+        ("s" * 40000, DTA_STRL, "far over: still a strL, still whole"),
+        # 2,044 Arabic characters are 4,088 bytes. A character-counted check
+        # would call this "under the limit" and be wrong by half.
+        ("ش" * 2044, DTA_STRL, "counted in BYTES, not characters"),
+        ("ش" * 1000, 2000, "2,000 bytes of Arabic is still a str#"),
+    ],
+)
+def test_a_dta_promotes_a_long_string_to_strl_by_byte_length(
+    tmp_path: Path, text: str, expected: int, why: str
+) -> None:
+    """Answer 5, and the reason `.dta` needs no limit of ours.
+
+    This is read out of the file's own type table rather than inferred from what
+    `read_dta` hands back — pyreadstat agreeing with itself proves nothing about
+    what Stata will accept. `strL` is Stata 13+ and holds 2 GB, and the writer
+    pins version 15, so a long answer is genuinely not a problem here.
+
+    The Arabic rows are the ones that matter for this product: both formats size
+    a string in bytes, and 2,044 Arabic characters are 4,088 of them.
+    """
+    path = tmp_path / "l.dta"
+    _roundtrip(pandas.DataFrame({"v": [text]}), path, "dta", version=15)
+
+    assert _dta_type_code(path) == expected, why
+    back, _ = pyreadstat.read_dta(str(path))
+    assert back["v"].iloc[0] == text, "the value must survive whole either way"
+
+
+def test_a_sav_accepts_a_string_past_spsss_own_maximum(tmp_path: Path) -> None:
+    """The other half of answer 5, and why the `.sav` limit is ours to enforce.
+
+    SPSS's documented maximum for a string variable is 32,767 bytes. readstat
+    writes past it without complaint — exactly as it writes a `.dta` variable
+    name Stata refuses. The library implements the format it can and leaves the
+    application's rules to the caller, so `statistical.check_string_lengths` is
+    the caller doing that.
+
+    If a future readstat starts refusing this, that is good news and this test
+    should fail so somebody notices the guard has a second layer under it.
+    """
+    over = "s" * 40000
+    back, _ = _roundtrip(pandas.DataFrame({"v": [over]}), tmp_path / "l.sav", "sav")
+    assert len(back["v"].iloc[0]) == 40000, (
+        "readstat refused an over-length .sav string; check whether "
+        "MAX_STRING_BYTES['sav'] is still the only thing enforcing SPSS's limit"
+    )

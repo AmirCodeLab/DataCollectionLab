@@ -32,8 +32,9 @@ from app.modules.export.schemas import (
     ExportFormat,
     ExportShape,
     ExportTooLargeResponse,
+    ExportValueTooLongResponse,
 )
-from app.modules.export.service import DEFAULT_LIMIT, ExportTooLarge
+from app.modules.export.service import DEFAULT_LIMIT, ExportTooLarge, ValueTooLong
 from app.modules.submissions.schemas import SubmissionStatus
 
 router = APIRouter()
@@ -64,6 +65,7 @@ class ZipResponse(Response):
     responses={
         200: ZIP_BODY,
         404: {"model": MessageError},
+        409: {"model": ExportValueTooLongResponse},
         413: {"model": ExportTooLargeResponse},
     },
 )
@@ -100,6 +102,12 @@ async def export_form(
     distinct code rather than a 422 because 422 belongs to the framework and
     means the request did not match the schema; this request matched it and
     asked for too much.
+
+    **409 means this form's data will not fit the format asked for** — in
+    practice, an answer longer than SPSS's 32,767-byte maximum for a `sav`. The
+    body names the column and the formats that do hold it. It is a refusal
+    rather than a truncated file: shortening an answer to fit would be silent
+    data loss, and writing it anyway produces a file SPSS may not open.
     """
     async with session.begin():
         try:
@@ -114,6 +122,17 @@ async def export_form(
                 fmt=fmt,
                 limit=limit,
             )
+        except ValueTooLong as refused:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "column": refused.column,
+                    "found": refused.found,
+                    "limit": refused.limit,
+                    "format": refused.format,
+                    "message": str(refused),
+                },
+            ) from refused
         except ExportTooLarge as refused:
             raise HTTPException(
                 status_code=413,

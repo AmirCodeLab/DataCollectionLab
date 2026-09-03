@@ -24,6 +24,14 @@ item 5 is about.
 **Variable labels are ours to shorten too**, for the same reason: SPSS truncates
 at 256 and Stata's own 80 is not enforced at all.
 
+**And so is the longest string each format can hold.** Reading the bytes rather
+than asking the library settles both halves: a `.dta` promotes anything over
+2,045 bytes to a `strL` on its own — the type code in `<variable_types>` says
+`32768` — so a long answer is genuinely fine there. A `.sav` is not: readstat
+wrote 40,000 bytes past SPSS's documented 32,767-byte maximum without a word.
+So the limit is enforced here, in **bytes** rather than characters, because both
+formats size a string in bytes and 20,000 Arabic characters are 40,000 of them.
+
 **Value labels are unusable**, and that is a finding rather than a choice. A
 label keyed by the string code `V000023` is written against `0` in a `.dta` — a
 name attached to a value that is not in the data. Our codes are strings by
@@ -60,16 +68,60 @@ type Storage = Literal["numeric", "string", "date"]
 NAME_LIMIT = 32
 #: Stata's limit for a variable label. SPSS allows 256 and enforces it.
 LABEL_LIMIT = 80
-#: Stata's `str#` maximum. Longer values are written — readstat accepts them —
-#: and reported, because truncating an answer to fit a file format would be the
-#: silent data loss this whole module exists to avoid.
-STATA_STRING_LIMIT = 2045
+#: Stata's `str#` maximum, in **bytes**. Above it readstat writes a `strL`
+#: instead — verified by reading the type code out of the file, not by asking
+#: the library — so a long answer is not a problem in a `.dta` at all. Kept as a
+#: named constant because it is the threshold the characterisation test asserts.
+STATA_STR_LIMIT_BYTES = 2045
+
+#: The longest string each format can hold, in **bytes**, or None for no
+#: practical limit. Bytes and not characters: both formats size a string in
+#: bytes, and this platform is Swahili and Arabic from the start — 20,000
+#: Arabic characters are 40,000 bytes, and a character-counted check would wave
+#: them through.
+#:
+#: `dta` is None because a `strL` holds up to 2 GB. `sav` is SPSS's documented
+#: maximum for a string variable. **readstat enforces neither**: it wrote 40,000
+#: bytes into a `.sav` without complaint, which is the same shape as its writing
+#: a `.dta` variable name Stata refuses — the library implements the format it
+#: can and leaves the application's own rules to the caller. So the caller
+#: decides, here, rather than producing a file SPSS may not open.
+MAX_STRING_BYTES: dict[str, int | None] = {"dta": None, "sav": 32767}
 #: 13 mangles Arabic and Swahili silently. Pinned rather than defaulted.
 DTA_VERSION = 15
 
 _NUMERIC_COMPONENTS = frozenset({"lat", "lon", "alt", "accuracy", "size"})
 _NUMERIC_TYPES = frozenset({"integer", "decimal", "boolean"})
 _NUMERIC_META = frozenset({"form_version", "instance_index"})
+
+
+class ValueTooLong(Exception):
+    """A value will not fit the format the caller asked for.
+
+    Refused rather than truncated, and refused rather than written and hoped
+    for. Truncating loses an answer to keep a file tidy, which is the failure
+    this module exists to prevent; writing it anyway produces a file the target
+    application may refuse to open, with nothing said. Neither is a trade this
+    exporter gets to make on a customer's behalf.
+
+    It names the formats that *can* hold the value, because that is the useful
+    half: CSV, XLSX and Stata all take it, so a refusal here costs an SPSS user
+    one flag rather than their data.
+    """
+
+    def __init__(self, column: str, found: int, limit: int, fmt: str) -> None:
+        works = ", ".join(
+            name for name in ("csv", "xlsx", "dta", "sav") if name != fmt
+        )
+        super().__init__(
+            f"`{column}` holds a value of {found:,} bytes and a {fmt} string "
+            f"holds at most {limit:,}. It is not truncated to fit — export this "
+            f"form as {works} instead, all of which hold it."
+        )
+        self.column = column
+        self.found = found
+        self.limit = limit
+        self.format = fmt
 
 
 class TypeChanged(Exception):
@@ -200,26 +252,31 @@ def _variable_label(column: Column) -> str | None:
     return label if len(label) <= LABEL_LIMIT else label[: LABEL_LIMIT - 1] + "…"
 
 
-def long_string_columns(
-    planned: Sequence[StatColumn], columns: Sequence[Column], rows: Sequence[Sequence[Cell]]
-) -> list[tuple[str, int]]:
-    """Columns holding a value longer than Stata's `str#` maximum.
+def check_string_lengths(
+    planned: Sequence[StatColumn],
+    rows: Sequence[Sequence[Cell]],
+    *,
+    fmt: str,
+) -> None:
+    """Refuse any value the format cannot hold. Measured in UTF-8 bytes.
 
-    Reported, never truncated. readstat writes them and reads them back intact;
-    whether Stata itself opens a `str#` longer than 2045 has not been checked
-    here, because there is no Stata in this environment to check with. Saying
-    that is the honest half — the alternative is a silently shortened answer.
+    Runs before a byte is written, so the refusal names the column rather than
+    arriving as a file that will not open. `.dta` has no limit to check: a value
+    over `STATA_STR_LIMIT_BYTES` becomes a `strL`, which holds 2 GB.
     """
-    found: list[tuple[str, int]] = []
+    limit = MAX_STRING_BYTES.get(fmt)
+    if limit is None:
+        return
     for index, stat in enumerate(planned):
         if stat.storage != "string":
             continue
-        longest = max(
-            (len(str(row[index])) for row in rows if row[index] is not None), default=0
-        )
-        if longest > STATA_STRING_LIMIT:
-            found.append((stat.name, longest))
-    return found
+        for row in rows:
+            cell = row[index]
+            if cell is None:
+                continue
+            found = len(str(cell).encode())
+            if found > limit:
+                raise ValueTooLong(stat.name, found, limit, fmt)
 
 
 def write_table(
@@ -228,6 +285,8 @@ def write_table(
     """One table as one file, with the types it declared and no others."""
     import pandas
     import pyreadstat
+
+    check_string_lengths(planned, table.rows, fmt=fmt)
 
     frame = pandas.DataFrame(
         {

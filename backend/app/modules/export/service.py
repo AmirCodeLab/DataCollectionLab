@@ -40,13 +40,18 @@ from app.modules.submissions.models import (
 from .manifest import build_manifest
 from .plan import build_plan
 from .shape import ChoiceLabels, Shape, SubmissionRecord, build_tables
-from .statistical import StatColumn, long_string_columns, plan_columns
+from .statistical import StatColumn, ValueTooLong, plan_columns
 from .writers import Bundle, Format, write_bundle
 
 #: Above this, an export is a job rather than a request. Held here rather than
 #: left implicit so the number is visible and can be argued with; item 5 has no
 #: job runner yet and a silent truncation would be the worst of both.
 DEFAULT_LIMIT = 5000
+
+
+#: Re-exported so a caller handles both refusals from one import. The check
+#: itself lives with the writer that knows each format's limits.
+__all__ = ["DEFAULT_LIMIT", "ExportTooLarge", "ValueTooLong", "export_form"]
 
 
 class ExportTooLarge(Exception):
@@ -147,15 +152,10 @@ async def export_form(
     # contain: a name has to fit Stata's 32 characters, and a column holding
     # ENCRYPTED cannot be numeric. CSV has neither constraint and passes None.
     stored: dict[str, Sequence[StatColumn]] | None = None
-    long_strings: list[tuple[str, int]] = []
     if fmt in ("dta", "sav"):
         stored = {
             table.name: plan_columns(table.columns, table.rows) for table in tables
         }
-        for table in tables:
-            long_strings.extend(
-                long_string_columns(stored[table.name], table.columns, table.rows)
-            )
 
     manifest = build_manifest(
         plan,
@@ -167,7 +167,6 @@ async def export_form(
         shape=shape,
         ciphertext_fields=openable,
         stored=stored,
-        long_strings=long_strings,
     )
     return write_bundle(tables, manifest, fmt=fmt, stored=stored)
 

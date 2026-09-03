@@ -42,3 +42,26 @@ class ExportTooLargeResponse(BaseModel):
     """413 from GET /exports/{formId}."""
 
     detail: ExportTooLarge
+
+
+class ExportValueTooLong(BaseModel):
+    """A value will not fit the format that was asked for.
+
+    Names the formats that *do* hold it, because that is what a caller acts on:
+    an SPSS user with one very long answer needs a different flag, not a
+    truncated file and not a 500.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    column: str = Field(description="the column in the file, as `storedAs` names it")
+    found: int = Field(description="the value's length in UTF-8 bytes")
+    limit: int = Field(description="the most this format's strings hold, in bytes")
+    format: ExportFormat
+    message: str
+
+
+class ExportValueTooLongResponse(BaseModel):
+    """409 from GET /exports/{formId}."""
+
+    detail: ExportValueTooLong

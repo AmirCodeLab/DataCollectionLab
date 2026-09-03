@@ -100,6 +100,8 @@ but it is not evidence either, and it should not be cited as though it were.
 | 65 | **`false` read back as `true`, in `.dta` and `.sav` only.** In `backend/app/modules/export/cells.py`, revert `parse`'s boolean branch to `str(cell) not in ("0", "False", "false")`. Not injected — that *was* the code, and extending the round trip to the statistical writers is what found it. | `test_a_long_export_reads_back_as_the_submissions_it_came_from[dta]` and `[sav]` fail; `[csv]` and `[xlsx]` **pass** — 2 failed of 21. That asymmetry is the whole finding. | A CSV hands back the text `0` and a `.dta` hands back the float `0.0`, and `str(0.0)` is not `"0"`. Every "no" in a boolean question became a "yes", in two of the four formats, with nothing on the face of the file to see. It is exactly the mistake item 5's third question predicted — a type that round-trips through CSV and not through Stata — and the round-trip invariant could only see it once it ran against the Stata writer. A suite that had stayed on CSV would have shipped it. | **Yes — 2026-09-03**, found rather than injected |
 | 66 | **The binary-response exemption, widened three ways.** Against `test_openapi_contract.py::test_every_success_response_names_a_schema`, now that `GET /exports/{formId}` returns a zip: (a) let the zip 200 offer `application/json` as well; (b) declare the zip body as `{"type": "object"}` instead of a byte stream; (c) the control — drop `response_model=EvaluateResponse` from `POST /forms/evaluate`, which the exemption must **not** have made legal. | Each fails with the route named. (a) *"offers both a binary and a JSON body (['application/json', 'application/zip']). One response, one shape."* (b) *"declares a zip body that is not a byte stream"*. (c) *"POST /api/v1/forms/evaluate → 200 returns an inline schema"* — break 11 still caught, with the exemption in place. Three breaks, three distinct messages, `cd backend && pytest tests/test_openapi_contract.py` | That an exemption stayed narrow. A file download genuinely has no fields to name, which is why the request side already exempts `application/octet-stream` — but an exemption is the usual way a guard stops guarding, and this one is written the same way as that one for that reason: one media type, declared binary, or it fails. (c) is the row that matters most: it is not a new guarantee, it is proof the old one survived the change. Note the media type is named rather than "anything not JSON", so the next binary response is a decision somebody makes rather than one that slips through. | **Yes — 2026-09-03**, all three |
 | 67 | **The export 413 declares the payload instead of the envelope.** In `backend/app/api/v1/exports.py`, declare `413: {"model": ExportTooLarge}` — the inner model — rather than `ExportTooLargeResponse`. | `test_every_declared_error_body_names_a_schema`, naming the route and the fields it found: *"declares `ExportTooLarge`, whose fields are ['found', 'limit', 'message']. FastAPI sends `{"detail": ...}`"* — 3 failed of 7. And the other half is a request, not a document: `test_export_binding.py::test_too_many_submissions_is_a_413_carrying_the_numbers` asserts the body the server actually sends has exactly `{"detail"}` at the top. | Break 13's guarantee on a new route, which is the point of re-running it: FastAPI wraps an `HTTPException`'s `detail` before it reaches the wire, so a declared payload is a contract for a body the server has never returned, and a generated client fails on the first refusal it meets. Worth noting the shape this route made easy to get wrong in a *second* way: `response_class` sets the documented media type for **every** declared response, so naming `ZipResponse` there publishes the 404 and the 413 as `application/zip`. The route declares the base `Response`, whose media type is None, so the refusals fall back to JSON — which is what they are. | **Yes — 2026-09-03** |
+| 68 | **The `.sav` string limit removed**, so readstat's silence is trusted again. In `backend/app/modules/export/statistical.py`, set `MAX_STRING_BYTES["sav"]` to None. | `test_export.py`: `test_a_long_answer_survives_a_dta_and_is_refused_by_a_sav` and `test_the_string_limit_is_counted_in_bytes_and_not_characters` — 2 failed of 24 | SPSS's documented maximum for a string variable is 32,767 bytes and readstat writes past it without a word, exactly as it writes a `.dta` variable name Stata refuses: the library implements the format it can and leaves the application's rules to the caller. The alternatives to refusing are both worse — truncating loses an answer to keep a file tidy, and writing it anyway produces a file SPSS may not open, silently. The refusal names the formats that *do* hold the value, so it costs an SPSS user one flag rather than their data. Note the `.dta` half needs no limit at all, and that is measured rather than assumed: over 2,045 bytes readstat writes a `strL`, which `test_statistical_writers.py` asserts by reading the type code out of `<variable_types>`. | **Yes — 2026-09-03** |
+| 69 | **The string length counted in characters instead of bytes.** In `statistical.check_string_lengths`, change `len(str(cell).encode())` to `len(str(cell))`. | `test_the_string_limit_is_counted_in_bytes_and_not_characters` — 1 failed of 24, and **only** that one. The ASCII case passes either way, which is the finding. | Both formats size a string in bytes, and 20,000 Arabic characters are 40,000 of them — under the limit counted one way and over it counted the other. A character-counted check waves through exactly the case this product meets first, which is why the test is Arabic and not a long run of `s`. This is the third time the byte/character distinction has decided something in this repository (§3.1's exact key matching, the `.dta` `str#` sizing, and now this). | **Yes — 2026-09-03** |
 
 ## What is not on this list
 
@@ -138,3 +140,33 @@ reported "nothing leaked" about a channel it could not observe.
 `web/src/test/harness.test.ts` exists for that reason. It writes to every sink
 `watchForEscapes` claims to watch and asserts each one is recorded. When a row
 in this register is a negative, check the instrument before trusting the green.
+
+## A note on the method
+
+**Confirm the break is actually in the file before believing either result.**
+This is not fussiness; it is the assumption every row above rests on. A break
+that never landed produces a green run that reads exactly like a caught
+regression reads like a red one — and the green is the dangerous direction,
+because it is recorded as "the guard held" when nothing was tested at all.
+
+It has already happened once here. Break 66's control was "drop
+`response_model=EvaluateResponse` from `POST /forms/evaluate` and confirm the
+contract guard still fails" — the half that proves an exemption did not widen
+the guard. It reported **7 passed**, which was read for a moment as the guard
+holding. It was not: the edit had matched nothing, because the decorator is on
+one line and the replacement expected it on its own line. Applied properly the
+run fails and names the route.
+
+So, before running the command in **Caught by**:
+
+- `git diff` the file, or grep for the changed text, and see the break.
+- Prefer an edit that **fails loudly when it does not match** — a script that
+  asserts the text changed, rather than a `sed` or a replace that silently
+  matches nothing.
+- Treat an unexpected pass as "the break did not land" until the diff says
+  otherwise. That is the likelier explanation, and it is the one that costs
+  nothing to rule out.
+
+The same care applies to a break that fails for the *wrong reason* — an import
+error, a typo, a fixture that never ran. Read the assertion message, not just
+the exit code. A row is only worth what the failure it names actually says.

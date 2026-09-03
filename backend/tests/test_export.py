@@ -35,7 +35,7 @@ from app.modules.export.manifest import WIDE_POSITION_NOTE, build_manifest
 from app.modules.export.plan import build_plan
 from app.modules.export.readback import NotRoundTrippable, read_bundle
 from app.modules.export.shape import SubmissionRecord, build_tables
-from app.modules.export.statistical import long_string_columns, plan_columns
+from app.modules.export.statistical import plan_columns
 from app.modules.export.writers import Format, write_bundle
 from app.modules.form_engine.projection import project_for_export
 from app.modules.form_engine.runtime import CompiledForm
@@ -250,13 +250,8 @@ def bundle_of(
     plan = build_plan(forms)
     tables = build_tables(plan, records, shape=shape, base_name="household")  # type: ignore[arg-type]
     stored = None
-    long_strings: list[tuple[str, int]] = []
     if fmt in ("dta", "sav"):
         stored = {t.name: plan_columns(t.columns, t.rows) for t in tables}
-        for table in tables:
-            long_strings.extend(
-                long_string_columns(stored[table.name], table.columns, table.rows)
-            )
     manifest = build_manifest(
         plan,
         tables,
@@ -267,7 +262,6 @@ def bundle_of(
         shape=shape,  # type: ignore[arg-type]
         ciphertext_fields=ciphertext_fields or {},
         stored=stored,
-        long_strings=long_strings,
     )
     return write_bundle(tables, manifest, fmt=fmt, stored=stored)
 
@@ -925,3 +919,70 @@ def test_a_date_is_stored_natively_and_a_datetime_is_not() -> None:
     assert read["sub_when"].top["interview_date"] == "2026-09-03"
     assert read["sub_when"].top["visited_at"] == "2026-09-03T09:25:13+03:00"
 
+
+def test_a_long_answer_survives_a_dta_and_is_refused_by_a_sav() -> None:
+    """Each format's own maximum, decided here rather than left to the library.
+
+    A `.dta` promotes anything over 2,045 bytes to a `strL` and holds it whole,
+    so a long remark is fine. A `.sav` cannot exceed SPSS's 32,767 bytes, and
+    readstat will write past that without a word — so the exporter refuses,
+    naming the column and the formats that do hold it. Truncating to fit would
+    lose an answer to keep a file tidy; writing it anyway produces a file SPSS
+    may not open, silently. Neither is this exporter's trade to make.
+    """
+    from app.modules.export.statistical import ValueTooLong
+
+    form = CompiledForm(household_ir())
+    long_remark = record(
+        "sub_essay",
+        [set_op("remarks", "s" * 40000), Op("finalize")],
+        form=form,
+    )
+
+    read = read_bundle(bundle_of([long_remark], [form], fmt="dta"))
+    assert read["sub_essay"].top["remarks"] == "s" * 40000
+
+    with pytest.raises(ValueTooLong, match="32,767") as refused:
+        bundle_of([long_remark], [form], fmt="sav")
+    assert refused.value.column == "remarks"
+    assert refused.value.found == 40000
+    # The useful half of a refusal: what to do instead.
+    assert "dta" in str(refused.value)
+
+
+def test_the_string_limit_is_counted_in_bytes_and_not_characters() -> None:
+    """20,000 Arabic characters are 40,000 bytes, and the format counts bytes.
+
+    A character-counted check waves this straight through and produces the
+    out-of-spec `.sav` the byte check exists to prevent. This platform is RTL
+    and Swahili from the start, so it is the ordinary case and not an edge one.
+    """
+    from app.modules.export.statistical import ValueTooLong
+
+    form = CompiledForm(household_ir())
+    arabic = record(
+        "sub_arabic",
+        [set_op("remarks", "ش" * 20000), Op("finalize")],
+        form=form,
+    )
+    assert len("ش" * 20000) == 20000, "under SPSS's limit if you count characters"
+    assert len(("ش" * 20000).encode()) == 40000, "over it in the bytes it stores"
+
+    with pytest.raises(ValueTooLong) as refused:
+        bundle_of([arabic], [form], fmt="sav")
+    assert refused.value.found == 40000
+
+    # …and the .dta takes it, because a strL is 2 GB.
+    read = read_bundle(bundle_of([arabic], [form], fmt="dta"))
+    assert read["sub_arabic"].top["remarks"] == "ش" * 20000
+
+
+def test_the_manifest_states_both_string_limits() -> None:
+    """An export that quietly cannot hold something must say so on its face."""
+    from app.modules.export.manifest import STRING_LIMIT_NOTE
+
+    form = CompiledForm(household_ir())
+    one = record("sub_note", [set_op("remarks", "short"), Op("finalize")], form=form)
+
+    assert STRING_LIMIT_NOTE in bundle_of([one], [form], fmt="dta").manifest.notes
+    assert STRING_LIMIT_NOTE not in bundle_of([one], [form], fmt="csv").manifest.notes

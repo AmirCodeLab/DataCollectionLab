@@ -338,25 +338,40 @@ question, answered with that exact word, in a project where the column is not
 encrypted — and because the manifest already answers it for anyone who reads it.
 Revisit if a real form hits it.
 
-## 12. A Stata `str#` longer than 2,045 characters is written and unverified
+## Closed
 
-Stata's `str#` type maxes out at 2,045 characters. `pyreadstat` writes a longer
-value without complaint and reads it back intact — measured, 40,000 characters,
-both `.dta` and `.sav`. Whether **Stata itself** opens that file has not been
-checked, because there is no Stata in this environment to check with.
+A defect leaves this file when it is fixed, or when it is decided to be
+permanent and moves into `docs/project-conventions.md` as a documented limitation. There is a
+third way, and it needs recording too: the defect was never real. Deleting the
+row silently would leave the next person free to re-derive the same wrong worry.
 
-**What a customer sees.** Possibly nothing: most answers are far short of it.
-The realistic sources are a long free-text remark and a `geoshape`, which
-exports as JSON in one column.
+### 12. A Stata `str#` over 2,045 characters — **withdrawn, the premise was wrong**
 
-**Why it is still open.** The alternatives are worse and the risk is unmeasured.
-Truncating the value to fit would silently shorten an answer, which is the exact
-class of failure the whole export design is built against. Refusing to export
-the column would block a customer over a value that may well be fine. So it is
-written whole, `export/statistical.py` reports every column that exceeds the
-limit, and the manifest carries a note naming the column and its longest value —
-including the sentence that it has not been verified against Stata.
+Recorded 2026-09-03 as "written whole and unverified, because there is no Stata
+in this environment to open it with". That was not a limitation of the
+environment; it was a question I had not asked properly.
 
-Closing this needs one thing that is not code: a `.dta` with a 3,000-character
-string opened in a real Stata. If it fails, the fix is `strL`, which readstat
-may or may not emit; that is the next question, not the first.
+**What was actually true.** Reading the bytes rather than the library settles
+it in one line: a `.dta` encodes each variable's type as a uint16 in
+`<variable_types>`, and over 2,045 **bytes** readstat writes `32768` — a Stata
+`strL`, which holds 2 GB. Nothing is out of spec and nothing is truncated. A
+40,000-byte remark round-trips whole. `test_statistical_writers.py` asserts the
+type code so a future readstat that stopped doing this fails a build.
+
+**What the wrong worry was hiding.** Two real things, both found by asking the
+question properly:
+
+- **SPSS, not Stata, is where the limit bites.** readstat wrote 40,000 bytes
+  into a `.sav` past SPSS's documented 32,767-byte maximum without a word — the
+  same shape as its writing a `.dta` variable name Stata refuses. That is now
+  enforced by `statistical.MAX_STRING_BYTES` and refused rather than truncated
+  or written out of spec.
+- **The check has to be in bytes.** Both formats size a string in bytes, and
+  20,000 Arabic characters are 40,000 of them. The original row said
+  "characters", and a character-counted check would wave straight through the
+  case this product meets first. Break 69.
+
+The lesson worth keeping is the one `known-breaks.md`'s method note now carries
+in a different form: "I cannot check this here" is sometimes true and is often
+a question asked at the wrong level. There was no Stata, and there did not need
+to be — the file format is a published specification and the bytes were on disk.

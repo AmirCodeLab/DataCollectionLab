@@ -381,7 +381,7 @@
           "exports"
         ],
         "summary": "Export Form",
-        "description": "One form's submissions as a zip of tables plus a manifest.\n\n`formId` is the wire form key an op carries, the same value that filters\n`GET /submissions`, not the form row id.\n\nEach submission is read through the form version it was collected under and\nits codes named through that version's dataset pins, so an export spanning\ntwo versions is correct about both — there is no parameter here that selects\na version, and that is deliberate (Form IR §9, §3.2).\n\n**Read the manifest before writing an analysis against the columns.** It\nnames every column that can carry the `ENCRYPTED` token and which project\nkeys open it, every column shortened to fit Stata's 32 characters, and every\ncolumn stored as text that would otherwise be numeric.\n\n**413 means the filter selected more than this endpoint will do in one\nrequest**, and the fix is to narrow it by status or environment. It is a\ndistinct code rather than a 422 because 422 belongs to the framework and\nmeans the request did not match the schema; this request matched it and\nasked for too much.",
+        "description": "One form's submissions as a zip of tables plus a manifest.\n\n`formId` is the wire form key an op carries, the same value that filters\n`GET /submissions`, not the form row id.\n\nEach submission is read through the form version it was collected under and\nits codes named through that version's dataset pins, so an export spanning\ntwo versions is correct about both — there is no parameter here that selects\na version, and that is deliberate (Form IR §9, §3.2).\n\n**Read the manifest before writing an analysis against the columns.** It\nnames every column that can carry the `ENCRYPTED` token and which project\nkeys open it, every column shortened to fit Stata's 32 characters, and every\ncolumn stored as text that would otherwise be numeric.\n\n**413 means the filter selected more than this endpoint will do in one\nrequest**, and the fix is to narrow it by status or environment. It is a\ndistinct code rather than a 422 because 422 belongs to the framework and\nmeans the request did not match the schema; this request matched it and\nasked for too much.\n\n**409 means this form's data will not fit the format asked for** — in\npractice, an answer longer than SPSS's 32,767-byte maximum for a `sav`. The\nbody names the column and the formats that do hold it. It is a refusal\nrather than a truncated file: shortening an answer to fit would be silent\ndata loss, and writing it anyway produces a file SPSS may not open.",
         "operationId": "export_form_api_v1_exports__form_id__get",
         "parameters": [
           {
@@ -514,6 +514,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportValueTooLongResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "413": {
             "content": {
@@ -2672,6 +2682,55 @@
         ],
         "title": "ExportTooLargeResponse",
         "description": "413 from GET /exports/{formId}."
+      },
+      "ExportValueTooLong": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "the column in the file, as `storedAs` names it"
+          },
+          "found": {
+            "type": "integer",
+            "title": "Found",
+            "description": "the value's length in UTF-8 bytes"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "the most this format's strings hold, in bytes"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ExportFormat"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "found",
+          "limit",
+          "format",
+          "message"
+        ],
+        "title": "ExportValueTooLong",
+        "description": "A value will not fit the format that was asked for.\n\nNames the formats that *do* hold it, because that is what a caller acts on:\nan SPSS user with one very long answer needs a different flag, not a\ntruncated file and not a 500."
+      },
+      "ExportValueTooLongResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ExportValueTooLong"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ExportValueTooLongResponse",
+        "description": "409 from GET /exports/{formId}."
       },
       "FieldSnapshot": {
         "properties": {
