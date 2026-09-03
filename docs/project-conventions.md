@@ -380,6 +380,8 @@ python scripts/export_submissions.py household --format sav    # SPSS
 #     deterministically; a column holding ENCRYPTED is stored as TEXT because a
 #     numeric column cannot carry it. Both are printed and both are per column
 #     in the manifest — read it before writing a do-file against the columns
+# …and the same thing over HTTP, which is what the console uses:
+#   GET /api/v1/exports/{formId}?format=dta&shape=long   -> a zip
 #   long (default): parent file + one per repeat, keyed (submission_id,
 #     instance_id) — the STABLE id, never a position
 #   wide: one row per submission, repeats flattened positionally. Offered
@@ -1298,6 +1300,37 @@ because without one Excel reads it as the system code page and a product that is
 RTL and Swahili from the start cannot ship an export that is mojibake on a
 double-click.
 
+#### The route, and the one exemption it needed
+
+`GET /api/v1/exports/{formId}` — `format`, `shape`, `language`, `status`,
+`projectId`, `environmentId`, `limit`. Always a zip, even for a form with no
+repeats: a bundle is several files and one shape is better than a branch on how
+many repeats a form happens to have.
+
+A zip is the **only** non-JSON 2xx body in this API, and
+`test_every_success_response_names_a_schema` requires a `$ref` under
+`application/json` for every success response — rightly, because a route whose
+body FastAPI has to infer publishes an object with no fields. So the exemption
+is written exactly as the request side's `application/octet-stream` one is:
+**one media type, declared binary, or it fails.** The media type is named rather
+than "anything not JSON", so the next binary response is a decision somebody
+makes. Break 66 widens it three ways, including the control — a JSON route that
+drops its `response_model` still fails, which is the half that matters.
+
+Two things about it worth not rediscovering:
+
+- **The route declares the base `Response`, not `ZipResponse`.** FastAPI
+  documents every `responses` entry under the route class's media type, so
+  naming `ZipResponse` publishes the 404 and the 413 as `application/zip` —
+  bodies this server has never sent, which is break 13 by another road. With no
+  media type on the class the 200 is only what the route declares and the
+  refusals fall back to JSON, which is what they are.
+- **413, not 422.** 422 belongs to the framework and means the request did not
+  match the schema; this request matched it and asked for too much. The body is
+  the `{"detail": {found, limit, message}}` envelope — declared as the envelope,
+  and asserted against a real request as well as against the document, because
+  only one of those two can tell you what the server sends.
+
 #### Stata and SPSS, and what the formats decide for you
 
 `export/statistical.py`. The question docs/project-conventions.md flagged was asked **first**, as a
@@ -1382,14 +1415,6 @@ manifests state it.
 
 **Not done, and named rather than implied:**
 
-- **No HTTP route yet.** The exporter runs from `scripts/export_submissions.py`,
-  which is enough for a self-hosted install and is not enough for the console
-  (rule 9). The route is blocked on a decision rather than on work: a bundle is
-  a zip, and `test_openapi_contract.py::test_every_success_response_names_a_schema`
-  requires a `$ref` under `application/json` for every 2xx. That guard is right
-  and the exemption it would need is the narrow one the request side already
-  has for `application/octet-stream` — deliberate, in its own commit, with a
-  break recorded, not slipped in beside a feature.
 - **No per-option indicator columns for `select_multiple`.** Codes are
   space-joined (the XLSForm convention) and labels joined by ` | `. A
   `crops_maize` / `crops_beans` set of 0/1 columns is what some analyses want

@@ -17,6 +17,11 @@ The third thing here needs a database too: what an **unreadable** value exports
 as, and which project keys open it. The token is a value; the key ids are what
 turn "you have a problem" into "ask whoever holds `pk_alpha`".
 
+The HTTP route is here too rather than in a file of its own, because it needs
+this exact seed and a second scratch database is a second minute of migrations
+in every CI run. What it adds is the thing no contract check can assert: that
+the body a refusal actually sends is the body the document declares.
+
 `db`-marked: the bindings *are* joins, so there is nothing to test without one.
 """
 
@@ -437,3 +442,113 @@ def test_a_stata_export_reaches_the_same_answers_through_the_same_pins(
     assert described["income"].declared_storage_type == "numeric"
     assert described["income"].openable_by == (KEY_ALPHA, KEY_BETA)
     assert described["form_version"].storage_type == "numeric"
+
+
+# ---------------------------------------------------------------------------
+# Over HTTP. `GET /api/v1/exports/{formId}` — the route the console will use.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def export_api(export_db: str) -> Any:
+    """The real app, with its session pointed at this module's database."""
+    from app.api.deps import get_db
+    from app.main import app
+
+    async def scratch_db() -> AsyncIterator[Any]:
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        # One engine per request: each test runs in its own event loop, and
+        # pooled asyncpg connections cannot cross loops.
+        engine = create_async_engine(export_db)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    app.dependency_overrides[get_db] = scratch_db
+    yield app
+    app.dependency_overrides.pop(get_db, None)
+
+
+def _get(app: Any, url: str) -> Any:
+    import httpx
+
+    async def main() -> Any:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.get(url)
+
+    return asyncio.run(main())
+
+
+def test_the_route_returns_a_zip_a_browser_will_save(export_api: Any) -> None:
+    """A bundle is several files, so it is always a zip — even holding one table.
+
+    One shape, no branch on how many repeats a form happens to have. The
+    filename is what a browser saves it as, so it names the form, the shape and
+    the format rather than being `download.zip` in everybody's downloads folder.
+    """
+    import io
+    import zipfile
+
+    response = _get(export_api, "/api/v1/exports/roster")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    assert "roster-long-csv.zip" in response.headers["content-disposition"]
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert "roster.csv" in archive.namelist()
+    assert "manifest.json" in archive.namelist()
+
+
+def test_the_format_and_shape_asked_for_are_the_ones_returned(export_api: Any) -> None:
+    import io
+    import zipfile
+
+    response = _get(export_api, "/api/v1/exports/roster?format=dta&shape=wide")
+
+    assert response.status_code == 200, response.text
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert archive.namelist() == ["roster.dta", "manifest.json"]
+    assert "roster-wide-dta.zip" in response.headers["content-disposition"]
+
+
+def test_an_unknown_form_is_a_404_in_the_envelope_the_document_declares(
+    export_api: Any,
+) -> None:
+    response = _get(export_api, "/api/v1/exports/nope")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"detail": "form not found"}
+
+
+def test_too_many_submissions_is_a_413_carrying_the_numbers(export_api: Any) -> None:
+    """The refusal body is the one the contract declares, fields and all.
+
+    This is what a contract check cannot do. `test_openapi_contract.py` asserts
+    the document says `{"detail": {found, limit, message}}`; only a request can
+    say whether the server sends it. Declaring the payload instead of the
+    envelope publishes a body the server has never returned, and a generated
+    client then fails on the first refusal it meets — break 13, which happened.
+
+    413 rather than 422: 422 belongs to the framework and means the request did
+    not match the schema. This one matched it and asked for too much.
+    """
+    response = _get(export_api, "/api/v1/exports/roster?limit=1")
+
+    assert response.status_code == 413
+    body = response.json()
+    assert set(body) == {"detail"}, body
+    assert body["detail"]["found"] == 2
+    assert body["detail"]["limit"] == 1
+    assert "narrow it" in body["detail"]["message"].lower()
+
+
+def test_a_bad_format_is_the_frameworks_422_and_not_ours(export_api: Any) -> None:
+    """The one status this API does not choose. `422` means "did not match"."""
+    response = _get(export_api, "/api/v1/exports/roster?format=parquet")
+    assert response.status_code == 422

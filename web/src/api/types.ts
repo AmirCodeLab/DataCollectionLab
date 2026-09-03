@@ -239,6 +239,33 @@ export interface EvaluateResponse {
   answers: Record<string, unknown>;
 }
 
+export const EXPORT_FORMATS = ["csv", "xlsx", "dta", "sav"] as const;
+
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+export const EXPORT_SHAPES = ["long", "wide"] as const;
+
+export type ExportShape = (typeof EXPORT_SHAPES)[number];
+
+/**
+ * More submissions than one synchronous export will do.
+ *
+ * Carries the numbers rather than only prose, because the useful thing a
+ * console can do with this is say how much to narrow by.
+ */
+export interface ExportTooLarge {
+  /** submissions the filter selected */
+  found: number;
+  /** the most this endpoint will export at once */
+  limit: number;
+  message: string;
+}
+
+/** 413 from GET /exports/{formId}. */
+export interface ExportTooLargeResponse {
+  detail: ExportTooLarge;
+}
+
 /**
  * One field after recalculation — `FieldState.to_dict()` in the engine.
  *
