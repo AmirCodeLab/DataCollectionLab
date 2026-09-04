@@ -1,0 +1,155 @@
+{
+  "id": "dataset-003",
+  "description": "An equality filter becomes a selector: the list narrows and only matching rows are asked for",
+  "spec": "3.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds3",
+    "version": 1,
+    "title": {
+      "en": "ds3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "region",
+        "dataType": "select_one",
+        "label": {
+          "en": "Region"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "regions",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      },
+      {
+        "type": "question",
+        "id": "district",
+        "dataType": "select_one",
+        "label": {
+          "en": "District"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "districts",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          },
+          "filter": {
+            "op": "eq",
+            "args": [
+              {
+                "op": "ref",
+                "path": "$row.region_id"
+              },
+              {
+                "op": "ref",
+                "path": "region"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "choices": {
+          "district": []
+        },
+        "selector": {
+          "district": {
+            "region_id": null
+          }
+        },
+        "candidates": {
+          "district": 0
+        },
+        "scans": {
+          "district": false
+        }
+      }
+    },
+    {
+      "set": {
+        "region": "TZ01"
+      },
+      "expect": {
+        "choices": {
+          "district": [
+            "D01",
+            "D02"
+          ]
+        },
+        "selector": {
+          "district": {
+            "region_id": "TZ01"
+          }
+        },
+        "candidates": {
+          "district": 2
+        }
+      }
+    },
+    {
+      "set": {
+        "region": "TZ02"
+      },
+      "expect": {
+        "choices": {
+          "district": [
+            "D03"
+          ]
+        },
+        "candidates": {
+          "district": 1
+        }
+      }
+    }
+  ],
+  "datasets": {
+    "regions": [
+      {
+        "name": "TZ01",
+        "label": "Arusha"
+      },
+      {
+        "name": "TZ02",
+        "label": "Kilimanjaro"
+      }
+    ],
+    "districts": [
+      {
+        "name": "D01",
+        "label": "Arusha Mjini",
+        "region_id": "TZ01",
+        "urban": "yes"
+      },
+      {
+        "name": "D02",
+        "label": "Arusha Vijijini",
+        "region_id": "TZ01",
+        "urban": "no"
+      },
+      {
+        "name": "D03",
+        "label": "Moshi",
+        "region_id": "TZ02",
+        "urban": "yes"
+      }
+    ]
+  }
+}

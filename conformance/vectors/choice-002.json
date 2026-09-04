@@ -1,0 +1,97 @@
+{
+  "id": "choice-002",
+  "description": "A select_one value outside its list is a `choice` error",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "choice2",
+    "version": 1,
+    "title": {
+      "en": "choice2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "gender",
+        "dataType": "select_one",
+        "label": {
+          "en": "Gender"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "male",
+              "label": {
+                "en": "Male"
+              }
+            },
+            {
+              "value": "female",
+              "label": {
+                "en": "Female"
+              }
+            }
+          ]
+        },
+        "required": true
+      },
+      {
+        "type": "question",
+        "id": "symptoms",
+        "dataType": "select_multiple",
+        "label": {
+          "en": "Symptoms"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "fever",
+              "label": {
+                "en": "Fever"
+              }
+            },
+            {
+              "value": "cough",
+              "label": {
+                "en": "Cough"
+              }
+            },
+            {
+              "value": "rash",
+              "label": {
+                "en": "Rash"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "gender": "purple"
+      },
+      "expect": {
+        "valid": {
+          "gender": false
+        },
+        "errors": {
+          "gender": [
+            "choice"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

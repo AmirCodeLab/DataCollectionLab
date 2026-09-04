@@ -2,6 +2,8 @@ package com.dcp.core.sync
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.dcp.core.db.DcpDatabase
+import com.dcp.form.CompiledForm
+import com.dcp.form.FormIr
 import com.dcp.form.FormValue
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -20,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 
@@ -56,6 +59,14 @@ class SyncE2ETest {
             "jdbc:sqlite:${dbFile.absolutePath}", Properties(), DcpDatabase.Schema,
         )
         return SubmissionStore(DcpDatabase(driver), deviceIdOverride = deviceId)
+    }
+
+    /** A store and a form store over ONE database, as the app builds them. */
+    private fun fileDatabase(): DcpDatabase {
+        val dbFile = File.createTempFile("dcp-e2e-forms", ".db").apply { deleteOnExit() }
+        return DcpDatabase(
+            JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", Properties(), DcpDatabase.Schema)
+        )
     }
 
     private fun httpClient() = HttpClient(CIO) {
@@ -111,7 +122,7 @@ class SyncE2ETest {
                 }
             }
             val interrupted = SyncClient(
-                store, baseUrl,
+                store, fixedServerConfig(baseUrl),
                 SyncConfig(batchSize = 25, maxAttempts = 1), httpClient = dying,
             ).syncOnce()
 
@@ -122,7 +133,7 @@ class SyncE2ETest {
 
             // Recovery with a healthy client: the outbox drains completely...
             val recovered = SyncClient(
-                store, baseUrl, SyncConfig(batchSize = 25), httpClient = httpClient(),
+                store, fixedServerConfig(baseUrl), SyncConfig(batchSize = 25), httpClient = httpClient(),
             ).syncOnce()
             assertNull(recovered.error)
             assertEquals(60, recovered.pushedOps)
@@ -159,7 +170,7 @@ class SyncE2ETest {
         }
 
         val result = SyncClient(
-            store, baseUrl, SyncConfig(),
+            store, fixedServerConfig(baseUrl), SyncConfig(),
             deviceInfo = DeviceInfo("desktop", osVersion = "e2e", appVersion = "e2e"),
             httpClient = httpClient(),
         ).syncOnce()
@@ -184,7 +195,7 @@ class SyncE2ETest {
         val cursorBefore = store.syncStatus().pullCursor
 
         val result = SyncClient(
-            store, "http://localhost:59999", // nothing listens here
+            store, fixedServerConfig("http://localhost:59999"), // nothing listens here
             SyncConfig(maxAttempts = 2, baseDelayMs = 1), httpClient = httpClient(),
         ).syncOnce()
 
@@ -192,5 +203,66 @@ class SyncE2ETest {
         assertEquals(1, store.pendingCount().toInt())
         assertEquals(cursorBefore, store.syncStatus().pullCursor)
         assertNotNull(store.syncStatus().lastError)
+    }
+
+    /**
+     * Form delivery, against the real server (sync §5).
+     *
+     * The one thing that could not happen before this existed: a form published
+     * on a server arriving on a device that had never seen it. Everything else
+     * about delivery is covered by `FormDeliveryTest` against a mock; this is
+     * the assertion that the two halves — a real manifest and a real IR
+     * document — fit together over HTTP, and that what comes back off the wire
+     * actually compiles.
+     *
+     * Needs `scripts/seed_dev.py` to have run, which publishes household_survey
+     * v1 AND deploys it. Publishing alone would leave this correctly empty.
+     */
+    @Test
+    fun `a device with no forms is delivered the ones its environment deploys`() = runBlocking {
+        assumeTrue("no DCP backend at $baseUrl", serverUp())
+
+        val db = fileDatabase()
+        // A fresh device id each run: this test pushes nothing, but it does
+        // register, and registration is the same idempotent call either way.
+        val deviceId = "dev-e2e-forms-" + System.currentTimeMillis()
+        val store = SubmissionStore(db, deviceIdOverride = deviceId)
+        val forms = FormStore(db)
+
+        assertEquals(emptyList(), forms.all(), "a fresh device starts with no forms at all")
+
+        val result = SyncClient(store, fixedServerConfig(baseUrl), httpClient = httpClient(), forms = forms).syncOnce()
+
+        assertNull(result.error)
+        assertNull(result.formError)
+
+        val delivered = forms.startable()
+        assertTrue(
+            delivered.isNotEmpty(),
+            "the server deployed no forms to this device's environment — has " +
+                "scripts/seed_dev.py been run against this database?",
+        )
+
+        // The document survived the round trip well enough to compile, which is
+        // the only test of delivery that matters: a form that arrives and will
+        // not compile has not been delivered, it has been corrupted.
+        val household = assertNotNull(
+            delivered.firstOrNull { it.formId == "household_survey" },
+            "expected the seeded household_survey; got ${delivered.map { it.formId }}",
+        )
+        val compiled = CompiledForm(FormIr.parse(household.irJson))
+        assertEquals("household_survey", compiled.formId)
+        assertTrue(compiled.fields.isNotEmpty(), "a delivered form with no fields is not a form")
+
+        // A second sync must fetch nothing: the checksum comparison is what
+        // keeps a sync cheap, and it only demonstrably works against a real
+        // server's real checksums.
+        val second = SyncClient(store, fixedServerConfig(baseUrl), httpClient = httpClient(), forms = forms).syncOnce()
+        assertNull(second.error)
+        assertEquals(
+            0, second.fetchedForms,
+            "the device already holds these versions; re-downloading them would " +
+                "spend the bandwidth the manifest split exists to save",
+        )
     }
 }

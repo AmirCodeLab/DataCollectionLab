@@ -80,10 +80,53 @@ kotlin {
             @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
             implementation(compose.uiTest)
             implementation(compose.desktop.currentOs)
+            // A real local database, so the form-version binding can be tested
+            // against the same stores the app builds rather than against fakes
+            // that would agree with whatever the code does.
+            implementation(libs.sqldelight.sqlite.driver)
         }
     }
 }
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
+}
+/*
+ * `CollectableTypesTest` reads two committed files from `specs/` at run time —
+ * the collectable-types registry and the Form IR spec's dataType table. Gradle
+ * cannot see that, so without this the test task is UP-TO-DATE (or FROM-CACHE)
+ * after an edit to either, and the build goes green having run nothing.
+ *
+ * That was observed, not feared: removing `select_multiple` from the registry
+ * and re-running produced `> Task :clients:composeApp:jvmTest FROM-CACHE` and
+ * BUILD SUCCESSFUL, while the same edit with `--rerun-tasks` failed the test it
+ * was supposed to fail. A stale green on a mirror test is the same failure the
+ * suites guard exists for: paperwork over nothing.
+ *
+ * Declaring them as inputs makes an edit to either file re-run the tests that
+ * read it.
+ */
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    // The whole directory rather than named files: a new spec file must not
+    // need a build change before a test that reads it is re-run, which is the
+    // same mistake one level up.
+    inputs.dir(rootProject.layout.projectDirectory.dir("specs"))
+        .withPropertyName("normativeSpecs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(
+        // The other half of the mirror. CollectableTypesTest asserts this file
+        // exists and still reads the registry, so deleting it must re-run the
+        // test — and this line is the only reason it does.
+        rootProject.layout.projectDirectory.file("backend/tests/test_collectable_types.py"),
+    )
+        .withPropertyName("crossModuleTestInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // The hazard this whole block guards against recurs whenever a test learns
+    // to read a new file outside its own module: the read is easy to add and
+    // the input declaration is easy to forget, and the symptom is a green build
+    // that ran nothing. It has now happened twice here — once for the registry
+    // and once, immediately afterwards, for the line above. If a test in this
+    // module starts reading something else from the repository, it belongs in
+    // this list on the same commit.
 }

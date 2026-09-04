@@ -1,0 +1,68 @@
+{
+  "id": "dataset-002",
+  "description": "A value not in the dataset is a choice error, exactly as for an inline list",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "ds2",
+    "version": 1,
+    "title": {
+      "en": "ds2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "region",
+        "dataType": "select_one",
+        "label": {
+          "en": "Region"
+        },
+        "choices": {
+          "kind": "dataset",
+          "dataset": "regions",
+          "valueColumn": "name",
+          "labelColumn": {
+            "en": "label"
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "region": "TZ99"
+      },
+      "expect": {
+        "valid": {
+          "region": false
+        },
+        "errors": {
+          "region": [
+            "choice"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ],
+  "datasets": {
+    "regions": [
+      {
+        "name": "TZ01",
+        "label": "Arusha"
+      },
+      {
+        "name": "TZ02",
+        "label": "Kilimanjaro"
+      }
+    ]
+  }
+}

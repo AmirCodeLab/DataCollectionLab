@@ -146,12 +146,147 @@ data class WirePulledOp(
     val serverSeq: Long,
 )
 
+/**
+ * One entry of the form manifest (sync §5, `scope=forms`). Names a version and
+ * what it hashes to; the document itself is fetched separately, so a pull costs
+ * a few hundred bytes rather than every form on the phone.
+ */
+@Serializable
+data class WireDeployedFormVersion(
+    val formVersionId: String,
+    val formId: String,
+    val version: Int,
+    val title: String,
+    val irChecksum: String,
+    val deployedAt: String,
+)
+
 @Serializable
 data class WirePullResponse(
     val ops: List<WirePulledOp> = emptyList(),
     // Tombstones are carried but not applied yet — repeat/submission deletion
     // has no local handling in this slice.
     val tombstones: List<JsonElement> = emptyList(),
+    // Null and empty are DIFFERENT answers, which is why this is nullable
+    // rather than defaulted to an empty list.
+    //
+    // Null: the field was absent — this request did not ask for `scope=forms`,
+    // or the server predates form delivery. Nothing has been said about this
+    // device's forms and the device must leave them exactly as they are.
+    //
+    // Empty: the server answered, and this environment deploys nothing. That is
+    // a real statement and the device acts on it.
+    //
+    // Collapsing the two would mean either undeploying every form on the device
+    // whenever it syncs against an older server, or never being able to notice a
+    // project that withdrew its last form.
+    val forms: List<WireDeployedFormVersion>? = null,
+    // Nullable for exactly the reason `forms` is, and the consequence of
+    // collapsing it is worse. Null: nothing was said about this device's
+    // datasets. Empty: the server answered and this device's forms reference
+    // none — an instruction to drop the lists it holds.
+    //
+    // A client that read a silent server as "none" would delete a 38,000-row
+    // village list because it synced against an older build, and the next sync
+    // would spend a morning fetching it back. That is the stale-dataset failure
+    // with the sign flipped and it is just as quiet.
+    val datasets: List<WireDeployedDatasetVersion>? = null,
     val nextCursor: Long,
     val hasMore: Boolean = false,
 )
+
+/** One entry of the dataset manifest (`GET /sync/pull?scope=datasets`). */
+@Serializable
+data class WireDeployedDatasetVersion(
+    // The pin is per form version, not per dataset: two versions of a form can
+    // be deployed at once and may name different versions of the same list.
+    val formVersionId: String,
+    val datasetKey: String,
+    val datasetVersionId: String,
+    val version: Int,
+    val rowCount: Int,
+    val checksum: String,
+    // What to index (§3.2). The server names them because the filter is in the
+    // IR and the server is what reads it — a device indexing every column was
+    // measured at 8 x 38,000 entries and a 105x slower delta.
+    val filterColumns: List<String> = emptyList(),
+)
+
+/**
+ * GET /api/v1/datasets/versions/{id}/rows — one page, resumably.
+ *
+ * `nextCursor` null is the last page, and that is how a device knows it has the
+ * whole list rather than most of one. It matters more here than anywhere else:
+ * a village list that stopped two thirds of the way through is one an
+ * enumerator can search, scroll and choose from, and nothing about it looks
+ * wrong.
+ */
+/**
+ * GET /api/v1/datasets/versions/{held}/delta — what changed since.
+ *
+ * The path that decides field usability: first sync is a one-off at enrolment,
+ * this is what happens every week for the life of the project.
+ */
+@Serializable
+data class WireDatasetDeltaPage(
+    val datasetVersionId: String,
+    val fromDatasetVersionId: String,
+    val changed: List<Map<String, String>> = emptyList(),
+    // Explicit, never inferred from absence: inferring it needs the whole set
+    // present to compare against, which is what a delta exists to avoid.
+    val deleted: List<String> = emptyList(),
+    // Which columns the projection was taken over, so *why* a row travelled is
+    // answerable from the response rather than by reading the server.
+    val columns: List<String> = emptyList(),
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+)
+
+@Serializable
+data class WireDatasetRowsPage(
+    val datasetVersionId: String,
+    val rows: List<Map<String, String>> = emptyList(),
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+)
+
+/**
+ * GET /api/v1/forms/versions/{formVersionId} — one published version and its
+ * Form IR. Immutable, so a device may cache it forever.
+ */
+@Serializable
+data class WireFormVersionDocument(
+    val formVersionId: String,
+    val formId: String,
+    val version: Int,
+    val title: String,
+    val irChecksum: String,
+    val form: JsonElement,
+)
+
+/**
+ * GET /health — the one endpoint that needs no device and no project, which is
+ * what makes it the right target for a reachability check (see
+ * [SyncClient.checkConnection]).
+ *
+ * `environment` is the deployment's own name for itself. It is here because the
+ * failure a reachability check cannot otherwise see is the one where everything
+ * works and the address is wrong: a phone pointed at staging syncs perfectly
+ * and files a morning's interviews where nobody is looking for them.
+ */
+@Serializable
+data class WireHealth(
+    val status: String,
+    val environment: String,
+)
+
+/**
+ * What one form refresh managed (sync §5).
+ *
+ * [undelivered] is the half that used to be thrown away. A manifest entry whose
+ * document will not fetch is skipped rather than abandoning the batch — one
+ * unreachable form must not cost the device the others — but a skip that is
+ * not reported leaves the device holding no form, the sync reporting success,
+ * and nothing anywhere saying why.
+ */
+internal data class FormRefresh(val fetched: Int, val undelivered: List<String>)

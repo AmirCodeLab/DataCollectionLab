@@ -1,0 +1,167 @@
+{
+ "id": "fn.len",
+ "description": "Every value shape through `len`",
+ "spec": "4.3, 4.7",
+ "context": {
+  "today": "2026-08-28"
+ },
+ "datasets": {
+  "villages": [
+   {
+    "name": "V1",
+    "label": "Mtakuja",
+    "pop": "800"
+   },
+   {
+    "name": "V2",
+    "label": "Mbuyuni",
+    "pop": "40"
+   }
+  ]
+ },
+ "probes": [
+  {
+   "id": "fn.len.null",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": null
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.len.text_num",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": "800"
+     }
+    ]
+   },
+   "expect": 3
+  },
+  {
+   "id": "fn.len.text_pad",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": " 800 "
+     }
+    ]
+   },
+   "expect": 5
+  },
+  {
+   "id": "fn.len.text_bad",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": "8a"
+     }
+    ]
+   },
+   "expect": 2
+  },
+  {
+   "id": "fn.len.text_empty",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": ""
+     }
+    ]
+   },
+   "expect": 0
+  },
+  {
+   "id": "fn.len.text_date",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": "2026-01-15"
+     }
+    ]
+   },
+   "expect": 10
+  },
+  {
+   "id": "fn.len.int",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.len.dec",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": 800.5
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.len.bool",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": true
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "fn.len.seq",
+   "expr": {
+    "op": "call",
+    "fn": "len",
+    "args": [
+     {
+      "op": "lit",
+      "value": [
+       "a",
+       "b"
+      ]
+     }
+    ]
+   },
+   "expect": null
+  }
+ ]
+}

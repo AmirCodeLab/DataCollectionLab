@@ -18,6 +18,16 @@ dependencies = [
     "boto3>=1.35",
     "geoalchemy2>=0.15",
     "cryptography>=44.0",
+    # XLSForm import reads .xlsx workbooks, uploaded as multipart form data.
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.20",
+    # Stata .dta and SPSS .sav, for export (item 5). It pulls in pandas and
+    # numpy, which is a lot of weight for one writer — but the alternative is
+    # writing two binary formats by hand, and `backend/tests/
+    # test_statistical_writers.py` records exactly what this library does with
+    # a value it cannot type, which is the thing the whole design turns on.
+    "pyreadstat>=1.2",
+    "pandas>=2.2",
 ]
 
 [project.optional-dependencies]

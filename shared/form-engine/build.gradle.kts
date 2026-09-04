@@ -40,3 +40,31 @@ kotlin {
         }
     }
 }
+
+/*
+ * The normative files these tests read at run time, declared so Gradle can see
+ * them.
+ *
+ * Without this the test task is UP-TO-DATE after a vector is added or edited,
+ * and the build goes green having run the *old* set. That is not hypothetical
+ * and it is not rare: it has now happened three times in this repository — for
+ * the collectable-types registry, for the cross-module mirror reference, and
+ * here, where adding nine conformance vectors left `:shared:form-engine:jvmTest`
+ * reporting 39 tests and BUILD SUCCESSFUL.
+ *
+ * This one matters most of the three. Rule 2 — every vector passes identically
+ * on both engines — is the strongest guarantee in this repository, and it rests
+ * entirely on the vectors actually being run. A vector that is not executed is
+ * indistinguishable from a vector that passes.
+ *
+ * Directories rather than named files, deliberately: a new vector must not need
+ * a build change to be noticed, which is the same mistake one level up.
+ */
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    inputs.dir(rootProject.layout.projectDirectory.dir("conformance"))
+        .withPropertyName("conformanceVectors")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.layout.projectDirectory.dir("specs"))
+        .withPropertyName("normativeSpecs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

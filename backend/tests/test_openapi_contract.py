@@ -102,7 +102,7 @@ def test_the_document_covers_every_route(schema):
 
 
 def test_every_success_response_names_a_schema(schema):
-    """Every 2xx body is a `$ref`, never an inline shape.
+    """Every 2xx body is a `$ref`, never an inline shape — bar one binary case.
 
     This is what `response_model` buys, and the failure it catches is a route
     written without one: FastAPI then infers the body from the return
@@ -117,6 +117,27 @@ def test_every_success_response_names_a_schema(schema):
                 continue
             content = response.get("content")
             assert content, f"{method} {path} → {status} has no body schema"
+
+            # One exemption, and it is the mirror of the request side's for
+            # `application/octet-stream`: a file download has no fields to name.
+            # It is written the same way — **one media type, declared binary,
+            # or it fails** — so a route that quietly stopped declaring a model
+            # still fails here, because JSON alongside a binary type is refused
+            # outright and an undeclared binary schema is refused too. The media
+            # type is named rather than "anything not JSON", so the next binary
+            # response is a decision somebody makes on purpose.
+            binary = content.get("application/zip")
+            if binary is not None:
+                assert set(content) == {"application/zip"}, (
+                    f"{method} {path} → {status} offers both a binary and a "
+                    f"JSON body ({sorted(content)}). One response, one shape."
+                )
+                assert binary["schema"] == {"type": "string", "format": "binary"}, (
+                    f"{method} {path} → {status} declares a zip body that is not "
+                    f"a byte stream ({json.dumps(binary['schema'])[:120]})."
+                )
+                continue
+
             body = content["application/json"]["schema"]
             assert "$ref" in body, (
                 f"{method} {path} → {status} returns an inline schema "
@@ -153,6 +174,23 @@ def test_every_request_body_names_a_schema(schema):
                 f"stream ({json.dumps(binary['schema'])[:120]})."
             )
             continue
+        # A file upload is multipart by definition — an .xlsx cannot be a
+        # field of a JSON object without base64, and the rule this test
+        # enforces is "the body names a schema", not "the body is JSON".
+        # FastAPI generates a named model for the form fields, so the check is
+        # the same one; only the media type differs.
+        upload = content.get("multipart/form-data")
+        if upload is not None:
+            assert set(content) == {"multipart/form-data"}, (
+                f"{method} {path} offers both a multipart and a JSON body "
+                f"({sorted(content)}). One request, one shape."
+            )
+            assert "$ref" in upload["schema"], (
+                f"{method} {path} takes an inline multipart schema "
+                f"({json.dumps(upload['schema'])[:120]}). Declare a model for it."
+            )
+            continue
+
         body = content["application/json"]["schema"]
         assert "$ref" in body, (
             f"{method} {path} takes an inline request schema "

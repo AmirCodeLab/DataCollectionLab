@@ -1,0 +1,83 @@
+{
+  "id": "label-003",
+  "description": "coalesce is how an author chooses the placeholder the IR will not choose",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "placeheld",
+    "version": 1,
+    "title": {
+      "en": "placeheld"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "tag",
+        "dataType": "integer",
+        "label": {
+          "en": "Tag"
+        }
+      },
+      {
+        "type": "question",
+        "id": "stems",
+        "dataType": "note",
+        "label": {
+          "en": "Tag {0}"
+        },
+        "labelArgs": [
+          {
+            "op": "call",
+            "fn": "coalesce",
+            "args": [
+              {
+                "op": "call",
+                "fn": "str",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "tag"
+                  }
+                ]
+              },
+              {
+                "op": "lit",
+                "value": "—"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "renderedLabels": {
+          "stems": {
+            "en": "Tag ⁨—⁩"
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "tag": 7
+      },
+      "expect": {
+        "renderedLabels": {
+          "stems": {
+            "en": "Tag ⁨7⁩"
+          }
+        }
+      }
+    }
+  ]
+}

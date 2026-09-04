@@ -1,0 +1,59 @@
+-- v7 -> v8: the reference data behind `select_one_from_file` (Form IR §3, §3.2).
+--
+-- Migrated rather than recreated, like every step before it: a device in the
+-- field carries its op log and its logical counter across upgrades, and
+-- operation nonces are derived from (deviceId, counter) (envelope §4.5). A
+-- device that reset its counter and later encrypted would reuse a nonce, which
+-- is the one failure AES-GCM does not tolerate.
+--
+-- This file exists because a **device** found it missing. The tables were added
+-- to datasets.sq, every unit test creates a fresh database from the schema, and
+-- all of them passed — while the Pixel, which had the app installed already,
+-- threw `no such table: form_version_dataset` on the first line of work. A new
+-- .sq file is invisible to an existing install without one of these, and
+-- nothing on a laptop can tell you.
+--
+-- Purely additive, and it arrives empty. That is the correct starting state and
+-- not an incomplete one: a device upgrading from v7 holds no reference data and
+-- no pins, which is exactly what a device that had never synced datasets should
+-- look like. The next sync's manifest fills it.
+--
+-- Mirrors the CREATE statements in datasets.sq; keep the two in step.
+
+CREATE TABLE dataset_version (
+    dataset_version_id TEXT NOT NULL PRIMARY KEY,
+    dataset_key TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    checksum TEXT NOT NULL,
+    row_count INTEGER NOT NULL,
+    complete INTEGER NOT NULL DEFAULT 0,
+    next_cursor TEXT,
+    filter_columns TEXT NOT NULL DEFAULT '',
+    fetched_at TEXT NOT NULL
+);
+
+CREATE INDEX dataset_version_key ON dataset_version(dataset_key);
+
+CREATE TABLE dataset_row (
+    dataset_version_id TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    PRIMARY KEY (dataset_version_id, record_key)
+);
+
+CREATE TABLE form_version_dataset (
+    form_version_id TEXT NOT NULL,
+    dataset_key TEXT NOT NULL,
+    dataset_version_id TEXT NOT NULL,
+    PRIMARY KEY (form_version_id, dataset_key)
+);
+
+CREATE INDEX form_version_dataset_version ON form_version_dataset(dataset_version_id);
+
+CREATE TABLE dataset_cell (
+    dataset_version_id TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    cell_value TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    PRIMARY KEY (dataset_version_id, column_name, cell_value, record_key)
+) WITHOUT ROWID;

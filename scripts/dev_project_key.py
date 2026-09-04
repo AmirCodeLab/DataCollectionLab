@@ -151,15 +151,18 @@ async def install(project_id: str | None, roles: list[str], database: str | None
                 if not projects:
                     sys.exit("No active project. Run scripts/seed_dev.py first.")
                 if len(projects) > 1:
-                    listed = "\n".join(f"    {p.id}  {p.slug}  ({p.security_mode})" for p in projects)
+                    listed = "\n".join(
+                        f"    {p.id}  {p.slug}  ({p.security_mode})" for p in projects
+                    )
                     sys.exit(
                         f"Several active projects; name one with --project:\n{listed}"
                     )
                 project = projects[0]
             else:
-                project = await session.get(Project, project_id)
-                if project is None:
+                found = await session.get(Project, project_id)
+                if found is None:
                     sys.exit(f"No project {project_id}.")
+                project = found
 
             print(f"Project:  {project.id}  {project.slug}  (mode: {project.security_mode})")
             if project.security_mode == "standard":

@@ -32,9 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ulid import new_ulid
 from app.modules.audit.models import OutboxEvent
 from app.modules.crypto.models import ProjectKey
+from app.modules.forms import service as forms_service
 from app.modules.forms.models import Form, FormVersion
+from app.modules.forms.schemas import DeployedFormVersion
 from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
+from app.modules.submissions.fold import fold_ops
 from app.modules.submissions.models import (
     Submission,
     SubmissionContentKey,
@@ -575,6 +578,9 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
     Field-level last-writer-wins ordered by (counter, device_id) — deviceId is
     the deterministic tiebreak so every replica converges (spec §6). Phase 0
     refolds from scratch; snapshot-bounded folding (spec §8) comes later.
+
+    The fold itself is `submissions.fold.fold_ops`, shared with export. Two
+    copies would be two answers to "what does this submission currently say".
     """
     ops = (
         (
@@ -588,48 +594,17 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
         .all()
     )
 
-    data: dict[str, Any] = {}
-    status: str | None = None
-    finalized_at: datetime | None = None
-    for op in ops:
-        if op.op_kind == "set" and op.path is not None:
-            if op.value_ciphertext is not None:
-                # The current value of this path is one the server cannot read,
-                # so it has no place in a queryable fold. Removing rather than
-                # skipping matters: in field_level mode a field can be answered
-                # in plaintext and later re-answered under encryption, and
-                # leaving the old plaintext behind would report a superseded
-                # answer as current — and disclose the very value the newer op
-                # was encrypted to protect.
-                data.pop(op.path, None)
-                continue
-            data[op.path] = op.value
-        elif op.op_kind == "unset" and op.path is not None:
-            data.pop(op.path, None)
-        elif op.op_kind == "repeat_add":
-            # Instance existence is carried by the set ops beneath the path.
-            pass
-        elif op.op_kind == "repeat_delete" and op.path is not None:
-            dot, bracket = op.path + ".", op.path + "["
-            data = {
-                k: v
-                for k, v in data.items()
-                if k != op.path and not k.startswith(dot) and not k.startswith(bracket)
-            }
-        elif op.op_kind == "finalize":
-            status, finalized_at = "finalized", op.wall_clock
-        elif op.op_kind == "reopen":
-            status, finalized_at = "draft", None
+    folded = fold_ops(ops)
 
     # Ops only move a submission between draft and finalized; review states
     # (in_review, approved, ...) belong to the review workflow, not to sync.
-    if status is not None and submission.status in ("draft", "finalized"):
-        submission.status = status
-        submission.finalized_at = finalized_at
+    if folded.status is not None and submission.status in ("draft", "finalized"):
+        submission.status = folded.status
+        submission.finalized_at = folded.finalized_at
 
     values = {
-        "data": data,
-        "op_high_water": max(op.server_seq for op in ops) if ops else 0,
+        "data": dict(folded.data),
+        "op_high_water": folded.op_high_water,
         "computed_at": func.now(),
     }
     await session.execute(
@@ -645,12 +620,26 @@ async def _server_cursor(session: AsyncSession) -> int:
     return max(op_max or 0, tomb_max or 0)
 
 
-async def pull(session: AsyncSession, cursor: int, limit: int) -> PullResponse:
+async def pull(
+    session: AsyncSession,
+    cursor: int,
+    limit: int,
+    *,
+    device_id: str | None = None,
+    want_forms: bool = False,
+    want_datasets: bool = False,
+) -> PullResponse:
     """Everything accepted after `cursor`, oldest arrival first, bounded.
 
     Ops and tombstones share one sequence, so one integer resumes both
     streams. The client persists nextCursor only after the batch is durably
     written locally (spec §5).
+
+    `want_forms` adds the device's form manifest (spec §5, `scope=forms`). It
+    needs `device_id` because deployment is per environment: a device is told
+    about the versions its own environment runs, never everything the project
+    has published. Without a device there is no environment and so no answer,
+    and the manifest comes back empty rather than guessing at one.
     """
     ops = (
         (
@@ -744,9 +733,31 @@ async def pull(session: AsyncSession, cursor: int, limit: int) -> PullResponse:
                 )
             )
 
+    forms: list[DeployedFormVersion] = []
+    if want_forms and device_id is not None:
+        # None means the device is unknown or revoked. An empty manifest is the
+        # right answer either way here: pull is not the place to refuse a
+        # device — push already rejects its every op `not_authorized`, which is
+        # where a revoked device learns what has happened.
+        forms = await forms_service.deployed_versions_for_device(session, device_id) or []
+
+    datasets = None
+    if want_datasets and device_id is not None:
+        from app.modules.entities import service as entities_service
+
+        # None stays None here, unlike `forms` above: a device that is unknown
+        # or revoked is told nothing about datasets rather than told there are
+        # none, because "there are none" is an instruction to delete what it
+        # holds and a revoked device's answers are not ours to destroy.
+        datasets = await entities_service.deployed_dataset_versions_for_device(
+            session, device_id
+        )
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
+        forms=forms,
+        datasets=datasets,
         next_cursor=next_cursor,
         has_more=has_more,
     )

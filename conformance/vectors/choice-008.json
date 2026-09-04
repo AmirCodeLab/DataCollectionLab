@@ -1,0 +1,69 @@
+{
+  "id": "choice-008",
+  "description": "Form v1 lists carol, so an answer of carol is valid under v1 (pairs with choice-009)",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "roster",
+    "version": 1,
+    "title": {
+      "en": "roster"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "member",
+        "dataType": "select_one",
+        "label": {
+          "en": "Member"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "alice",
+              "label": {
+                "en": "Alice"
+              }
+            },
+            {
+              "value": "bob",
+              "label": {
+                "en": "Bob"
+              }
+            },
+            {
+              "value": "carol",
+              "label": {
+                "en": "Carol"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "member": "carol"
+      },
+      "expect": {
+        "valid": {
+          "member": true
+        },
+        "errors": {
+          "member": []
+        },
+        "formValid": true
+      }
+    }
+  ]
+}

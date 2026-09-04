@@ -10,6 +10,24 @@
  * in the meantime it says something about the API that is not true.
  */
 
+export interface Body_import_xlsform_api_v1_forms_import_post {
+  /** An XLSForm .xlsx workbook */
+  file: string;
+  /** Companion .csv files named by select_one_from_file rows */
+  datasets?: string[];
+}
+
+export interface Body_publish_dataset_api_v1_projects__project_id__datasets_post {
+  /** The reference data, as CSV */
+  file: string;
+  /** The Form IR key this list is published under — what `choices.dataset` names. The XLSForm importer derives it from the file name and reports what it chose. */
+  datasetKey: string;
+  /** The column holding each row's identity — what a `select_one_from_file` stores as the answer. Defaults to `name`, which is what XLSForm requires of these files. */
+  keyColumn?: string;
+  /** Display name for the dataset. Defaults to its key. */
+  name?: string | null;
+}
+
 /** A Form IR document to compile. Its own formId and version are authoritative. */
 export interface CompileRequest {
   form: Record<string, unknown>;
@@ -40,6 +58,113 @@ export interface ContentKeyView {
   contentKeyId: string;
   deviceId: string;
   wraps: WrappedKeyView[];
+}
+
+/**
+ * What changed between two dataset versions, for one form version.
+ *
+ * The path that decides field usability. First sync is a one-off at
+ * enrolment; this is what happens every week for the life of the project, on
+ * whatever connection there is.
+ */
+export interface DatasetDeltaPage {
+  datasetVersionId: string;
+  fromDatasetVersionId: string;
+  changed: Record<string, string>[];
+  deleted: string[];
+  columns: string[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One dataset version a form version is published against.
+ *
+ * The IR names a dataset by **key** — `"dataset": "districts"` (§3) — and a
+ * key is not a version. Resolving it at read time would let a draft opened
+ * against form v1 see whatever `districts` happens to be newest, which is the
+ * same mistake as validating a v1 answer against v2's choice list.
+ *
+ * So it is resolved once, here, at publish, and pinned in
+ * `form_version_dataset`. A form version is immutable and so is its view of
+ * its reference data.
+ */
+export interface DatasetPin {
+  key: string;
+  datasetVersionId: string;
+}
+
+/**
+ * The 409 body: every reason, not the first one.
+ *
+ * A list rather than a string for the same reason the publish endpoint's is:
+ * whoever is fixing the file needs every problem in one pass, and a refusal
+ * that names one duplicate key at a time is a refusal somebody meets four
+ * times.
+ */
+export interface DatasetRefusedError {
+  detail: string[];
+}
+
+/**
+ * One page of a dataset version's rows (sync §5).
+ *
+ * Paged because the first sync is the hard case and cannot be one response:
+ * a transfer that cannot resume is a transfer that never finishes on the
+ * connections this product exists for.
+ *
+ * A published version is immutable, so this page can be cached forever and a
+ * device that paused for a day resumes into the same ordering it left.
+ */
+export interface DatasetRowsPage {
+  datasetVersionId: string;
+  rows: Record<string, string>[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One entry of a device's dataset manifest (sync §5, `scope=datasets`).
+ *
+ * Deliberately not the rows. A village list is megabytes and a manifest
+ * travels on every sync; the rows are fetched once per version from
+ * `GET /datasets/versions/{id}/rows`, the same split that keeps a form
+ * manifest to a few hundred bytes.
+ *
+ * `formVersionId` is on every entry rather than implied, because the pin is
+ * per form version: two versions of a form can be deployed at once — an
+ * enumerator holding a v2 draft the morning v3 lands — and they may name
+ * different versions of the same list. A manifest keyed only by dataset would
+ * have to choose between them, which is the choice §3.2 exists to remove.
+ */
+export interface DeployedDatasetVersion {
+  formVersionId: string;
+  datasetKey: string;
+  datasetVersionId: string;
+  version: number;
+  rowCount: number;
+  checksum: string;
+  filterColumns?: string[];
+}
+
+/**
+ * One entry in a device's form manifest (sync §5, `scope=forms`).
+ *
+ * Deliberately not the IR. A 52-question form is tens of kilobytes, and a
+ * device re-syncs on whatever connection it has; sending every document on
+ * every pull would spend exactly the bandwidth this protocol exists to
+ * conserve. The manifest says what exists and what it hashes to, and the
+ * device fetches only the versions it does not already hold — the same shape
+ * resumable upload uses, where the server states what it has and the client
+ * sends the rest.
+ */
+export interface DeployedFormVersion {
+  formVersionId: string;
+  formId: string;
+  version: number;
+  title: string;
+  irChecksum: string;
+  deployedAt: string;
 }
 
 export interface DeviceCryptoError {
@@ -95,6 +220,14 @@ export interface DeviceRegisterResponse {
   status: RegisterStatus;
 }
 
+export const DIAGNOSTIC_SEVERITYS = ["error", "warning", "info"] as const;
+
+export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITYS)[number];
+
+export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
+
+export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
+
 export interface EvaluateRequest {
   form: Record<string, unknown>;
   answers?: Record<string, unknown>;
@@ -104,6 +237,56 @@ export interface EvaluateResponse {
   valid: boolean;
   fields: Record<string, FieldSnapshot>;
   answers: Record<string, unknown>;
+}
+
+export const EXPORT_FORMATS = ["csv", "xlsx", "dta", "sav"] as const;
+
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+export const EXPORT_SHAPES = ["long", "wide"] as const;
+
+export type ExportShape = (typeof EXPORT_SHAPES)[number];
+
+/**
+ * More submissions than one synchronous export will do.
+ *
+ * Carries the numbers rather than only prose, because the useful thing a
+ * console can do with this is say how much to narrow by.
+ */
+export interface ExportTooLarge {
+  /** submissions the filter selected */
+  found: number;
+  /** the most this endpoint will export at once */
+  limit: number;
+  message: string;
+}
+
+/** 413 from GET /exports/{formId}. */
+export interface ExportTooLargeResponse {
+  detail: ExportTooLarge;
+}
+
+/**
+ * A value will not fit the format that was asked for.
+ *
+ * Names the formats that *do* hold it, because that is what a caller acts on:
+ * an SPSS user with one very long answer needs a different flag, not a
+ * truncated file and not a 500.
+ */
+export interface ExportValueTooLong {
+  /** the column in the file, as `storedAs` names it */
+  column: string;
+  /** the value's length in UTF-8 bytes */
+  found: number;
+  /** the most this format's strings hold, in bytes */
+  limit: number;
+  format: ExportFormat;
+  message: string;
+}
+
+/** 409 from GET /exports/{formId}. */
+export interface ExportValueTooLongResponse {
+  detail: ExportValueTooLong;
 }
 
 /**
@@ -136,6 +319,23 @@ export interface FormSummary {
   archivedAt: string | null;
 }
 
+/**
+ * One published version and its Form IR (sync §5).
+ *
+ * What a device fetches once the manifest names a version it does not hold.
+ * Immutable: the id addresses a row that can never be rewritten
+ * (specs/erd-v0.1.md §4), so a client may cache it forever.
+ */
+export interface FormVersionDocument {
+  formVersionId: string;
+  formId: string;
+  version: number;
+  title: string;
+  irChecksum: string;
+  publishedAt: string | null;
+  form: Record<string, unknown>;
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }
@@ -149,6 +349,119 @@ export interface HTTPValidationError {
 export interface Health {
   status: string;
   environment: string;
+}
+
+/**
+ * Proof that nothing was dropped in silence.
+ *
+ * Every non-empty cell in the workbook either produced part of the form or is
+ * named by a diagnostic above. A cell in neither fails the import outright
+ * rather than reaching this response — see the coverage ledger.
+ *
+ * It cannot tell you the workbook had anything in it. An empty sheet has no
+ * cells to account for, so `cells: 0` satisfies the check perfectly; that is
+ * why a form with no questions is refused at publish rather than merely noted.
+ */
+export interface ImportCoverage {
+  cells: number;
+  consumed: number;
+  reported: number;
+}
+
+/**
+ * One companion CSV, read — what it is and what the form does with it.
+ *
+ * Deliberately without the rows. This is the answer to "what would this
+ * become?", and a village list would make the response several megabytes on
+ * an endpoint whose whole point is to be cheap enough to call on every edit.
+ * The caller already has the file; `POST /projects/{id}/datasets` is where
+ * the bytes go.
+ */
+export interface ImportDataset {
+  key: string;
+  fileName: string;
+  rowCount: number;
+  columns: string[];
+  valueColumn: string;
+  labelColumns?: Record<string, string>;
+  columnsUsed?: string[];
+  usedBy?: string[];
+  checksum: string;
+  encoding: string;
+}
+
+export interface ImportDiagnostic {
+  severity: DiagnosticSeverity;
+  code: string;
+  message: string;
+  sheet?: string | null;
+  row?: number | null;
+  column?: string | null;
+  cellValue?: string | null;
+  nodeId?: string | null;
+  remedy?: string | null;
+}
+
+/**
+ * The IR, and everything that did not survive the trip.
+ *
+ * The form is returned even when it cannot be published, deliberately: an
+ * author needs every problem in one pass rather than one per round trip, and
+ * a form they can look at is how they find the next one.
+ */
+export interface ImportFormResponse {
+  publishable: boolean;
+  form: Record<string, unknown>;
+  summary: ImportSummary;
+  diagnostics: ImportDiagnostic[];
+  coverage: ImportCoverage;
+  instrumentation: ImportInstrumentation;
+  datasets?: ImportDataset[];
+  reportMarkdown: string;
+}
+
+/**
+ * What this form needed that the platform does not have.
+ *
+ * Separate from the diagnostics because it answers a different question: a
+ * diagnostic tells one author about one form, and this says which XPath
+ * functions and question types real forms reach for. That is the priority
+ * order for what to build next, and counting it beats guessing it.
+ */
+export interface ImportInstrumentation {
+  unsupportedFunctions?: Record<string, number>;
+  unsupportedTypes?: Record<string, number>;
+  uncollectableTypes?: Record<string, number>;
+}
+
+/**
+ * How a version got here, stored with it and never recomputed.
+ *
+ * Sent by whoever imported the spreadsheet and published the result, so the
+ * question "why does this form not have the question I put in row 40?" is
+ * answerable six months later from the database rather than from an email
+ * somebody may still have.
+ *
+ * Optional on a publish: a form written as IR by hand was not imported, and
+ * recording nothing is the honest answer for it. Half a record is refused by
+ * the database (`form_version_import_complete_check`), because a partial one
+ * looks like a whole one.
+ */
+export interface ImportRecord {
+  sourceName: string;
+  sourceSha256: string;
+  importerVersion: string;
+  diagnostics: ImportDiagnostic[];
+}
+
+export interface ImportSummary {
+  questions: number;
+  nodes: number;
+  surveyRows: number;
+  languages: string[];
+  errors: number;
+  warnings: number;
+  notes: number;
 }
 
 export const KEY_REGISTRATION_FAILURES = [
@@ -421,11 +734,27 @@ export interface ProjectSummary {
   archivedAt: string | null;
 }
 
+/** One immutable dataset version (Form IR §3, sync §5). */
+export interface PublishDatasetResponse {
+  datasetId: string;
+  datasetVersionId: string;
+  datasetKey: string;
+  version: number;
+  rowCount: number;
+  checksum: string;
+  created: boolean;
+  warnings: string[];
+  publishedAt: string | null;
+}
+
 export interface PublishVersionRequest {
   projectId: string;
   form: Record<string, unknown>;
   title?: string | null;
   publishedBy?: string | null;
+  deployTo?: EnvironmentKind[];
+  importRecord?: ImportRecord | null;
+  datasets?: DatasetPin[];
 }
 
 export interface PublishVersionResponse {
@@ -436,11 +765,15 @@ export interface PublishVersionResponse {
   publishedAt: string | null;
   created: boolean;
   warnings: string[];
+  deployments: EnvironmentKind[];
+  datasets?: DatasetPin[];
 }
 
 export interface PullResponse {
   ops: PulledOp[];
   tombstones: PulledTombstone[];
+  forms: DeployedFormVersion[];
+  datasets?: DeployedDatasetVersion[] | null;
   nextCursor: number;
   hasMore: boolean;
 }

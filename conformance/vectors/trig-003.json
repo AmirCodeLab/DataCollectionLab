@@ -1,0 +1,183 @@
+{
+  "id": "trig-003",
+  "description": "sin, cos, tan and atan agree between the engines to the precision §4.3 promises",
+  "spec": "4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "angles",
+    "version": 1,
+    "title": {
+      "en": "angles"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "radians",
+        "dataType": "decimal",
+        "label": {
+          "en": "Radians"
+        }
+      },
+      {
+        "type": "question",
+        "id": "s",
+        "dataType": "decimal",
+        "label": {
+          "en": "S"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "call",
+              "fn": "sin",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "radians"
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 9
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "c",
+        "dataType": "decimal",
+        "label": {
+          "en": "C"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "call",
+              "fn": "cos",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "radians"
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 9
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "t",
+        "dataType": "decimal",
+        "label": {
+          "en": "T"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "call",
+              "fn": "tan",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "radians"
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 9
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "a",
+        "dataType": "decimal",
+        "label": {
+          "en": "A"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "call",
+              "fn": "atan",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "radians"
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "radians": 0.0
+      },
+      "expect": {
+        "values": {
+          "s": 0.0,
+          "c": 1.0,
+          "t": 0.0,
+          "a": 0.0
+        }
+      }
+    },
+    {
+      "set": {
+        "radians": 1.0
+      },
+      "expect": {
+        "values": {
+          "s": 0.841470985,
+          "c": 0.540302306,
+          "t": 1.557407725,
+          "a": 0.785398163
+        }
+      }
+    },
+    {
+      "set": {
+        "radians": -1.0
+      },
+      "expect": {
+        "values": {
+          "s": -0.841470985,
+          "c": 0.540302306,
+          "t": -1.557407725,
+          "a": -0.785398163
+        }
+      }
+    }
+  ]
+}

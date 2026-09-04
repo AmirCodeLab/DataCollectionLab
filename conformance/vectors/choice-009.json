@@ -1,0 +1,65 @@
+{
+  "id": "choice-009",
+  "description": "Form v2 dropped carol, so the same answer is invalid under v2 (pairs with choice-008)",
+  "spec": "6.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "roster",
+    "version": 2,
+    "title": {
+      "en": "roster"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "member",
+        "dataType": "select_one",
+        "label": {
+          "en": "Member"
+        },
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "alice",
+              "label": {
+                "en": "Alice"
+              }
+            },
+            {
+              "value": "bob",
+              "label": {
+                "en": "Bob"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "member": "carol"
+      },
+      "expect": {
+        "valid": {
+          "member": false
+        },
+        "errors": {
+          "member": [
+            "choice"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

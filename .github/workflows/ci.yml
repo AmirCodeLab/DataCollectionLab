@@ -48,13 +48,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # `.` is backend/, so these paths are what bring scripts/ and
+      # conformance/ into the gate. They were outside it entirely until
+      # 2026-09-03 — real code, including the API-contract generator and every
+      # vector generator, that ruff and mypy had never read. The `suites` job
+      # runs check_every_directory_is_gated.py, which fails if a directory with
+      # source in it is missing from these commands.
       - name: ruff
         working-directory: backend
-        run: ruff check .
+        run: ruff check . ../scripts ../conformance
 
       - name: mypy
         working-directory: backend
-        run: mypy app
+        run: mypy app ../scripts ../conformance
 
       # The API contract. specs/openapi.json and web/src/api/types.ts are both
       # generated from the FastAPI app; this fails if either is not what the
@@ -146,6 +152,19 @@ jobs:
       - name: shared UI tests
         run: ./gradlew :clients:composeApp:jvmTest
 
+      # Assembles the APK, which is what runs `verifyNoBundledFormDebug` — the
+      # guard is a dependency of `assembleDebug`, not a separate invocation, so
+      # there is no way to build the APK here and not check it.
+      #
+      # Form delivery's central claim is a claim about this binary: no form is
+      # in it, so a form on a phone came from the server. It had been checked
+      # once, by hand. It is not a hypothesis that an incremental build breaks
+      # it — writing this guard caught it happening: deleting the bundled form
+      # from the source tree left three stale copies under `build/`, and the
+      # next `assembleDebug` packaged one. Break 31 in docs/known-breaks.md.
+      - name: no form bundled in the APK
+        run: ./gradlew :clients:androidApp:assembleDebug
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
@@ -198,8 +217,31 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Every suite is run by CI
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The vector check reads what the Kotlin runners actually reported, so
+      # they have to have run. Reading their results rather than asking Gradle
+      # is the point: a stale result file is the symptom being guarded against,
+      # and comparing stale ids against the files on disk is what makes the
+      # staleness visible.
+      - name: Run the conformance suites so their results exist
+        run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
+
+      - name: Every suite is run by CI, and every vector was executed
         run: python scripts/check_ci_runs_every_suite.py --strict
+
+      # One layer out: the suites guard asks whether every suite RUNS, this
+      # asks whether every directory is READ. `scripts/` and `conformance/`
+      # answered "no" for the life of the repository.
+      - name: Every source directory is read by a gate
+        run: python scripts/check_every_directory_is_gated.py --strict
 
   web:
     name: web (typecheck, lint, test, build)

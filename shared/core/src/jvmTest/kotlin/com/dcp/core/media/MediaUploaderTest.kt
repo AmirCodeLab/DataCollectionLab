@@ -9,6 +9,7 @@ import com.dcp.core.sync.ProjectKey
 import com.dcp.core.sync.SecurityMode
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncJson
+import com.dcp.core.sync.fixedServerConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -122,7 +123,7 @@ class MediaUploaderTest {
 
         return Harness(
             MediaUploader(
-                store, files, staging, submissions, "http://test", http,
+                store, files, staging, submissions, fixedServerConfig("http://test"), http,
                 deleteAfterUpload = deleteAfterUpload,
             ),
             staging, store, submissions, files,

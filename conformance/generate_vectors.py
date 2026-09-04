@@ -6,34 +6,41 @@ and are cheap to extend. Run: python conformance/generate_vectors.py
 
 import json
 import pathlib
+from typing import Any
+
+#: Every helper here builds a fragment of a Form IR document, which is JSON and
+#: therefore `dict[str, Any]` all the way down. Annotated not because the types
+#: are interesting but because an unchecked file is one nobody notices breaking:
+#: `scripts/check_every_directory_is_gated.py` is what noticed this one.
+type Node = dict[str, Any]
 
 OUT = pathlib.Path(__file__).parent / "vectors"
 
 
-def lit(v):
+def lit(v: Any) -> Node:
     return {"op": "lit", "value": v}
 
 
-def ref(p):
+def ref(p: str) -> Node:
     return {"op": "ref", "path": p}
 
 
-def op(name, *args):
+def op(name: str, *args: Any) -> Node:
     return {"op": name, "args": list(args)}
 
 
-def call(fn, *args):
+def call(fn: str, *args: Any) -> Node:
     return {"op": "call", "fn": fn, "args": list(args)}
 
 
-def q(qid, dtype, **kw):
+def q(qid: str, dtype: str, **kw: Any) -> Node:
     node = {"type": "question", "id": qid, "dataType": dtype,
             "label": {"en": qid.replace("_", " ").title()}}
     node.update(kw)
     return node
 
 
-def form(fid, children, **kw):
+def form(fid: str, children: list[Node], **kw: Any) -> Node:
     f = {"irVersion": "0.1", "formId": fid, "version": 1,
          "title": {"en": fid}, "defaultLanguage": "en",
          "languages": ["en"], "children": children}
@@ -41,18 +48,33 @@ def form(fid, children, **kw):
     return f
 
 
-VECTORS = []
+VECTORS: list[Node] = []
 
 
-def vector(vid, description, spec, f, steps, context=None):
-    VECTORS.append({
+def vector(
+    vid: str,
+    description: str,
+    spec: str,
+    f: Node,
+    steps: list[Node],
+    context: Node | None = None,
+    datasets: dict[str, list[Node]] | None = None,
+) -> None:
+    entry = {
         "id": vid,
         "description": description,
         "spec": spec,
         "form": f,
         "context": context or {"today": "2026-08-28"},
         "steps": steps,
-    })
+    }
+    if datasets is not None:
+        # Rows for the dataset-backed lists this form chooses from (§3.2).
+        # Inline in the vector because a vector is one self-contained file, and
+        # because these are deliberately tiny: what is being compared is the
+        # decomposition and the resolution, not a store's speed.
+        entry["datasets"] = datasets
+    VECTORS.append(entry)
 
 
 # --------------------------------------------------------------------------
@@ -365,7 +387,7 @@ vector(
 # --------------------------------------------------------------------------
 
 
-def repeat(rid, children, **kw):
+def repeat(rid: str, children: list[Node], **kw: Any) -> Node:
     node = {"type": "repeat", "id": rid, "label": {"en": rid.title()},
             "children": children}
     node.update(kw)
@@ -585,7 +607,7 @@ vector(
 # Screen flow (spec 11) — partition and navigation must match on every runtime
 # --------------------------------------------------------------------------
 
-def group(gid, children, **kw):
+def group(gid: str, children: list[Node], **kw: Any) -> Node:
     node = {"type": "group", "id": gid,
             "label": {"en": gid.replace("_", " ").title()}, "children": children}
     node.update(kw)
@@ -972,6 +994,992 @@ vector(
          "expect": {"values": {"unmoved": False}}},
         {"set": {"second_reading": {"lat": -1.28, "lon": 36.81, "accuracy": 8.0}},
          "expect": {"values": {"unmoved": True}}},
+    ],
+)
+
+
+# --------------------------------------------------------------------------
+# Choice membership (spec 6.3)
+#
+# Before these existed, neither engine read `choices` at all: a select_one
+# could hold "purple", a select_multiple could hold "unicorn", and both
+# engines called the form valid and finalisable. Thirty-nine vectors never
+# saw it because not one of them ever set a value outside its list — the gate
+# was untested because nothing had ever knocked on it.
+# --------------------------------------------------------------------------
+
+_GENDER = {"kind": "inline", "items": [
+    {"value": "male", "label": {"en": "Male"}},
+    {"value": "female", "label": {"en": "Female"}}]}
+_SYMPTOMS = {"kind": "inline", "items": [
+    {"value": "fever", "label": {"en": "Fever"}},
+    {"value": "cough", "label": {"en": "Cough"}},
+    {"value": "rash", "label": {"en": "Rash"}}]}
+
+
+def _membership_form(fid: str) -> Node:
+    return form(fid, [
+        q("gender", "select_one", choices=_GENDER, required=True),
+        q("symptoms", "select_multiple", choices=_SYMPTOMS),
+    ])
+
+
+vector(
+    "choice-001",
+    "A value that is in the list is valid — the control for the rest of the set",
+    "6.3",
+    _membership_form("choice1"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever", "rash"]},
+         "expect": {"valid": {"gender": True, "symptoms": True},
+                    "errors": {"gender": [], "symptoms": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-002",
+    "A select_one value outside its list is a `choice` error",
+    "6.3",
+    _membership_form("choice2"),
+    [
+        {"set": {"gender": "purple"},
+         "expect": {"valid": {"gender": False},
+                    "errors": {"gender": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-003",
+    "Unanswered is not a membership failure: a required blank is `required`, never `choice`",
+    "6.3",
+    _membership_form("choice3"),
+    [
+        {"expect": {"valid": {"gender": False, "symptoms": True},
+                    "errors": {"gender": ["required"], "symptoms": []},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-004",
+    "An empty select_multiple is unanswered, not a list in which nothing matched",
+    "6.3",
+    _membership_form("choice4"),
+    [
+        {"set": {"gender": "male", "symptoms": []},
+         "expect": {"valid": {"symptoms": True},
+                    "errors": {"symptoms": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-005",
+    "One bad value among three makes the field invalid exactly once, not once per value",
+    "6.3",
+    _membership_form("choice5"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever", "unicorn", "rash"]},
+         "expect": {"valid": {"symptoms": False},
+                    "errors": {"symptoms": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-006",
+    "Matching is exact: 'Male' does not match the choice 'male'",
+    "6.3",
+    _membership_form("choice6"),
+    [
+        {"set": {"gender": "Male"},
+         "expect": {"valid": {"gender": False},
+                    "errors": {"gender": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+vector(
+    "choice-007",
+    "Matching is exact: 'fever ' does not match the choice 'fever'",
+    "6.3",
+    _membership_form("choice7"),
+    [
+        {"set": {"gender": "male", "symptoms": ["fever "]},
+         "expect": {"valid": {"symptoms": False},
+                    "errors": {"symptoms": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+# 008 and 009 are a pair and only mean anything together.
+#
+# A vector hands an engine one compiled form; an engine never chooses a
+# version. So no vector can catch "it validated against the wrong version" —
+# that binding lives above the engine, the same structural boundary as break
+# 30. What the pair does is make the two versions DISAGREE about one value, so
+# that a caller binding to the wrong one produces a visibly wrong result
+# instead of the same result either way. Without it, wrong binding is
+# undetectable anywhere.
+
+_ROSTER_V1 = {"kind": "inline", "items": [
+    {"value": "alice", "label": {"en": "Alice"}},
+    {"value": "bob", "label": {"en": "Bob"}},
+    {"value": "carol", "label": {"en": "Carol"}}]}
+_ROSTER_V2 = {"kind": "inline", "items": [
+    {"value": "alice", "label": {"en": "Alice"}},
+    {"value": "bob", "label": {"en": "Bob"}}]}
+
+vector(
+    "choice-008",
+    "Form v1 lists carol, so an answer of carol is valid under v1 (pairs with choice-009)",
+    "6.3",
+    form("roster", [q("member", "select_one", choices=_ROSTER_V1)], version=1),
+    [
+        {"set": {"member": "carol"},
+         "expect": {"valid": {"member": True}, "errors": {"member": []},
+                    "formValid": True}},
+    ],
+)
+
+vector(
+    "choice-009",
+    "Form v2 dropped carol, so the same answer is invalid under v2 (pairs with choice-008)",
+    "6.3",
+    form("roster", [q("member", "select_one", choices=_ROSTER_V2)], version=2),
+    [
+        {"set": {"member": "carol"},
+         "expect": {"valid": {"member": False}, "errors": {"member": ["choice"]},
+                    "formValid": False}},
+    ],
+)
+
+
+
+# --------------------------------------------------------------------------
+# Dataset-backed choice lists (§3, §3.2)
+#
+# These compare three things and not one, which is the point of the set. The
+# resolved list alone is not enough: an engine that scanned all 38,000 villages
+# and one that looked up 12 by index produce the same list and are not
+# interchangeable on a handset. So every vector also asserts
+#
+#   selector    the decomposition, evaluated — what a store is asked for
+#   candidates  how many rows came back before the residual ran
+#
+# and a change that quietly stops narrowing fails on `candidates` while the
+# answer stays right. That is the performance contract expressed as data.
+# --------------------------------------------------------------------------
+
+_DISTRICTS = [
+    {"name": "D01", "label": "Arusha Mjini", "region_id": "TZ01", "urban": "yes"},
+    {"name": "D02", "label": "Arusha Vijijini", "region_id": "TZ01", "urban": "no"},
+    {"name": "D03", "label": "Moshi", "region_id": "TZ02", "urban": "yes"},
+]
+_VILLAGES = [
+    {"name": "V1", "label": "Mtakuja", "district_id": "D01", "pop": "800"},
+    {"name": "V2", "label": "Mbuyuni", "district_id": "D01", "pop": "40"},
+    {"name": "V3", "label": "Kibaoni", "district_id": "D02", "pop": "500"},
+    {"name": "V4", "label": "Mlimani", "district_id": "D03", "pop": "900"},
+]
+
+_REGION = q("region", "select_one", choices={
+    "kind": "dataset", "dataset": "regions",
+    "valueColumn": "name", "labelColumn": {"en": "label"},
+})
+
+
+def _district(**extra: Any) -> Node:
+    node = {
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    }
+    node.update(extra)
+    return q("district", "select_one", choices=node)
+
+
+_REGIONS = [
+    {"name": "TZ01", "label": "Arusha"},
+    {"name": "TZ02", "label": "Kilimanjaro"},
+]
+
+vector(
+    "dataset-001",
+    "An unfiltered dataset list resolves to every row, and says it is a full scan",
+    "3.2",
+    form("ds1", [_REGION]),
+    [
+        {"expect": {
+            "choices": {"region": ["TZ01", "TZ02"]},
+            "selector": {"region": {}},
+            "candidates": {"region": 2},
+            "scans": {"region": True},
+        }},
+        {"set": {"region": "TZ01"},
+         "expect": {"valid": {"region": True}, "errors": {"region": []}}},
+    ],
+    datasets={"regions": _REGIONS},
+)
+
+vector(
+    "dataset-002",
+    "A value not in the dataset is a choice error, exactly as for an inline list",
+    "6.3",
+    form("ds2", [_REGION]),
+    [
+        {"set": {"region": "TZ99"},
+         "expect": {"valid": {"region": False}, "errors": {"region": ["choice"]},
+                    "formValid": False}},
+    ],
+    datasets={"regions": _REGIONS},
+)
+
+vector(
+    "dataset-003",
+    "An equality filter becomes a selector: the list narrows and only matching rows are asked for",
+    "3.2",
+    form("ds3", [_REGION, _district(
+        filter=op("eq", ref("$row.region_id"), ref("region")))]),
+    [
+        # Nothing chosen yet. The selector is null, which matches no row —
+        # narrowing to nothing rather than widening to everything (§4.4).
+        {"expect": {
+            "choices": {"district": []},
+            "selector": {"district": {"region_id": None}},
+            "candidates": {"district": 0},
+            "scans": {"district": False},
+        }},
+        {"set": {"region": "TZ01"},
+         "expect": {
+             "choices": {"district": ["D01", "D02"]},
+             "selector": {"district": {"region_id": "TZ01"}},
+             # Two, not three: the third district was never handed to the
+             # engine. This is the assertion the whole design is for.
+             "candidates": {"district": 2},
+         }},
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "choices": {"district": ["D03"]},
+             "candidates": {"district": 1},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-004",
+    "Changing the parent invalidates a child answer that is no longer in its list",
+    "3.2",
+    form("ds4", [_REGION, _district(
+        filter=op("eq", ref("$row.region_id"), ref("region")))]),
+    [
+        {"set": {"region": "TZ01", "district": "D01"},
+         "expect": {"valid": {"district": True}, "formValid": True}},
+        # The district is still answered, and its list no longer contains the
+        # answer. Nothing re-asks the question, so recalculation has to notice:
+        # the selector reads `region`, which is why the field depends on it.
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "values": {"district": "D01"},
+             "valid": {"district": False},
+             "errors": {"district": ["choice"]},
+             "choices": {"district": ["D03"]},
+             "formValid": False,
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-005",
+    "A non-equality term stays a residual: the selector narrows, the residual filters what is left",
+    "3.2",
+    form("ds5", [_REGION, q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "and",
+            op("eq", ref("$row.district_id"), lit("D01")),
+            op("gt", call("int", ref("$row.pop")), lit(100)),
+        ),
+    })]),
+    [
+        {"expect": {
+            "selector": {"village": {"district_id": "D01"}},
+            # Both D01 villages are candidates; the residual then drops V2.
+            "candidates": {"village": 2},
+            "choices": {"village": ["V1"]},
+            "scans": {"village": False},
+        }},
+        {"set": {"village": "V2"},
+         "expect": {"valid": {"village": False}, "errors": {"village": ["choice"]}}},
+    ],
+    datasets={"regions": _REGIONS, "villages": _VILLAGES},
+)
+
+vector(
+    "dataset-006",
+    "A filter with no equality term at all is a full scan, and the engine says so",
+    "3.2",
+    form("ds6", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("gt", call("int", ref("$row.pop")), lit(400)),
+    })]),
+    [
+        {"expect": {
+            "selector": {"village": {}},
+            # Every row is a candidate. `scans` is what makes that a stated
+            # limit rather than a surprise on a 38,000-row list.
+            "candidates": {"village": 4},
+            "scans": {"village": True},
+            "choices": {"village": ["V1", "V3", "V4"]},
+        }},
+    ],
+    datasets={"villages": _VILLAGES},
+)
+
+vector(
+    "dataset-007",
+    "An `or` is never decomposed: the whole filter is residual and nothing narrows",
+    "3.2",
+    form("ds7", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "or",
+            op("eq", ref("$row.region_id"), lit("TZ01")),
+            op("eq", ref("$row.urban"), lit("yes")),
+        ),
+    })]),
+    [
+        {"expect": {
+            "selector": {"district": {}},
+            "scans": {"district": True},
+            "candidates": {"district": 3},
+            "choices": {"district": ["D01", "D02", "D03"]},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-008",
+    "$row on both sides of an equality is residual, not a selector term",
+    "3.2",
+    form("ds8", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("eq", ref("$row.region_id"), ref("$row.urban")),
+    })]),
+    [
+        {"expect": {
+            "selector": {"district": {}},
+            "scans": {"district": True},
+            "candidates": {"district": 3},
+            "choices": {"district": []},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-009",
+    "A column bound twice keeps its first binding; the later one becomes residual",
+    "3.2",
+    form("ds9", [q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op(
+            "and",
+            op("eq", ref("$row.region_id"), lit("TZ01")),
+            op("eq", ref("$row.region_id"), lit("TZ02")),
+        ),
+    })]),
+    [
+        # Nothing is merged and nothing is declared contradictory: it selects
+        # on TZ01 and the residual then finds none of those are TZ02, which is
+        # the right answer arrived at the plain way.
+        {"expect": {
+            "selector": {"district": {"region_id": "TZ01"}},
+            "candidates": {"district": 2},
+            "choices": {"district": []},
+        }},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-010",
+    "Two selector terms narrow together, and the emitted order is by column name",
+    "3.2",
+    form("ds10", [_REGION, q("district", "select_one", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        # Written urban-first on purpose: the selector must come back sorted.
+        "filter": op(
+            "and",
+            op("eq", ref("$row.urban"), lit("yes")),
+            op("eq", ref("$row.region_id"), ref("region")),
+        ),
+    })]),
+    [
+        {"set": {"region": "TZ01"},
+         "expect": {
+             "selector": {"district": {"region_id": "TZ01", "urban": "yes"}},
+             "selectorOrder": {"district": ["region_id", "urban"]},
+             "candidates": {"district": 1},
+             "choices": {"district": ["D01"]},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-011",
+    "A select_multiple checks every chosen value against the dataset separately",
+    "6.3",
+    form("ds11", [q("visited", "select_multiple", choices={
+        "kind": "dataset", "dataset": "districts",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    })]),
+    [
+        {"set": {"visited": ["D01", "D03"]},
+         "expect": {"valid": {"visited": True}, "errors": {"visited": []}}},
+        {"set": {"visited": ["D01", "D99"]},
+         "expect": {"valid": {"visited": False}, "errors": {"visited": ["choice"]}}},
+        # An empty sequence is an unanswered question, not a list in which
+        # nothing matched — the same rule as an inline list (§6.3).
+        {"set": {"visited": []},
+         "expect": {"valid": {"visited": True}, "errors": {"visited": []}}},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-012",
+    "A dataset the device does not hold is an empty list, not a crash",
+    "3.2",
+    form("ds12", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "not_synced_yet",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+    })]),
+    [
+        # The honest state for a device that has not synced its reference data:
+        # a select with nothing to choose from, which is visible, rather than an
+        # exception in the middle of recalculation, which is not.
+        {"expect": {
+            "choices": {"village": []},
+            "candidates": {"village": 0},
+        }},
+        {"set": {"village": "V1"},
+         "expect": {"valid": {"village": False}, "errors": {"village": ["choice"]}}},
+    ],
+    datasets={"districts": _DISTRICTS},
+)
+
+vector(
+    "dataset-013",
+    "Labels come from labelColumn, per language, in dataset row order",
+    "3",
+    form(
+        "ds13",
+        [q("district", "select_one", choices={
+            "kind": "dataset", "dataset": "districts_sw",
+            "valueColumn": "name",
+            "labelColumn": {"en": "label::English (en)", "sw": "label::Swahili (sw)"},
+        })],
+        languages=["en", "sw"],
+    ),
+    [
+        {"expect": {
+            "choices": {"district": ["D01", "D03"]},
+            "labels": {"district": [
+                {"en": "Arusha Urban", "sw": "Arusha Mjini"},
+                {"en": "Moshi", "sw": "Moshi"},
+            ]},
+        }},
+    ],
+    datasets={"districts_sw": [
+        {"name": "D01", "label::English (en)": "Arusha Urban",
+         "label::Swahili (sw)": "Arusha Mjini"},
+        {"name": "D03", "label::English (en)": "Moshi",
+         "label::Swahili (sw)": "Moshi"},
+    ]},
+)
+
+vector(
+    "dataset-014",
+    "A relevance rule and a choice filter reading the same answer both follow it",
+    "3.2",
+    form("ds14", [
+        _REGION,
+        _district(filter=op("eq", ref("$row.region_id"), ref("region"))),
+        q("note_urban", "text", relevant=op("eq", ref("district"), lit("D01"))),
+    ]),
+    [
+        {"set": {"region": "TZ01", "district": "D01"},
+         "expect": {"relevant": {"note_urban": True}, "valid": {"district": True}}},
+        # One answer changing must move both, in one pass and in topological
+        # order: the list, the membership of what was chosen, and the relevance
+        # that reads it.
+        {"set": {"region": "TZ02"},
+         "expect": {
+             "choices": {"district": ["D03"]},
+             "valid": {"district": False},
+             "relevant": {"note_urban": True},
+         }},
+    ],
+    datasets={"regions": _REGIONS, "districts": _DISTRICTS},
+)
+
+
+
+
+# --------------------------------------------------------------------------
+# Explicit casts (§4.3.1)
+#
+# These exist because the dataset vectors found the two engines disagreeing
+# about `int("800")` — Kotlin returned null, silently emptying any filter over
+# a dataset column, and the Python reference raised ValueError on `int("8a")`,
+# which reached the API as a 500. Both had shipped. Neither had a vector,
+# because until dataset columns existed nothing in the corpus ever passed text
+# to a cast, and a CSV holds nothing but text. Break 44.
+# --------------------------------------------------------------------------
+
+_CASTS = [
+    q("source", "text"),
+    q("as_int", "integer", calculate=call("int", ref("source"))),
+    q("as_dec", "decimal", calculate=call("dec", ref("source"))),
+    q("as_str", "text", calculate=call("str", ref("source"))),
+]
+
+vector(
+    "cast-001",
+    "int and dec parse a text value — the case a dataset column is always in",
+    "4.3.1",
+    form("cast1", _CASTS),
+    [
+        {"set": {"source": "800"},
+         "expect": {"values": {"as_int": 800, "as_dec": 800.0, "as_str": "800"}}},
+        # Surrounding whitespace only. Nothing else about the text is
+        # normalised — a thousands separator is unparseable, not stripped.
+        {"set": {"source": "  800  "},
+         "expect": {"values": {"as_int": 800, "as_dec": 800.0}}},
+        {"set": {"source": "1,000"},
+         "expect": {"values": {"as_int": None, "as_dec": None, "as_str": "1,000"}}},
+    ],
+)
+
+vector(
+    "cast-002",
+    "int truncates toward zero, from text and from a decimal identically",
+    "4.3.1",
+    form("cast2", _CASTS),
+    [
+        # A cast whose result depended on where the value came from would be
+        # worse than no cast at all.
+        {"set": {"source": "800.7"}, "expect": {"values": {"as_int": 800, "as_dec": 800.7}}},
+        {"set": {"source": "-800.7"}, "expect": {"values": {"as_int": -800, "as_dec": -800.7}}},
+    ],
+)
+
+vector(
+    "cast-003",
+    "Unparseable text is null, never an error",
+    "4.3.1",
+    form("cast3", _CASTS),
+    [
+        # A cast is evaluated on every keystroke over whatever has been typed
+        # so far: `int("8a")` on the way to `int("81")` must not stop the form.
+        # The Python reference raised ValueError here and it reached the API
+        # as a 500.
+        {"set": {"source": "8a"},
+         "expect": {"values": {"as_int": None, "as_dec": None, "as_str": "8a"},
+                    "formValid": True}},
+        {"set": {"source": ""},
+         "expect": {"values": {"as_int": None, "as_dec": None}}},
+    ],
+)
+
+vector(
+    "cast-004",
+    "A cast of null is null, and str of null is null rather than the text 'null'",
+    "4.3.1",
+    form("cast4", _CASTS),
+    [
+        {"expect": {"values": {"as_int": None, "as_dec": None, "as_str": None}}},
+    ],
+)
+
+vector(
+    "cast-005",
+    "str renders an integer-valued decimal without a trailing .0",
+    "4.3.1",
+    form("cast5", [
+        q("n", "decimal"),
+        q("as_str", "text", calculate=call("str", ref("n"))),
+        # The reason it matters: a dataset column holds text, so a number has
+        # to render back to something that can match one.
+        q("matches", "boolean",
+          calculate=op("eq", call("str", ref("n")), lit("800"))),
+    ]),
+    [
+        {"set": {"n": 800.0}, "expect": {"values": {"as_str": "800", "matches": True}}},
+        {"set": {"n": 800.5}, "expect": {"values": {"as_str": "800.5", "matches": False}}},
+    ],
+)
+
+vector(
+    "cast-006",
+    "A boolean is not a number: int and dec are null, str renders it",
+    "4.3.1",
+    form("cast6", [
+        q("flag", "boolean"),
+        q("as_int", "integer", calculate=call("int", ref("flag"))),
+        q("as_str", "text", calculate=call("str", ref("flag"))),
+    ]),
+    [
+        # §4.4 keeps booleans and numbers apart everywhere else. A dynamically
+        # typed engine's int(true) == 1 is exactly the divergence a statically
+        # typed one cannot have, and no vector had ever asked.
+        {"set": {"flag": True},
+         "expect": {"values": {"as_int": None, "as_str": "true"}}},
+        {"set": {"flag": False},
+         "expect": {"values": {"as_int": None, "as_str": "false"}}},
+    ],
+)
+
+vector(
+    "cast-007",
+    "A cast inside a choice filter is what makes a text column comparable",
+    "4.3.1",
+    form("cast7", [q("village", "select_one", choices={
+        "kind": "dataset", "dataset": "villages",
+        "valueColumn": "name", "labelColumn": {"en": "label"},
+        "filter": op("gte", call("int", ref("$row.pop")), lit(500)),
+    })]),
+    [
+        # The vector that found break 44. With `int` returning null for text
+        # the filter matched nothing and the list was silently empty — a
+        # village select that shows no villages, on a device holding all of
+        # them.
+        {"expect": {"choices": {"village": ["V1", "V3", "V4"]}}},
+    ],
+    datasets={"villages": _VILLAGES},
+)
+
+
+
+
+# --------------------------------------------------------------------------
+# Trigonometry and sqrt (§4.3), added because a real form needed them
+# --------------------------------------------------------------------------
+
+vector(
+    "trig-001",
+    "The UCL slope correction: a plot radius corrected for gradient",
+    "4.3",
+    form("slope", [
+        q("slope", "integer"),
+        # round(15 / sqrt(cos(atan(slope/100))), 2) — the field protocol's own
+        # formula, verbatim from UCL_Biomass_Plot_Form.xlsx.
+        q("radius", "decimal", calculate=call(
+            "round",
+            op("div", lit(15), call("sqrt", call("cos", call("atan",
+                op("div", ref("slope"), lit(100)))))),
+            lit(2),
+        )),
+    ]),
+    [
+        # Flat ground: atan(0) = 0, cos(0) = 1, sqrt(1) = 1, so the radius is
+        # the uncorrected 15 m.
+        {"set": {"slope": 0}, "expect": {"values": {"radius": 15.0}}},
+        # A 100% gradient is 45 degrees; the correction is 15 / sqrt(cos(pi/4)).
+        {"set": {"slope": 100}, "expect": {"values": {"radius": 17.84}}},
+        # Checked against the closed form rather than against the engine:
+        # cos(atan(x)) is 1/sqrt(1+x^2), so the whole expression is
+        # 15*(1+x^2)^(1/4) — 15.860569 at x=0.5, which rounds to 15.86.
+        {"set": {"slope": 50}, "expect": {"values": {"radius": 15.86}}},
+        # Unanswered propagates, as everything else does (§4.4).
+        {"set": {"slope": None}, "expect": {"values": {"radius": None}}},
+    ],
+)
+
+vector(
+    "trig-002",
+    "sqrt of a negative is null, not NaN — a NaN would pass a constraint silently",
+    "4.3",
+    form("roots", [
+        q("n", "decimal"),
+        q("root", "decimal", calculate=call("sqrt", ref("n"))),
+        # The reason it matters: a NaN compares false to everything including
+        # itself, so a constraint over it would pass and nobody would know.
+        q("checked", "decimal", constraint=op("gt", ref("root"), lit(0))),
+    ]),
+    [
+        {"set": {"n": 9.0}, "expect": {"values": {"root": 3.0}}},
+        {"set": {"n": 0.0}, "expect": {"values": {"root": 0.0}}},
+        {"set": {"n": -1.0}, "expect": {"values": {"root": None}}},
+    ],
+)
+
+vector(
+    "trig-003",
+    "sin, cos, tan and atan agree between the engines to the precision §4.3 promises",
+    "4.3",
+    form("angles", [
+        q("radians", "decimal"),
+        # Rounded to 9 places, deliberately, and §4.3 says why: a
+        # transcendental function is permitted one unit in the last place by
+        # both platforms' libraries, so bit-identity is not something either
+        # engine can promise — `distance` was found differing in exactly that
+        # way (break 50). Nine places is eleven orders of magnitude beyond any
+        # survey use and comfortably inside the guarantee.
+        q("s", "decimal", calculate=call("round", call("sin", ref("radians")), lit(9))),
+        q("c", "decimal", calculate=call("round", call("cos", ref("radians")), lit(9))),
+        q("t", "decimal", calculate=call("round", call("tan", ref("radians")), lit(9))),
+        q("a", "decimal", calculate=call("round", call("atan", ref("radians")), lit(9))),
+    ]),
+    [
+        {"set": {"radians": 0.0},
+         "expect": {"values": {"s": 0.0, "c": 1.0, "t": 0.0, "a": 0.0}}},
+        {"set": {"radians": 1.0},
+         "expect": {"values": {
+             "s": 0.841470985,
+             "c": 0.540302306,
+             "t": 1.557407725,
+             "a": 0.785398163,
+         }}},
+        # Negative angles, because a slope can go downhill.
+        {"set": {"radians": -1.0},
+         "expect": {"values": {
+             "s": -0.841470985,
+             "c": 0.540302306,
+             "t": -1.557407725,
+             "a": -0.785398163,
+         }}},
+    ],
+)
+
+
+
+# --------------------------------------------------------------------------
+# Interpolated labels (§7.1)
+# --------------------------------------------------------------------------
+
+#: U+2068 / U+2069. Written as escapes here so the expectations below are
+#: readable *as codepoints* — the whole point of label-004 is that removing them
+#: fails, and a vector containing invisible characters nobody can see would be a
+#: poor way to prove it.
+FSI = "\u2068"
+PDI = "\u2069"
+
+
+def _tagged() -> Node:
+    return form(
+        "tagged",
+        [
+            q("tag", "integer"),
+            q("stems", "note", label={"en": "Stems of tree with tag number {0}"},
+              labelArgs=[ref("tag")]),
+        ],
+    )
+
+
+vector(
+    "label-001",
+    "A slot is filled from the answer it names",
+    "7.1",
+    _tagged(),
+    [
+        {"set": {"tag": 42},
+         "expect": {"renderedLabels": {"stems": {
+             "en": f"Stems of tree with tag number {FSI}42{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-002",
+    "An unanswered argument is the empty string, exactly as concat's nulls are",
+    "7.1",
+    _tagged(),
+    [
+        # Not a placeholder. Which glyph a gap should show is a translation
+        # decision, and `coalesce` is what an author reaches for — see label-003.
+        {"expect": {"renderedLabels": {"stems": {
+            "en": "Stems of tree with tag number "}}}},
+    ],
+)
+
+vector(
+    "label-003",
+    "coalesce is how an author chooses the placeholder the IR will not choose",
+    "7.1",
+    form("placeheld", [
+        q("tag", "integer"),
+        q("stems", "note",
+          label={"en": "Tag {0}"},
+          labelArgs=[call("coalesce", call("str", ref("tag")), lit("—"))]),
+    ]),
+    [
+        {"expect": {"renderedLabels": {"stems": {"en": f"Tag {FSI}—{PDI}"}}}},
+        {"set": {"tag": 7},
+         "expect": {"renderedLabels": {"stems": {"en": f"Tag {FSI}7{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-004",
+    "Every interpolated value is isolated — U+2068 and U+2069, by number",
+    "7.1",
+    form(
+        "bidi",
+        [
+            q("radius", "decimal"),
+            q("note_ar", "note", label={
+                # Arabic, with a Latin-digit number inserted. Without the
+                # isolates the bidirectional algorithm resolves the digit run
+                # against the surrounding paragraph and can move it — the same
+                # bug that rendered a page indicator "5 / 25" as "25 / 5".
+                "ar": "الشعاع {0} م",
+                "en": "The radius is {0} m",
+            }, labelArgs=[ref("radius")]),
+        ],
+        languages=["ar", "en"],
+        defaultLanguage="ar",
+    ),
+    [
+        {"set": {"radius": 15.5},
+         "expect": {"renderedLabels": {"note_ar": {
+             "ar": f"الشعاع {FSI}15.5{PDI} م",
+             "en": f"The radius is {FSI}15.5{PDI} m",
+         }}}},
+        # An empty value is NOT wrapped: an isolate protects a run of text and
+        # there is no run. Asserted so the rule is a rule rather than a habit.
+        {"set": {"radius": None},
+         "expect": {"renderedLabels": {"note_ar": {"ar": "الشعاع  م"}}}},
+    ],
+)
+
+vector(
+    "label-005",
+    "A label re-renders when what it reads changes — the dependency, not the render",
+    "7.1",
+    _tagged(),
+    [
+        {"set": {"tag": 41},
+         "expect": {"renderedLabels": {"stems": {
+             "en": f"Stems of tree with tag number {FSI}41{PDI}"}}}},
+        # The case that would ship, and `dependsOn` is asserted rather than
+        # inferred because **the render alone does not catch it**: both engines
+        # render a label on demand, so dropping the edge leaves every rendered
+        # string correct. What breaks is everything downstream of the edge — the
+        # sensitivity refusal reads `depends_on`, `_check_references` catches an
+        # unresolvable label reference through it, and a client that re-renders
+        # on dependency change stops re-rendering. Watched: removing the edge
+        # fails this vector and nothing else.
+        {"set": {"tag": 42},
+         "expect": {
+             "renderedLabels": {"stems": {
+                 "en": f"Stems of tree with tag number {FSI}42{PDI}"}},
+             "dependsOn": {"stems": ["tag"]},
+         }},
+    ],
+)
+
+vector(
+    "label-006",
+    "A constraint message quotes the threshold it is about — the UCL case",
+    "7.1",
+    form("threshold", [
+        q("distance", "decimal"),
+        q("minimum", "integer",
+          calculate=op("if", op("gt", ref("distance"), lit(5)), lit(15), lit(6))),
+        q("cbh", "integer",
+          constraint=op("gte", ref("cbh"), ref("minimum")),
+          constraintMessage={
+              "en": "Minimum circumference for this part of the plot is {0} cm."},
+          constraintMessageArgs=[ref("minimum")]),
+    ]),
+    [
+        # Without interpolation this sentence reads "…is cm.", and there is no
+        # rewrite: the threshold is computed, so it cannot be written in.
+        {"set": {"distance": 9.0, "cbh": 10},
+         "expect": {
+             "valid": {"cbh": False},
+             "errors": {"cbh": ["constraint"]},
+             "renderedMessages": {"cbh": {
+                 "en": f"Minimum circumference for this part of the plot is {FSI}15{PDI} cm."}},
+         }},
+        {"set": {"distance": 1.0},
+         "expect": {"renderedMessages": {"cbh": {
+             "en": f"Minimum circumference for this part of the plot is {FSI}6{PDI} cm."}}}},
+    ],
+)
+
+vector(
+    "label-007",
+    "A decimal renders as str() renders it — 800 and not 800.0",
+    "7.1",
+    form("rendering", [
+        q("n", "decimal"),
+        q("shown", "note", label={"en": "n is {0}"}, labelArgs=[ref("n")]),
+    ]),
+    [
+        {"set": {"n": 800.0},
+         "expect": {"renderedLabels": {"shown": {"en": f"n is {FSI}800{PDI}"}}}},
+        {"set": {"n": 800.5},
+         "expect": {"renderedLabels": {"shown": {"en": f"n is {FSI}800.5{PDI}"}}}},
+    ],
+)
+
+vector(
+    "label-008",
+    "Braces are escapable, and a template with no arguments is untouched",
+    "7.1",
+    form("braces", [
+        q("a", "text"),
+        q("escaped", "note", label={"en": "{{0}} is a literal, {0} is not"},
+          labelArgs=[ref("a")]),
+        # No labelArgs at all: a document that predates §7.1 is substituted not
+        # at all, so an old label containing {0} keeps reading {0}.
+        q("untouched", "note", label={"en": "{0} stays {0}"}),
+    ]),
+    [
+        {"set": {"a": "x"},
+         "expect": {"renderedLabels": {
+             "escaped": {"en": f"{{0}} is a literal, {FSI}x{PDI} is not"},
+             "untouched": {"en": "{0} stays {0}"},
+         }}},
+    ],
+)
+
+vector(
+    "label-009",
+    "Slots are shared across languages, so a translator may reorder them",
+    "7.1",
+    form(
+        "reordered",
+        [
+            q("a", "text"),
+            q("b", "text"),
+            q("both", "note", label={
+                "en": "{0} then {1}",
+                # The same two arguments, the other way round.
+                "sw": "{1} kisha {0}",
+            }, labelArgs=[ref("a"), ref("b")]),
+        ],
+        languages=["en", "sw"],
+    ),
+    [
+        {"set": {"a": "one", "b": "two"},
+         "expect": {"renderedLabels": {"both": {
+             "en": f"{FSI}one{PDI} then {FSI}two{PDI}",
+             "sw": f"{FSI}two{PDI} kisha {FSI}one{PDI}",
+         }}}},
     ],
 )
 

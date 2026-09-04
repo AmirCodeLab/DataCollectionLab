@@ -10,6 +10,22 @@ package com.dcp.form
 
 private val ID_PATTERN = Regex("^[a-z][a-z0-9_]*$")
 
+/** `${'$'}row.` — assembled so Kotlin does not read it as a template. */
+private val ROW_REF_PREFIX = "" + '$' + "row."
+
+/**
+ * Every `ref` path in an expression, including the `${'$'}row.` ones.
+ *
+ * `collectRefs` deliberately drops those — they are columns, not fields — so a
+ * check *about* them needs its own walk.
+ */
+private fun refPaths(expr: Expr): Set<String> = when (expr) {
+    is Expr.Ref -> setOf(expr.path)
+    is Expr.Op -> expr.args.flatMap { refPaths(it) }.toSet()
+    is Expr.Call -> expr.args.flatMap { refPaths(it) }.toSet()
+    else -> emptySet()
+}
+
 data class FieldError(
     val kind: String,
     val message: Map<String, String>? = null,
@@ -37,6 +53,13 @@ class CompiledField(
     val ancestors: List<String>,
     /** innermost enclosing repeat id, if any */
     val repeat: String?,
+    /**
+     * A dataset-backed `choices` block, decomposed (§3.2). Null for an inline
+     * list or no list at all. Computed at compile time because it is a pure
+     * function of the IR: the same document must decompose the same way on
+     * every engine, and a vector asserts that it did.
+     */
+    val choiceQuery: ChoiceQuery? = null,
 )
 
 /** A validated form with its dependency graph resolved. */
@@ -63,6 +86,7 @@ class CompiledForm(val ir: FormIr) {
         checkIrVersion(ir.irVersion)
 
         compile()
+        checkInterpolation()
         checkReferences()
         topoOrder = topologicalOrder()
         lint()
@@ -124,9 +148,35 @@ class CompiledForm(val ir: FormIr) {
                 if (expr != null) collectRefs(expr, deps)
             }
 
+            // Interpolated labels are dependencies too (§7.1). A label reading
+            // `{0}` from `tag` must re-render when `tag` changes, and a runtime
+            // that did not record it would leave "tag number 41" on screen after
+            // the answer became 42 — correct on every static check and wrong the
+            // moment anybody types.
+            //
+            // It also gets the sensitivity rule for nothing: the propagation
+            // check reads `dependsOn`, so a label interpolating a sensitive
+            // field is refused at publish by a check that already exists
+            // (encryption envelope §5.2).
+            question.labelArgs?.forEach { collectRefs(it, deps) }
+            question.constraintMessageArgs?.forEach { collectRefs(it, deps) }
+
             // a field inherits relevance from every enclosing container
             for (anc in ancestors) {
                 containers[anc]?.relevant?.let { collectRefs(it, deps) }
+            }
+
+            val query = compileChoices(question.choices)
+            if (query != null) {
+                // A selector expression reads answers, so the field depends on
+                // them: changing the district must re-resolve the village list
+                // and re-check the village already chosen. `collectRefs`
+                // deliberately ignores `$row.` — those are columns, not fields —
+                // and the selector's right-hand sides are exactly the part that
+                // is not `$row`, which is why they are collected from here
+                // rather than from the filter as a whole.
+                query.selector.values.forEach { collectRefs(it, deps) }
+                query.residual?.let { collectRefs(it, deps) }
             }
 
             fields[node.id] = CompiledField(
@@ -136,8 +186,54 @@ class CompiledForm(val ir: FormIr) {
                 dependsOn = deps,
                 ancestors = ancestors,
                 repeat = enclosingRepeats.firstOrNull(),
+                choiceQuery = query,
             )
             order.add(node.id)
+        }
+    }
+
+    /**
+     * Slots and arguments agree, and no argument reads a row (§7.1).
+     *
+     * Both are static properties of the document, so they are compile errors
+     * rather than something a renderer discovers. `{5}` with three arguments
+     * would otherwise be an empty gap in a sentence nobody could explain.
+     */
+    private fun checkInterpolation() {
+        for ((fieldId, compiled) in fields) {
+            val pairs = listOf(
+                Triple("label", compiled.node.label, compiled.node.labelArgs),
+                Triple(
+                    "constraintMessage",
+                    compiled.node.constraintMessage,
+                    compiled.node.constraintMessageArgs,
+                ),
+            )
+            for ((key, strings, args) in pairs) {
+                if (args.isNullOrEmpty()) continue
+                strings?.forEach { (language, template) ->
+                    val missing = Interpolation.slotIndices(template)
+                        .filter { it >= args.size }
+                        .minOrNull()
+                    if (missing != null) {
+                        throw CompileException(
+                            "$fieldId: $key[$language] uses slot {$missing} and " +
+                                "${key}Args has ${args.size} argument(s)"
+                        )
+                    }
+                }
+                for (expr in args) {
+                    val row = refPaths(expr).firstOrNull { path ->
+                        path.startsWith(ROW_REF_PREFIX)
+                    }
+                    if (row != null) {
+                        throw CompileException(
+                            "$fieldId: ${key}Args reads '$row'. A label has no " +
+                                "candidate row (§7.1)."
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -214,11 +310,49 @@ class CompiledForm(val ir: FormIr) {
  * storage (spec 5.4). Positional addressing (`members[0].age`) resolves against
  * the current ordered list at evaluation time.
  */
+/**
+ * Values not present in the question's choice list (spec 6.3).
+ *
+ * Empty when the question has no choices, when the list is dataset-backed (not
+ * resolvable here yet), or when everything matches.
+ *
+ * Matching is **exact** — no trimming, no case folding, no normalisation. That
+ * is §6.3's decision rather than an accident of `==`: a device that accepted
+ * "Male" for "male" would store "Male", and every later comparison — a
+ * `selected()` call, a choice filter, an export column — would have to make the
+ * same allowance or disagree with it.
+ */
+internal fun inlineValuesOutsideChoices(node: QuestionNode, value: FormValue): List<String> {
+    val choices = node.choices ?: return emptyList()
+    if (choices.kind != "inline") return emptyList()
+    val permitted = choices.items.map { it.value }.toSet()
+
+    return when (value) {
+        // An empty sequence is an unanswered question, not a list in which
+        // nothing matched. Iterating it and concluding failure is the mistake
+        // §6.3 names.
+        is FormValue.Sequence ->
+            value.items.mapNotNull { (it as? FormValue.Text)?.value }
+                .filter { it !in permitted }
+        is FormValue.Text -> if (value.value in permitted) emptyList() else listOf(value.value)
+        else -> emptyList()
+    }
+}
+
+
 class FormInstance(
     val form: CompiledForm,
     private val today: String,
     private val now: String = "${today}T00:00:00",
     private val metadata: Map<String, FormValue> = emptyMap(),
+    /**
+     * Where dataset-backed lists come from (§3.2). A form with none never
+     * touches it; one that has them and is given no source resolves every list
+     * to empty, which shows up as a select with nothing to choose from rather
+     * than as an exception during recalculation. That is the honest state for a
+     * device that has not yet synced its reference data.
+     */
+    val datasets: DatasetSource = InMemoryDatasetSource(emptyMap()),
 ) {
     /** repeat id -> ordered stable instance ids */
     val instances: Map<String, MutableList<String>> =
@@ -337,7 +471,176 @@ class FormInstance(
         metadata = metadata,
         scope = scope,
         instances = instances,
+        // `pulldata` reads through the same source the choice filters do, so a
+        // client's form-version binding covers both (§3.2).
+        datasets = datasets,
     )
+
+    // -- interpolated text (§7.1) ------------------------------------------
+
+    /**
+     * This field's label in one language, with its slots filled.
+     *
+     * Rendered on demand rather than stored on [FieldState]: a form has as many
+     * labels as it has languages, and computing every one of them on every
+     * recalculation would be work nobody asked for. A client asks for the
+     * language it is showing.
+     */
+    fun renderedLabel(fieldId: String, language: String): String? =
+        render(fieldId, language) { it.label to it.labelArgs }
+
+    /**
+     * The message a failed constraint shows, with its slots filled.
+     *
+     * The case that made §7.1 worth building: "Minimum circumference for this
+     * part of the plot is {0} cm", where the threshold is itself computed and
+     * so cannot be written into the sentence.
+     */
+    fun renderedConstraintMessage(fieldId: String, language: String): String? =
+        render(fieldId, language) { it.constraintMessage to it.constraintMessageArgs }
+
+    private fun render(
+        fieldId: String,
+        language: String,
+        pick: (QuestionNode) -> Pair<Map<String, String>?, List<Expr>?>,
+    ): String? {
+        val compiled = form.fields[fieldId] ?: return null
+        val (strings, args) = pick(compiled.node)
+        val template = strings?.get(language) ?: return null
+        if (args.isNullOrEmpty()) return template
+
+        val ctx = context(scopeOf(fieldId))
+        val values = args.map { expr ->
+            // `str()` of null is null (§4.3.1); in text that is the empty
+            // string, the same rule `concat` has and for the same reason.
+            val rendered = Functions.call("str", listOf(Evaluator.evaluate(expr, ctx)), ctx)
+            (rendered as? FormValue.Text)?.value ?: ""
+        }
+        return Interpolation.render(template, values)
+    }
+
+    // -- dataset-backed choice lists (§3.2) --------------------------------
+
+    /**
+     * The selector, evaluated against the current answers.
+     *
+     * A term evaluating to null selects on null and matches no row unless the
+     * column holds one. It is deliberately not dropped: an unanswered district
+     * must narrow the village list to nothing, not widen it to everything
+     * (§3.2, §4.4).
+     */
+    private fun selectorValues(query: ChoiceQuery, ctx: EvalContext): Map<String, FormValue> =
+        query.selector.mapValues { Evaluator.evaluate(it.value, ctx) }
+
+    /**
+     * This field's selector, evaluated against the current answers (§3.2).
+     *
+     * Public because a vector compares the decomposition itself and not only
+     * its effect: two engines that resolve the same list while one of them
+     * narrowed and the other scanned are not interchangeable on a handset.
+     */
+    fun selectorFor(fieldId: String): Map<String, FormValue> {
+        val query = form.fields.getValue(fieldId).choiceQuery ?: return emptyMap()
+        return selectorValues(query, context(scopeOf(fieldId)))
+    }
+
+    /**
+     * Rows the source returns for this field's selector, before the residual.
+     *
+     * Public because it is what the performance contract is measured in: it is
+     * O(rows matching the selector) and never O(dataset), and a vector asserts
+     * its size so that "did the engine narrow" is comparable between
+     * implementations rather than only visible in a profiler.
+     */
+    fun candidateRows(
+        fieldId: String,
+        equals: FormValue? = null,
+        scope: Pair<String, String>? = scopeOf(fieldId),
+    ): List<Map<String, FormValue>> {
+        val query = form.fields.getValue(fieldId).choiceQuery ?: return emptyList()
+        val ctx = context(scope)
+        return datasets.rows(
+            query.dataset,
+            selectorValues(query, ctx),
+            equals?.let { query.valueColumn to it },
+        )
+    }
+
+    private fun rowsAfterResidual(
+        fieldId: String,
+        rows: List<Map<String, FormValue>>,
+        scope: Pair<String, String>?,
+    ): List<Map<String, FormValue>> {
+        val query = form.fields.getValue(fieldId).choiceQuery ?: return rows
+        val residual = query.residual ?: return rows
+        val base = context(scope)
+        // `nullIs = false` because a filter that cannot be decided must not
+        // offer the row — §4.4's boundary rule for `constraint` coerces the
+        // other way, and this is not a constraint: an undecidable row is not a
+        // permitted answer.
+        return rows.filter {
+            Evaluator.coerceBoolean(
+                Evaluator.evaluate(residual, base.copy(row = it)),
+                nullIs = false,
+            )
+        }
+    }
+
+    /**
+     * The resolved option list for a field, in dataset order (§3.2).
+     *
+     * Inline lists are returned as they stand; a dataset-backed list is the
+     * selector's rows with the residual applied. A client renders both kinds
+     * the same way and so cannot end up implementing one of them itself.
+     */
+    fun choices(fieldId: String): List<ChoiceItem> {
+        val cf = form.fields.getValue(fieldId)
+        val query = cf.choiceQuery ?: return cf.node.choices?.items ?: emptyList()
+        val scope = scopeOf(fieldId)
+        return rowsAfterResidual(fieldId, candidateRows(fieldId, scope = scope), scope).map { row ->
+            ChoiceItem(
+                value = (row[query.valueColumn] as? FormValue.Text)?.value
+                    ?: formValueAsText(row[query.valueColumn]),
+                label = query.labelColumns.mapValues { (_, column) ->
+                    formValueAsText(row[column])
+                },
+            )
+        }
+    }
+
+    /**
+     * Values not present in this question's choice list (spec 6.3).
+     *
+     * For a dataset-backed list this is a **lookup, not a scan** (§3.2): the
+     * answer is pushed into the source alongside the selector, so with no
+     * residual it is one indexed question whatever the dataset's size. It is
+     * never "fetch the list, then search it" — that is the difference between a
+     * village select that works on a handset and one that does not.
+     */
+    private fun valuesOutsideChoices(
+        cf: CompiledField,
+        value: FormValue,
+        scope: Pair<String, String>?,
+    ): List<String> {
+        cf.choiceQuery ?: return inlineValuesOutsideChoices(cf.node, value)
+
+        val wanted =
+            if (cf.dataType == "select_multiple" && value is FormValue.Sequence) value.items
+            else listOf(value)
+        return wanted.filter { one ->
+            rowsAfterResidual(cf.fieldId, candidateRows(cf.fieldId, one, scope), scope).isEmpty()
+        }.map { formValueAsText(it) }
+    }
+
+    /** The repeat instance a field id belongs to, for building a context. */
+    private fun scopeOf(fieldId: String): Pair<String, String>? {
+        val repeat = form.fields.getValue(fieldId).repeat ?: return null
+        // Resolution inside a repeat is the instance currently being evaluated;
+        // `choices()` called from outside one uses the first instance. Repeats
+        // with dataset-backed lists are not exercised until v0.2's repeat
+        // screen flow, so this is deliberately the simple reading.
+        return instances[repeat]?.firstOrNull()?.let { repeat to it }
+    }
 
     private fun evaluateField(fid: String, path: String, scope: Pair<String, String>?) {
         val cf = form.fields.getValue(fid)
@@ -383,6 +686,24 @@ class FormInstance(
             if (state.required && state.value.isNull) {
                 state.valid = false
                 errors.add(FieldError(kind = "required"))
+            }
+            // Choice membership (spec 6.3), before the constraint.
+            //
+            // Neither engine read `choices` at all before this: a select_one
+            // could hold "purple" and both engines called the form valid and
+            // finalisable. Thirty-nine vectors never saw it, because not one
+            // of them ever set a value outside its list.
+            //
+            // `null` is deliberately excluded — an unanswered question is not
+            // a membership failure, it is `required`'s business (§4.4, §6.3).
+            if (!state.value.isNull &&
+                valuesOutsideChoices(cf, state.value, scope).isNotEmpty()
+            ) {
+                state.valid = false
+                // One error on the field, not one per offending value: the
+                // field is what is invalid, and two engines that disagreed
+                // about the count would both look correct.
+                errors.add(FieldError(kind = "choice"))
             }
             if (!state.value.isNull && node.constraint != null) {
                 val ok = Evaluator.coerceBoolean(Evaluator.evaluate(node.constraint, ctx), nullIs = true)

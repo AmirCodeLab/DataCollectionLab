@@ -26,6 +26,8 @@ import com.amr.data_collection_lab.collection.AppGraph
 import com.amr.data_collection_lab.collection.CollectionRoot
 import com.amr.data_collection_lab.collection.CollectionViewModel
 import com.amr.data_collection_lab.collection.MediaPlatform
+import com.amr.data_collection_lab.collection.SettingsRoot
+import com.amr.data_collection_lab.collection.SettingsViewModel
 import com.amr.data_collection_lab.collection.SubmissionListRoot
 import com.amr.data_collection_lab.collection.SubmissionListViewModel
 import com.dcp.core.security.DatabaseKeyStore
@@ -35,6 +37,7 @@ import com.dcp.core.sync.DatabaseDriverFactory
 
 private sealed interface Route {
     data object Submissions : Route
+    data object Settings : Route
     data class Collection(val submissionId: String) : Route
 }
 
@@ -83,6 +86,15 @@ private fun Collection(graph: AppGraph) {
                 SubmissionListViewModel(graph.store, graph.formCatalog, graph.syncClient)
             },
             onNavigateToCollection = { route = Route.Collection(it) },
+            onNavigateToSettings = { route = Route.Settings },
+        )
+        Route.Settings -> SettingsRoot(
+            viewModel = viewModel {
+                SettingsViewModel(
+                    graph.serverConfig, graph.store, graph.formCatalog, graph.syncClient,
+                )
+            },
+            onNavigateBack = { route = Route.Submissions },
         )
         is Route.Collection -> CollectionRoot(
             viewModel = viewModel(key = "collection_${current.submissionId}") {

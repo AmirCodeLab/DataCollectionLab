@@ -1,0 +1,130 @@
+{
+  "id": "trig-001",
+  "description": "The UCL slope correction: a plot radius corrected for gradient",
+  "spec": "4.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "slope",
+    "version": 1,
+    "title": {
+      "en": "slope"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "slope",
+        "dataType": "integer",
+        "label": {
+          "en": "Slope"
+        }
+      },
+      {
+        "type": "question",
+        "id": "radius",
+        "dataType": "decimal",
+        "label": {
+          "en": "Radius"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "round",
+          "args": [
+            {
+              "op": "div",
+              "args": [
+                {
+                  "op": "lit",
+                  "value": 15
+                },
+                {
+                  "op": "call",
+                  "fn": "sqrt",
+                  "args": [
+                    {
+                      "op": "call",
+                      "fn": "cos",
+                      "args": [
+                        {
+                          "op": "call",
+                          "fn": "atan",
+                          "args": [
+                            {
+                              "op": "div",
+                              "args": [
+                                {
+                                  "op": "ref",
+                                  "path": "slope"
+                                },
+                                {
+                                  "op": "lit",
+                                  "value": 100
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "slope": 0
+      },
+      "expect": {
+        "values": {
+          "radius": 15.0
+        }
+      }
+    },
+    {
+      "set": {
+        "slope": 100
+      },
+      "expect": {
+        "values": {
+          "radius": 17.84
+        }
+      }
+    },
+    {
+      "set": {
+        "slope": 50
+      },
+      "expect": {
+        "values": {
+          "radius": 15.86
+        }
+      }
+    },
+    {
+      "set": {
+        "slope": null
+      },
+      "expect": {
+        "values": {
+          "radius": null
+        }
+      }
+    }
+  ]
+}

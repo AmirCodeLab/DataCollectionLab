@@ -1,0 +1,108 @@
+{
+  "id": "cast-002",
+  "description": "int truncates toward zero, from text and from a decimal identically",
+  "spec": "4.3.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "cast2",
+    "version": 1,
+    "title": {
+      "en": "cast2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "source",
+        "dataType": "text",
+        "label": {
+          "en": "Source"
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_int",
+        "dataType": "integer",
+        "label": {
+          "en": "As Int"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "int",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_dec",
+        "dataType": "decimal",
+        "label": {
+          "en": "As Dec"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "dec",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_str",
+        "dataType": "text",
+        "label": {
+          "en": "As Str"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "str",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "source": "800.7"
+      },
+      "expect": {
+        "values": {
+          "as_int": 800,
+          "as_dec": 800.7
+        }
+      }
+    },
+    {
+      "set": {
+        "source": "-800.7"
+      },
+      "expect": {
+        "values": {
+          "as_int": -800,
+          "as_dec": -800.7
+        }
+      }
+    }
+  ]
+}

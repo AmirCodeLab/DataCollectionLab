@@ -1,0 +1,129 @@
+{
+  "id": "label-006",
+  "description": "A constraint message quotes the threshold it is about — the UCL case",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "threshold",
+    "version": 1,
+    "title": {
+      "en": "threshold"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "distance",
+        "dataType": "decimal",
+        "label": {
+          "en": "Distance"
+        }
+      },
+      {
+        "type": "question",
+        "id": "minimum",
+        "dataType": "integer",
+        "label": {
+          "en": "Minimum"
+        },
+        "calculate": {
+          "op": "if",
+          "args": [
+            {
+              "op": "gt",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "distance"
+                },
+                {
+                  "op": "lit",
+                  "value": 5
+                }
+              ]
+            },
+            {
+              "op": "lit",
+              "value": 15
+            },
+            {
+              "op": "lit",
+              "value": 6
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "cbh",
+        "dataType": "integer",
+        "label": {
+          "en": "Cbh"
+        },
+        "constraint": {
+          "op": "gte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "cbh"
+            },
+            {
+              "op": "ref",
+              "path": "minimum"
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "Minimum circumference for this part of the plot is {0} cm."
+        },
+        "constraintMessageArgs": [
+          {
+            "op": "ref",
+            "path": "minimum"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "distance": 9.0,
+        "cbh": 10
+      },
+      "expect": {
+        "valid": {
+          "cbh": false
+        },
+        "errors": {
+          "cbh": [
+            "constraint"
+          ]
+        },
+        "renderedMessages": {
+          "cbh": {
+            "en": "Minimum circumference for this part of the plot is ⁨15⁩ cm."
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "distance": 1.0
+      },
+      "expect": {
+        "renderedMessages": {
+          "cbh": {
+            "en": "Minimum circumference for this part of the plot is ⁨6⁩ cm."
+          }
+        }
+      }
+    }
+  ]
+}

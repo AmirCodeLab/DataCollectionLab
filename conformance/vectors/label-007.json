@@ -1,0 +1,70 @@
+{
+  "id": "label-007",
+  "description": "A decimal renders as str() renders it — 800 and not 800.0",
+  "spec": "7.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rendering",
+    "version": 1,
+    "title": {
+      "en": "rendering"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "n",
+        "dataType": "decimal",
+        "label": {
+          "en": "N"
+        }
+      },
+      {
+        "type": "question",
+        "id": "shown",
+        "dataType": "note",
+        "label": {
+          "en": "n is {0}"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "n"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "n": 800.0
+      },
+      "expect": {
+        "renderedLabels": {
+          "shown": {
+            "en": "n is ⁨800⁩"
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "n": 800.5
+      },
+      "expect": {
+        "renderedLabels": {
+          "shown": {
+            "en": "n is ⁨800.5⁩"
+          }
+        }
+      }
+    }
+  ]
+}

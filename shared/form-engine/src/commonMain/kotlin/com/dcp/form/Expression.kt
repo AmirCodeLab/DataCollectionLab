@@ -81,6 +81,13 @@ data class EvalContext(
     val scope: Pair<String, String>? = null,
     /** repeat id -> ordered instance ids, for positional addressing. */
     val instances: Map<String, List<String>>? = null,
+    /**
+     * Where `pulldata` reads reference data from (§4.3). Null when the caller
+     * built no source — `pulldata` is then null, like every other argument that
+     * is not what §4.3 declares (§4.7), rather than an exception on a device
+     * that has not finished syncing.
+     */
+    val datasets: DatasetSource? = null,
 )
 
 object Evaluator {
@@ -148,10 +155,10 @@ object Evaluator {
     private fun evalOp(expr: Expr.Op, ctx: EvalContext): FormValue {
         // `if` is lazy in both branches (spec 4.3)
         if (expr.op == "if") {
-            val cond = evaluate(expr.args[0], ctx)
-            if (cond.isNull) return FormValue.Null
-            val takeThen = (cond as? FormValue.Bool)?.value
-                ?: throw EvaluationException("if() condition must be boolean")
+            // The condition takes a boolean; anything else is null (§4.7), so
+            // `if("yes", a, b)` is null rather than an exception mid-interview.
+            val takeThen = (evaluate(expr.args[0], ctx) as? FormValue.Bool)?.value
+                ?: return FormValue.Null
             return evaluate(if (takeThen) expr.args[1] else expr.args[2], ctx)
         }
 
@@ -178,25 +185,30 @@ object Evaluator {
 
     // -- null-aware primitives (spec 4.4) ---------------------------------
 
-    /** false dominates null; otherwise null propagates (spec 4.4.5). */
+    /**
+     * false dominates null; otherwise null propagates (spec 4.4.5, 4.7).
+     *
+     * A non-boolean operand is null, so it neither makes the result false nor
+     * is quietly treated as true.
+     */
     private fun and(args: List<FormValue>): FormValue {
-        if (args.any { it is FormValue.Bool && !it.value }) return FormValue.Bool(false)
-        if (args.any { it.isNull }) return FormValue.Null
+        val values = args.map { it as? FormValue.Bool }
+        if (values.any { it?.value == false }) return FormValue.Bool(false)
+        if (values.any { it == null }) return FormValue.Null
         return FormValue.Bool(true)
     }
 
-    /** true dominates null; otherwise null propagates (spec 4.4.6). */
+    /** true dominates null; otherwise null propagates (spec 4.4.6, 4.7). */
     private fun or(args: List<FormValue>): FormValue {
-        if (args.any { it is FormValue.Bool && it.value }) return FormValue.Bool(true)
-        if (args.any { it.isNull }) return FormValue.Null
+        val values = args.map { it as? FormValue.Bool }
+        if (values.any { it?.value == true }) return FormValue.Bool(true)
+        if (values.any { it == null }) return FormValue.Null
         return FormValue.Bool(false)
     }
 
-    private fun not(a: FormValue): FormValue = when (a) {
-        is FormValue.Null -> FormValue.Null
-        is FormValue.Bool -> FormValue.Bool(!a.value)
-        else -> throw EvaluationException("not() expects a boolean")
-    }
+    /** `not` takes a boolean; anything else is null (4.4.4, 4.7). */
+    private fun not(a: FormValue): FormValue =
+        (a as? FormValue.Bool)?.let { FormValue.Bool(!it.value) } ?: FormValue.Null
 
     private fun asDouble(v: FormValue): Double? = when (v) {
         is FormValue.Integer -> v.value.toDouble()
@@ -204,9 +216,16 @@ object Evaluator {
         else -> null
     }
 
-    /** Any arithmetic with a null operand yields null (spec 4.4.2). */
+    /**
+     * Arithmetic over two numbers, or null (spec 4.4.2, 4.7).
+     *
+     * A null operand yields null; so does one that is not a number. `"800" + 1`
+     * is null, not "8001" and not an exception — `add` is arithmetic and `+`
+     * never concatenates in this IR.
+     */
     private fun arithmetic(op: String, a: FormValue, b: FormValue): FormValue {
         if (a.isNull || b.isNull) return FormValue.Null
+        if (asDouble(a) == null || asDouble(b) == null) return FormValue.Null
         if (a is FormValue.Integer && b is FormValue.Integer) {
             val result = when (op) {
                 "add" -> addExact(a.value, b.value)
@@ -217,8 +236,8 @@ object Evaluator {
             }
             return FormValue.Integer(result)
         }
-        val x = asDouble(a) ?: throw EvaluationException("non-numeric operand")
-        val y = asDouble(b) ?: throw EvaluationException("non-numeric operand")
+        val x = asDouble(a) ?: return FormValue.Null
+        val y = asDouble(b) ?: return FormValue.Null
         return when (op) {
             "add" -> FormValue.Decimal(x + y)
             "sub" -> FormValue.Decimal(x - y)
@@ -276,15 +295,30 @@ object Evaluator {
         return FormValue.Integer(kotlin.math.floor(x / y).toLong())
     }
 
-    /** Any comparison with a null operand yields null, not false (spec 4.4.3). */
+    /**
+     * Comparison (spec 4.4.3, 4.7).
+     *
+     * `eq`/`ne` are **total across types**: two non-null values of different
+     * types are simply not equal. That is the one place "no implicit coercion"
+     * (§4.5) produces an answer rather than an absence, and it has to —
+     * `"800" == 800` is a question with a correct answer under a no-coercion
+     * rule, and the answer is no.
+     *
+     * Ordering is different. There is no ordering *between* types to appeal to,
+     * so `<` on a text and a number is null rather than an exception. Booleans
+     * and structured values have no ordering at all.
+     */
     private fun compare(op: String, a: FormValue, b: FormValue): FormValue {
         if (a.isNull || b.isNull) return FormValue.Null
+
+        if (op == "eq" || op == "ne") {
+            val same = equalValues(a, b)
+            return FormValue.Bool(if (op == "eq") same else !same)
+        }
 
         if (a is FormValue.Text && b is FormValue.Text) {
             return FormValue.Bool(
                 when (op) {
-                    "eq" -> a.value == b.value
-                    "ne" -> a.value != b.value
                     "lt" -> a.value < b.value
                     "lte" -> a.value <= b.value
                     "gt" -> a.value > b.value
@@ -294,41 +328,10 @@ object Evaluator {
             )
         }
 
-        if (a is FormValue.Bool && b is FormValue.Bool) {
-            return when (op) {
-                "eq" -> FormValue.Bool(a.value == b.value)
-                "ne" -> FormValue.Bool(a.value != b.value)
-                else -> throw EvaluationException("cannot order booleans")
-            }
-        }
-
-        if (a is FormValue.Text != b is FormValue.Text) {
-            throw EvaluationException("cannot compare text with non-text")
-        }
-
-        // Structured values compare by identity of content and nothing else.
-        // `photo != null` is the common idiom and is handled by the null check
-        // above; `photo = other_photo` asks whether two answers name the same
-        // file, which is a real question. Ordering them is not — there is no
-        // sense in which one photograph is less than another. The Python engine
-        // gets both from dict equality, so this is what keeps the two agreeing.
-        if (a is FormValue.MediaRef || b is FormValue.MediaRef ||
-            a is FormValue.GeoPoint || b is FormValue.GeoPoint ||
-            a is FormValue.Sequence || b is FormValue.Sequence
-        ) {
-            return when (op) {
-                "eq" -> FormValue.Bool(a == b)
-                "ne" -> FormValue.Bool(a != b)
-                else -> throw EvaluationException("cannot order structured values")
-            }
-        }
-
-        val x = asDouble(a) ?: throw EvaluationException("non-comparable operand")
-        val y = asDouble(b) ?: throw EvaluationException("non-comparable operand")
+        val x = asDouble(a) ?: return FormValue.Null
+        val y = asDouble(b) ?: return FormValue.Null
         return FormValue.Bool(
             when (op) {
-                "eq" -> x == y
-                "ne" -> x != y
                 "lt" -> x < y
                 "lte" -> x <= y
                 "gt" -> x > y
@@ -338,13 +341,36 @@ object Evaluator {
         )
     }
 
+    /**
+     * `eq`'s rule, as a predicate (§4.7). Both sides are known non-null.
+     *
+     * A number equals a number by value, so `1` and `1.0` are the same answer
+     * however each engine typed them. Everything else is equal only to its own
+     * kind: a text is never equal to a number, which is what makes a dataset
+     * filter over a text column need `str()` (§3.2).
+     *
+     * Structured values compare by content — `photo = other_photo` asks whether
+     * two answers name the same file, which is a real question, and the Python
+     * engine gets it from dict equality.
+     */
+    internal fun equalValues(a: FormValue, b: FormValue): Boolean {
+        val x = asDouble(a)
+        val y = asDouble(b)
+        if (x != null && y != null) return x == y
+        if (x != null || y != null) return false
+        return a == b
+    }
+
     private fun selected(haystack: FormValue, needle: FormValue): FormValue {
         if (haystack.isNull || needle.isNull) return FormValue.Null
         val items = when (haystack) {
             is FormValue.Sequence -> haystack.items
             else -> listOf(haystack)
         }
-        return FormValue.Bool(items.any { it == needle })
+        // Membership by `eq`'s rule, not structural equality: `selected(["1"], 1)`
+        // must be false on both engines rather than depending on how each
+        // language happens to compare a string with a number.
+        return FormValue.Bool(items.any { equalValues(it, needle) })
     }
 
     /**

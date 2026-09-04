@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.api.schemas import Health
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.core.published_defaults import refusal_for_published_secret
 
 # Aliased, not `import app.infrastructure.registry`: that binds the name `app`
 # to the package and shadows the FastAPI instance below, leaving mypy unable to
@@ -11,6 +12,13 @@ from app.infrastructure import registry as _registry  # noqa: F401  (completes B
 from app.infrastructure.http_logging import HttpLoggingMiddleware, configure_logging
 
 settings = get_settings()
+
+# Before anything is wired up: a deployment left on the published signing key
+# works perfectly and is forgeable by anyone. There is no later moment where
+# this becomes visible, so it is refused here.
+_refusal = refusal_for_published_secret(settings.environment, settings.jwt_secret)
+if _refusal is not None:
+    raise RuntimeError(_refusal)
 
 app = FastAPI(
     title="Data Collection Platform API",

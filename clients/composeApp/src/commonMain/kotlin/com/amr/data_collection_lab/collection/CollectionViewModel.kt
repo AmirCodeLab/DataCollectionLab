@@ -11,6 +11,7 @@ import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.form.CompiledForm
 import com.dcp.form.FormInstance
+import com.dcp.form.InMemoryDatasetSource
 import com.dcp.form.FormNavigator
 import com.dcp.form.FormValue
 import com.dcp.form.QuestionNode
@@ -74,6 +75,13 @@ data class QuestionUi(
     val readOnly: Boolean,
     val displayText: String,
     val selectedValue: String?,
+    /**
+     * The chosen values of a `select_multiple` (§2.1), in the form's own choice
+     * order rather than the order they were tapped — the spec calls the value
+     * order-insensitive, and a stable order is what makes two devices answering
+     * alike produce identical bytes to encrypt and compare.
+     */
+    val selectedValues: List<String> = emptyList(),
     val choices: List<ChoiceUi>,
     val dateIso: String?,
     val error: String?,
@@ -115,6 +123,27 @@ data class CollectionState(
     val cameraForPath: String? = null,
     /** A one-line message under the question, for a refusal worth explaining. */
     val captureMessage: String? = null,
+    /**
+     * Names the form version this device does not hold, when a submission
+     * cannot be opened at all (Form IR §9).
+     *
+     * This is reachable only if retention failed: `FormStore.prune` keeps every
+     * version a submission refers to, precisely so that this stays empty. It is
+     * here because the alternative — rendering a form with no questions — is a
+     * submission that looks answered-and-empty, which is indistinguishable from
+     * real data loss and would be reported as such.
+     */
+    val missingFormVersion: String? = null,
+    /**
+     * Dataset keys this form chooses from and this device cannot serve (§3.2).
+     *
+     * A persistent condition rather than a transient message: it is true for as
+     * long as the sync has not delivered them, and the reason it is on screen at
+     * all is that the alternative is silence. A select with no options looks the
+     * same whether the list never arrived or the enumerator's filter matched
+     * nothing, and only one of those is theirs to fix.
+     */
+    val missingReferenceData: List<String> = emptyList(),
 )
 
 sealed interface CollectionAction {
@@ -137,6 +166,8 @@ sealed interface CollectionAction {
     data class OnCaptureLocation(val path: String) : CollectionAction
     data class OnClearGeoPoint(val path: String) : CollectionAction
     data class OnChoiceSelect(val path: String, val value: String) : CollectionAction
+    /** Add or remove one value of a `select_multiple`. */
+    data class OnChoiceToggle(val path: String, val value: String) : CollectionAction
     data class OnDateSelect(val path: String, val iso: String?) : CollectionAction
     data object OnNextClick : CollectionAction
     data object OnPreviousClick : CollectionAction
@@ -193,13 +224,43 @@ class CollectionViewModel(
 
     init {
         viewModelScope.launch {
-            val compiled = catalog.compiledForm()
+            val summaryFirst = withContext(Dispatchers.Default) { store.getSubmission(submissionId) }
+            // Resolved from the submission by the catalog, never chosen here.
+            // Form IR §9 binds a submission to the version it was collected
+            // under, and this ViewModel is deliberately given no version it
+            // could get wrong — see FormCatalog.compiledFormForSubmission.
+            val compiled = catalog.compiledFormForSubmission(submissionId)
+            if (compiled == null) {
+                // The device does not hold that version. Nothing useful can be
+                // rendered — the op log has the answers and not the questions —
+                // so say which version is missing rather than showing an empty
+                // form that looks like a submission with nothing in it.
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        formTitle = summaryFirst?.formId ?: "Unknown form",
+                        missingFormVersion = summaryFirst
+                            ?.let { s -> "${s.formId} v${s.formVersion}" }
+                            ?: submissionId,
+                    )
+                }
+                return@launch
+            }
+            // The lists this form's selects choose from, bound to the same
+            // submission the form was — never to a version this class picked
+            // (§3.2, break 30's rule with a village list instead of a form).
+            val datasets = catalog.datasetSourceForSubmission(submissionId)
+            val missingDatasets = catalog.missingDatasetsForSubmission(submissionId)
             val (loadedInstance, summary) = withContext(Dispatchers.Default) {
-                val inst = FormInstance(compiled, today = todayIsoDate())
+                val inst = FormInstance(
+                    compiled,
+                    today = todayIsoDate(),
+                    datasets = datasets ?: InMemoryDatasetSource(emptyMap()),
+                )
                 val stored = store.materialisedAnswers(submissionId)
                     .filterKeys { it in inst.values }
                 if (stored.isNotEmpty()) inst.setMany(stored)
-                inst to store.getSubmission(submissionId)
+                inst to summaryFirst
             }
             form = compiled
             instance = loadedInstance
@@ -213,6 +274,7 @@ class CollectionViewModel(
                     languages = compiled.ir.languages,
                     formTitle = compiled.ir.title.resolve(language) ?: compiled.formId,
                     finalized = summary?.status == SubmissionStatus.FINALIZED,
+                    missingReferenceData = missingDatasets.map { m -> m.datasetKey },
                 )
             }
             rebuild()
@@ -223,6 +285,7 @@ class CollectionViewModel(
         when (action) {
             is CollectionAction.OnTextChange -> onTextChange(action.path, action.text)
             is CollectionAction.OnChoiceSelect -> onChoiceSelect(action.path, action.value)
+            is CollectionAction.OnChoiceToggle -> onChoiceToggle(action.path, action.value)
             is CollectionAction.OnDateSelect ->
                 commit(action.path, action.iso?.let { FormValue.Text(it) } ?: FormValue.Null,
                     debounce = false)
@@ -285,6 +348,35 @@ class CollectionViewModel(
             debounce = false,
         )
     }
+
+    /**
+     * Toggle one value of a `select_multiple`.
+     *
+     * The result is rebuilt from the question's own choice order rather than by
+     * appending or removing in place: §2.1 calls the value order-insensitive, so
+     * two enumerators who tick the same boxes in a different order must produce
+     * the same sequence. An empty selection is [FormValue.Null], not an empty
+     * sequence — "nothing ticked" is an unanswered question, and the two are
+     * different to `required` (§4.4).
+     */
+    private fun onChoiceToggle(path: String, value: String) {
+        val current = (instance.states[path]?.value as? FormValue.Sequence)
+            ?.items.orEmpty()
+            .mapNotNull { (it as? FormValue.Text)?.value }
+            .toSet()
+        val next = if (value in current) current - value else current + value
+        val ordered = choiceOrderFor(path).filter { it in next }
+        commit(
+            path,
+            if (ordered.isEmpty()) FormValue.Null
+            else FormValue.Sequence(ordered.map { FormValue.Text(it) }),
+            debounce = false,
+        )
+    }
+
+    /** The question's choice values, in document order. */
+    private fun choiceOrderFor(path: String): List<String> =
+        instance.form.fields[path]?.node?.choices?.items.orEmpty().map { it.value }
 
     private fun commit(path: String, value: FormValue, debounce: Boolean) {
         if (!ready() || _state.value.finalized) return
@@ -576,7 +668,13 @@ class CollectionViewModel(
             fieldState.errors.firstOrNull()?.let { err ->
                 when (err.kind) {
                     "required" -> UiStrings.requiredAnswer(lang)
-                    else -> err.message.resolve(lang) ?: UiStrings.invalidAnswer(lang)
+                    // Rendered by the engine, not read off the node: a
+                    // constraint message may quote the threshold it is about
+                    // (§7.1), and "Minimum circumference for this part of the
+                    // plot is {0} cm" on screen would be worse than the number
+                    // being absent.
+                    else -> instance.renderedConstraintMessage(node.id, lang)
+                        ?: UiStrings.invalidAnswer(lang)
                 }
             }
         } else null
@@ -584,13 +682,27 @@ class CollectionViewModel(
         return QuestionUi(
             path = node.id,
             dataType = node.dataType,
-            label = node.label.resolve(lang) ?: node.id,
+            // Through the engine, so a label that inserts an answer shows the
+            // answer (§7.1) — and shows it isolated, so a Latin number inside
+            // Arabic text stays where it was written. `resolve` is the fallback
+            // for a language the engine has no string for.
+            label = instance.renderedLabel(node.id, lang)
+                ?: node.label.resolve(lang)
+                ?: node.id,
             hint = node.hint.resolve(lang),
             required = fieldState.required,
             readOnly = fieldState.readOnly,
             displayText = drafts[node.id] ?: formatValue(fieldState.value),
             selectedValue = textValue,
-            choices = node.choices?.items.orEmpty().map {
+            selectedValues = (fieldState.value as? FormValue.Sequence)
+                ?.items.orEmpty()
+                .mapNotNull { (it as? FormValue.Text)?.value },
+            // Through the engine, always. An inline list is `choices.items` and
+            // a dataset-backed one is a resolved, filtered lookup (§3.2) — and
+            // reading `items` directly is what made every dataset select render
+            // with nothing under it, which is why the collectable registry
+            // refused to publish one at all.
+            choices = instance.choices(node.id).map {
                 ChoiceUi(it.value, it.label.resolve(lang) ?: it.value)
             },
             dateIso = textValue,

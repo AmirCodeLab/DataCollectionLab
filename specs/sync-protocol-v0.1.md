@@ -178,13 +178,75 @@ exist (see §11), the device attaches to the deployment's single active project
 ## 5. Pull
 
 ```
-GET /api/v1/sync/pull?cursor=90114&scope=assignments,forms,datasets
+GET /api/v1/sync/pull?cursor=90114&scope=forms&deviceId=dev_a1b2
 
-200 { "ops": [...], "tombstones": [...], "nextCursor": 90350, "hasMore": true }
+200 { "ops": [...], "tombstones": [...], "forms": [...],
+      "nextCursor": 90350, "hasMore": true }
 ```
 
 Cursor-based, resumable. The client persists `nextCursor` only after the batch is
 durably written locally.
+
+`scope` is a comma-separated list — `assignments`, `forms`, `datasets`. Only
+`forms` is implemented; the others are accepted and ignored, so a newer client
+asking for all three works against an older server rather than failing on a word
+it does not know.
+
+### 5.1 Form delivery (`scope=forms`)
+
+A device cannot collect on a form it does not have, and a form compiled into the
+app is a form only its authors can change. This is how a published form reaches
+a phone.
+
+**The manifest.** `forms` lists every form version deployed to the device's
+environment:
+
+```json
+{ "formVersionId": "01J8W...", "formId": "household_survey", "version": 3,
+  "title": "Household Survey", "irChecksum": "sha256:9f2c...",
+  "deployedAt": "2026-09-01T08:00:00Z" }
+```
+
+`deviceId` is required for this scope. Deployment is per environment
+(`form_deployment`), so there is no manifest without knowing whose it is; a
+request without a device gets an empty list rather than a guess. A revoked or
+unknown device also gets an empty list — pull is not where authorisation is
+enforced, push is.
+
+**The documents.** The manifest carries no IR. A device fetches only the versions
+whose `irChecksum` it does not already hold:
+
+```
+GET /api/v1/forms/versions/{formVersionId}
+
+200 { "formVersionId": ..., "formId": ..., "version": 3, "title": ...,
+      "irChecksum": ..., "publishedAt": ..., "form": { <Form IR document> } }
+```
+
+The split is deliberate. A 52-question form is tens of kilobytes and a manifest
+is a few hundred bytes; sending every document on every pull would spend exactly
+the bandwidth this protocol exists to conserve. A published version is immutable
+(ERD §4), so a fetched document may be cached forever.
+
+**The manifest is a statement, not a delta.** Unlike the op stream it is not
+resumed from `cursor`: it is the complete current set of deployments. That is
+what lets a device notice a version being *withdrawn*, which no stream of
+additions could express. A client marks everything undeployed and re-marks what
+the manifest lists.
+
+**A device retains every version it still refers to.** Withdrawal is not
+deletion. A submission is validated against the version it was collected under
+(Form IR §9), so a device holding a v2 draft on the morning v3 deploys must keep
+v2's document — the operation log records the answers, never the questions. A
+version may be dropped only when the server has stopped deploying it **and** no
+local submission refers to it.
+
+**An absent `forms` key means "not asked" or "not supported", never "none".** A
+server older than form delivery omits the field. A client that read that silence
+as an empty manifest would undeploy every form on the device and leave an
+enumerator unable to start an interview, so the field being absent must leave the
+device's forms untouched. This is distinct from `"forms": []`, which is a real
+answer: this environment deploys nothing.
 
 Pulled ops carry `valueCiphertext`, `contentKeyId` and `nonce` exactly as they
 were pushed (§2.1) — the server relays what it cannot read. The wrapped keys that

@@ -368,7 +368,9 @@ def test_the_api_refuses_what_the_model_refuses(keys_api: Any) -> None:
 def test_a_published_test_key_is_refused_outside_development(
     keys_api: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The private half of this key is in the repository (§4.1, and docs/project-conventions.md rule 5).
+    """The private half of this key is in the repository.
+
+    §4.1, and docs/project-conventions.md rule 5.
 
     Registering it as a recipient would wrap every future submission to a key
     anyone with a clone can open, while the console lists it as a recipient like

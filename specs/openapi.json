@@ -5,6 +5,194 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/datasets/versions/{dataset_version_id}/rows": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Dataset Rows",
+        "description": "One page of a dataset version's rows, resumably.\n\n`cursor` is the `nextCursor` of the previous page and nothing else — not a\nrow number, not an offset. A published dataset version is immutable (§3.1),\nso the ordering cannot shift under a device that paused for a day, and a\nresumed transfer re-reads nothing.\n\n`nextCursor` is null on the last page. That is how a device knows it has the\n**whole** list rather than most of one, which matters more here than\nanywhere else in this API: a village list that stopped two thirds of the way\nthrough is a list an enumerator can search, scroll and choose from, and\nnothing about it looks wrong.\n\nImmutable, so a response may be cached forever.",
+        "operationId": "dataset_rows_api_v1_datasets_versions__dataset_version_id__rows_get",
+        "parameters": [
+          {
+            "name": "dataset_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Dataset Version Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRowsPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/versions/{dataset_version_id}/delta": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Dataset Delta",
+        "description": "What changed between the version a device holds and the one a form version was published against.\n\nThis is the path that decides whether the feature is usable in a village. First sync is a one-off at enrolment; this is what happens every week for the life of the project.\n\n**Two stages.** `dataset_record.row_hash` answers 'did anything about this row change', cheaply, over the whole row. That is deliberately not the same question as 'must this device be sent anything': a dataset carries columns no form references — the UCL village list has eight and the form reads four — and an edit to one of those must not cost a 38,000-row list a transfer. So what decides is the projection onto the columns this form version actually reads, and `columns` reports which those were.\n\n**Deletions are explicit.** Inferring them from absence needs the whole set present to compare against, which is the thing being avoided.\n\n**A mismatch is a 409, never a full transfer.** A device asking to come from a version this server never published, or for a list its form was not published against, is a device whose state nobody understands — and re-sending the whole list would make that state look fine. 'No changes' and 'I could not ask' must not be the same silence.",
+        "operationId": "dataset_delta_api_v1_datasets_versions__dataset_version_id__delta_get",
+        "parameters": [
+          {
+            "name": "dataset_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Dataset Version Id"
+            }
+          },
+          {
+            "name": "formVersionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "title": "Formversionid"
+            }
+          },
+          {
+            "name": "datasetKey",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "title": "Datasetkey"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetDeltaPage"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefusedError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices": {
       "post": {
         "tags": [
@@ -187,6 +375,179 @@
         }
       }
     },
+    "/api/v1/exports/{form_id}": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Export Form",
+        "description": "One form's submissions as a zip of tables plus a manifest.\n\n`formId` is the wire form key an op carries, the same value that filters\n`GET /submissions`, not the form row id.\n\nEach submission is read through the form version it was collected under and\nits codes named through that version's dataset pins, so an export spanning\ntwo versions is correct about both — there is no parameter here that selects\na version, and that is deliberate (Form IR §9, §3.2).\n\n**Read the manifest before writing an analysis against the columns.** It\nnames every column that can carry the `ENCRYPTED` token and which project\nkeys open it, every column shortened to fit Stata's 32 characters, and every\ncolumn stored as text that would otherwise be numeric.\n\n**413 means the filter selected more than this endpoint will do in one\nrequest**, and the fix is to narrow it by status or environment. It is a\ndistinct code rather than a 422 because 422 belongs to the framework and\nmeans the request did not match the schema; this request matched it and\nasked for too much.\n\n**409 means this form's data will not fit the format asked for** — in\npractice, an answer longer than SPSS's 32,767-byte maximum for a `sav`. The\nbody names the column and the formats that do hold it. It is a refusal\nrather than a truncated file: shortening an answer to fit would be silent\ndata loss, and writing it anyway produces a file SPSS may not open.",
+        "operationId": "export_form_api_v1_exports__form_id__get",
+        "parameters": [
+          {
+            "name": "form_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Form Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ExportFormat",
+              "default": "csv"
+            }
+          },
+          {
+            "name": "shape",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ExportShape",
+              "default": "long"
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 35
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Language"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Projectid"
+            }
+          },
+          {
+            "name": "environmentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Environmentid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SubmissionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 5000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The export bundle.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportValueTooLongResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportTooLargeResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms": {
       "get": {
         "tags": [
@@ -273,6 +634,68 @@
         }
       }
     },
+    "/api/v1/forms/import": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Import Xlsform",
+        "description": "Import an XLSForm .xlsx and return the Form IR with a full account of everything that did not survive.\n\nThe form is returned even when it cannot be published — an author needs every problem in one pass, not one per round trip. `publishable` is false when any diagnostic is an error; publishing is refused server-side as well, so the flag is for greying a button rather than being the gate.\n\n`datasets` carries the companion CSVs a `select_one_from_file` names (Form IR §3). They ship beside the workbook rather than inside it, so they have to be uploaded alongside: a form imported without them reports each missing file by name, because a question whose list did not arrive has no options at all and looks exactly like one that does. Send every CSV you have — a file nothing refers to is reported too, which is how a rename on one side of the pair gets noticed.\n\nNothing is stored. This endpoint answers 'what would this become?'; POST /projects/{projectId}/datasets and POST /forms/versions are what commit it.",
+        "operationId": "import_xlsform_api_v1_forms_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_xlsform_api_v1_forms_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportFormResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms/evaluate": {
       "post": {
         "tags": [
@@ -321,7 +744,7 @@
           "forms"
         ],
         "summary": "Publish Version",
-        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.",
+        "description": "Publish an immutable form version.\n\nRefuses anything Form IR §10 calls an error, including a sensitivity leak —\na field that is not `sensitive` reading one that is, which would let a\nderived value disclose an encrypted answer (encryption envelope §5.2). The\n422 body lists every violation, so a form author fixes them in one pass.\n\nIdempotent by content: re-publishing identical IR returns the existing row.\nRe-publishing a version number with different content is refused, because a\ndevice in the field has that exact IR compiled into submissions it has not\nsynced yet.\n\n`deployTo` deploys the version to the named environments in the same call.\nPublishing without it is legitimate — the version exists and nothing runs\nit — but it reaches no device, so the response reports `deployments` either\nway rather than letting \"published\" be read as \"on the phones\".\n\n`datasets` pins each `choices.dataset` key (Form IR §3) to the dataset\nversion this form was published against, from\n`POST /projects/{projectId}/datasets`. Every key the form names must be\npinned and no key it does not name may be: an unpinned key would have to\nresolve at read time, against whatever is newest, which is the same mistake\nas validating a v1 answer against v2's choice list.",
         "operationId": "publish_version_api_v1_forms_versions_post",
         "requestBody": {
           "content": {
@@ -343,6 +766,61 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/versions/{form_version_id}": {
+      "get": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Get Form Version",
+        "description": "One published version and its Form IR.\n\nThe second half of form delivery (sync §5). `GET /sync/pull?scope=forms`\ntells a device which versions its environment runs and what they hash to;\nthis hands over a document the device does not already hold. Splitting the\ntwo is what keeps a sync cheap: the manifest is a few hundred bytes and\ntravels on every pull, the IR is tens of kilobytes and travels once.\n\nA published version is immutable (specs/erd-v0.1.md §4), so the response for\na given id can never change and a client may cache it forever.",
+        "operationId": "get_form_version_api_v1_forms_versions__form_version_id__get",
+        "parameters": [
+          {
+            "name": "form_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Form Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormVersionDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -1017,6 +1495,81 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/datasets": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Publish Dataset",
+        "description": "Publish one immutable version of a dataset from a CSV (Form IR §3).\n\nMultipart, not JSON, and deliberately: the caller already has the file — it uploaded the same bytes to POST /forms/import — and a 38,000-row village list re-encoded as a JSON array is several megabytes of body for no gain. It also keeps one CSV parser on the server rather than one here and one in every client.\n\n**Idempotent by content.** Re-uploading an unchanged file returns the existing version with `created: false` rather than publishing a duplicate — which matters because a console re-sends the companion files every time somebody presses Publish, and a device holding the old version id would otherwise be told it is behind and re-fetch rows that did not change.\n\nA published version never changes. Re-publishing a *numbered* version with different content is refused with a 409: a form version pinned to it would have its choice list moved underneath answers already collected against it.",
+        "operationId": "publish_dataset_api_v1_projects__project_id__datasets_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_publish_dataset_api_v1_projects__project_id__datasets_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishDatasetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefusedError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/submissions": {
       "get": {
         "tags": [
@@ -1319,7 +1872,7 @@
           "sync"
         ],
         "summary": "Pull",
-        "description": "Resume the op and tombstone streams from a cursor.\n\n`scope` (spec §5: assignments, forms, datasets) selects additional\nresource streams; only the submission stream exists yet, so it is\naccepted and currently ignored.",
+        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`. `assignments` is accepted and ignored, so a newer client asking\nfor all three still works against this server rather than failing on an\nunknown word.\n\n`scope=datasets` returns the dataset versions the form versions deployed to\nthis device were **published against** (`form_version_dataset`), not the\ndatasets its project happens to own. The pinning that lets an answer be\nexplained later is the same thing that decides which rows travel. Like the\nform manifest it names versions and checksums, never rows: those are fetched\nonce per version, paged, from `GET /datasets/versions/{id}/rows`.\n\n`datasets` is **null** when nothing was asked or the device is unknown, and\n`[]` when the answer is genuinely \"none\" — a device must be able to tell an\nunanswered question from an answer, or it will delete a village list because\nit synced against an older server.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
         "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
@@ -1359,6 +1912,23 @@
                 }
               ],
               "title": "Scope"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deviceid"
             }
           }
         ],
@@ -1411,6 +1981,74 @@
   },
   "components": {
     "schemas": {
+      "Body_import_xlsform_api_v1_forms_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "An XLSForm .xlsx workbook"
+          },
+          "datasets": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Datasets",
+            "description": "Companion .csv files named by select_one_from_file rows",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_xlsform_api_v1_forms_import_post"
+      },
+      "Body_publish_dataset_api_v1_projects__project_id__datasets_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The reference data, as CSV"
+          },
+          "datasetKey": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Datasetkey",
+            "description": "The Form IR key this list is published under — what `choices.dataset` names. The XLSForm importer derives it from the file name and reports what it chose."
+          },
+          "keyColumn": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Keycolumn",
+            "description": "The column holding each row's identity — what a `select_one_from_file` stores as the answer. Defaults to `name`, which is what XLSForm requires of these files.",
+            "default": "name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Display name for the dataset. Defaults to its key."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "datasetKey"
+        ],
+        "title": "Body_publish_dataset_api_v1_projects__project_id__datasets_post"
+      },
       "CompileRequest": {
         "properties": {
           "form": {
@@ -1529,6 +2167,237 @@
         ],
         "title": "ContentKeyView",
         "description": "A submission's content key, in the only form the server has it: wrapped."
+      },
+      "DatasetDeltaPage": {
+        "properties": {
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "fromDatasetVersionId": {
+            "type": "string",
+            "title": "Fromdatasetversionid"
+          },
+          "changed": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Deleted"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetVersionId",
+          "fromDatasetVersionId",
+          "changed",
+          "deleted",
+          "columns",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "DatasetDeltaPage",
+        "description": "What changed between two dataset versions, for one form version.\n\nThe path that decides field usability. First sync is a one-off at\nenrolment; this is what happens every week for the life of the project, on\nwhatever connection there is."
+      },
+      "DatasetPin": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Datasetversionid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "datasetVersionId"
+        ],
+        "title": "DatasetPin",
+        "description": "One dataset version a form version is published against.\n\nThe IR names a dataset by **key** — `\"dataset\": \"districts\"` (§3) — and a\nkey is not a version. Resolving it at read time would let a draft opened\nagainst form v1 see whatever `districts` happens to be newest, which is the\nsame mistake as validating a v1 answer against v2's choice list.\n\nSo it is resolved once, here, at publish, and pinned in\n`form_version_dataset`. A form version is immutable and so is its view of\nits reference data."
+      },
+      "DatasetRefusedError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "DatasetRefusedError",
+        "description": "The 409 body: every reason, not the first one.\n\nA list rather than a string for the same reason the publish endpoint's is:\nwhoever is fixing the file needs every problem in one pass, and a refusal\nthat names one duplicate key at a time is a refusal somebody meets four\ntimes."
+      },
+      "DatasetRowsPage": {
+        "properties": {
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetVersionId",
+          "rows",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "DatasetRowsPage",
+        "description": "One page of a dataset version's rows (sync §5).\n\nPaged because the first sync is the hard case and cannot be one response:\na transfer that cannot resume is a transfer that never finishes on the\nconnections this product exists for.\n\nA published version is immutable, so this page can be cached forever and a\ndevice that paused for a day resumes into the same ordering it left."
+      },
+      "DeployedDatasetVersion": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "datasetKey": {
+            "type": "string",
+            "title": "Datasetkey"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "filterColumns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filtercolumns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "datasetKey",
+          "datasetVersionId",
+          "version",
+          "rowCount",
+          "checksum"
+        ],
+        "title": "DeployedDatasetVersion",
+        "description": "One entry of a device's dataset manifest (sync §5, `scope=datasets`).\n\nDeliberately not the rows. A village list is megabytes and a manifest\ntravels on every sync; the rows are fetched once per version from\n`GET /datasets/versions/{id}/rows`, the same split that keeps a form\nmanifest to a few hundred bytes.\n\n`formVersionId` is on every entry rather than implied, because the pin is\nper form version: two versions of a form can be deployed at once — an\nenumerator holding a v2 draft the morning v3 lands — and they may name\ndifferent versions of the same list. A manifest keyed only by dataset would\nhave to choose between them, which is the choice §3.2 exists to remove."
+      },
+      "DeployedFormVersion": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "irChecksum": {
+            "type": "string",
+            "title": "Irchecksum"
+          },
+          "deployedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deployedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "formId",
+          "version",
+          "title",
+          "irChecksum",
+          "deployedAt"
+        ],
+        "title": "DeployedFormVersion",
+        "description": "One entry in a device's form manifest (sync §5, `scope=forms`).\n\nDeliberately not the IR. A 52-question form is tens of kilobytes, and a\ndevice re-syncs on whatever connection it has; sending every document on\nevery pull would spend exactly the bandwidth this protocol exists to\nconserve. The manifest says what exists and what it hashes to, and the\ndevice fetches only the versions it does not already hold — the same shape\nresumable upload uses, where the server states what it has and the client\nsends the rest."
       },
       "DeviceCryptoError": {
         "properties": {
@@ -1696,6 +2565,22 @@
         ],
         "title": "DeviceRegisterResponse"
       },
+      "DiagnosticSeverity": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warning",
+          "info"
+        ]
+      },
+      "EnvironmentKind": {
+        "type": "string",
+        "enum": [
+          "development",
+          "staging",
+          "production"
+        ]
+      },
       "EvaluateRequest": {
         "properties": {
           "form": {
@@ -1742,6 +2627,110 @@
           "answers"
         ],
         "title": "EvaluateResponse"
+      },
+      "ExportFormat": {
+        "type": "string",
+        "enum": [
+          "csv",
+          "xlsx",
+          "dta",
+          "sav"
+        ]
+      },
+      "ExportShape": {
+        "type": "string",
+        "enum": [
+          "long",
+          "wide"
+        ]
+      },
+      "ExportTooLarge": {
+        "properties": {
+          "found": {
+            "type": "integer",
+            "title": "Found",
+            "description": "submissions the filter selected"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "the most this endpoint will export at once"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "found",
+          "limit",
+          "message"
+        ],
+        "title": "ExportTooLarge",
+        "description": "More submissions than one synchronous export will do.\n\nCarries the numbers rather than only prose, because the useful thing a\nconsole can do with this is say how much to narrow by."
+      },
+      "ExportTooLargeResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ExportTooLarge"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ExportTooLargeResponse",
+        "description": "413 from GET /exports/{formId}."
+      },
+      "ExportValueTooLong": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "the column in the file, as `storedAs` names it"
+          },
+          "found": {
+            "type": "integer",
+            "title": "Found",
+            "description": "the value's length in UTF-8 bytes"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "the most this format's strings hold, in bytes"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ExportFormat"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "found",
+          "limit",
+          "format",
+          "message"
+        ],
+        "title": "ExportValueTooLong",
+        "description": "A value will not fit the format that was asked for.\n\nNames the formats that *do* hold it, because that is what a caller acts on:\nan SPSS user with one very long answer needs a different flag, not a\ntruncated file and not a 500."
+      },
+      "ExportValueTooLongResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ExportValueTooLong"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ExportValueTooLongResponse",
+        "description": "409 from GET /exports/{formId}."
       },
       "FieldSnapshot": {
         "properties": {
@@ -1849,6 +2838,59 @@
         ],
         "title": "FormSummary"
       },
+      "FormVersionDocument": {
+        "properties": {
+          "formVersionId": {
+            "type": "string",
+            "title": "Formversionid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "irChecksum": {
+            "type": "string",
+            "title": "Irchecksum"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formVersionId",
+          "formId",
+          "version",
+          "title",
+          "irChecksum",
+          "publishedAt",
+          "form"
+        ],
+        "title": "FormVersionDocument",
+        "description": "One published version and its Form IR (sync §5).\n\nWhat a device fetches once the manifest names a version it does not hold.\nImmutable: the id addresses a row that can never be rewritten\n(specs/erd-v0.1.md §4), so a client may cache it forever."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1880,6 +2922,344 @@
         ],
         "title": "Health",
         "description": "The liveness probe.\n\nThe console polls this to tell \"the API is down\" apart from \"the API is up\nand there is no data\", which are the same empty screen otherwise."
+      },
+      "ImportCoverage": {
+        "properties": {
+          "cells": {
+            "type": "integer",
+            "title": "Cells"
+          },
+          "consumed": {
+            "type": "integer",
+            "title": "Consumed"
+          },
+          "reported": {
+            "type": "integer",
+            "title": "Reported"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cells",
+          "consumed",
+          "reported"
+        ],
+        "title": "ImportCoverage",
+        "description": "Proof that nothing was dropped in silence.\n\nEvery non-empty cell in the workbook either produced part of the form or is\nnamed by a diagnostic above. A cell in neither fails the import outright\nrather than reaching this response — see the coverage ledger.\n\nIt cannot tell you the workbook had anything in it. An empty sheet has no\ncells to account for, so `cells: 0` satisfies the check perfectly; that is\nwhy a form with no questions is refused at publish rather than merely noted."
+      },
+      "ImportDataset": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "fileName": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "valueColumn": {
+            "type": "string",
+            "title": "Valuecolumn"
+          },
+          "labelColumns": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labelcolumns"
+          },
+          "columnsUsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columnsused"
+          },
+          "usedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Usedby"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "encoding": {
+            "type": "string",
+            "title": "Encoding"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "fileName",
+          "rowCount",
+          "columns",
+          "valueColumn",
+          "checksum",
+          "encoding"
+        ],
+        "title": "ImportDataset",
+        "description": "One companion CSV, read — what it is and what the form does with it.\n\nDeliberately without the rows. This is the answer to \"what would this\nbecome?\", and a village list would make the response several megabytes on\nan endpoint whose whole point is to be cheap enough to call on every edit.\nThe caller already has the file; `POST /projects/{id}/datasets` is where\nthe bytes go."
+      },
+      "ImportDiagnostic": {
+        "properties": {
+          "severity": {
+            "$ref": "#/components/schemas/DiagnosticSeverity"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "cellValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cellvalue"
+          },
+          "nodeId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodeid"
+          },
+          "remedy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remedy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "ImportDiagnostic"
+      },
+      "ImportFormResponse": {
+        "properties": {
+          "publishable": {
+            "type": "boolean",
+            "title": "Publishable"
+          },
+          "form": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Form"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ImportSummary"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDiagnostic"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ImportCoverage"
+          },
+          "instrumentation": {
+            "$ref": "#/components/schemas/ImportInstrumentation"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDataset"
+            },
+            "type": "array",
+            "title": "Datasets"
+          },
+          "reportMarkdown": {
+            "type": "string",
+            "title": "Reportmarkdown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "publishable",
+          "form",
+          "summary",
+          "diagnostics",
+          "coverage",
+          "instrumentation",
+          "reportMarkdown"
+        ],
+        "title": "ImportFormResponse",
+        "description": "The IR, and everything that did not survive the trip.\n\nThe form is returned even when it cannot be published, deliberately: an\nauthor needs every problem in one pass rather than one per round trip, and\na form they can look at is how they find the next one."
+      },
+      "ImportInstrumentation": {
+        "properties": {
+          "unsupportedFunctions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Unsupportedfunctions"
+          },
+          "unsupportedTypes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Unsupportedtypes"
+          },
+          "uncollectableTypes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Uncollectabletypes"
+          }
+        },
+        "type": "object",
+        "title": "ImportInstrumentation",
+        "description": "What this form needed that the platform does not have.\n\nSeparate from the diagnostics because it answers a different question: a\ndiagnostic tells one author about one form, and this says which XPath\nfunctions and question types real forms reach for. That is the priority\norder for what to build next, and counting it beats guessing it."
+      },
+      "ImportRecord": {
+        "properties": {
+          "sourceName": {
+            "type": "string",
+            "title": "Sourcename"
+          },
+          "sourceSha256": {
+            "type": "string",
+            "title": "Sourcesha256"
+          },
+          "importerVersion": {
+            "type": "string",
+            "title": "Importerversion"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDiagnostic"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sourceName",
+          "sourceSha256",
+          "importerVersion",
+          "diagnostics"
+        ],
+        "title": "ImportRecord",
+        "description": "How a version got here, stored with it and never recomputed.\n\nSent by whoever imported the spreadsheet and published the result, so the\nquestion \"why does this form not have the question I put in row 40?\" is\nanswerable six months later from the database rather than from an email\nsomebody may still have.\n\nOptional on a publish: a form written as IR by hand was not imported, and\nrecording nothing is the honest answer for it. Half a record is refused by\nthe database (`form_version_import_complete_check`), because a partial one\nlooks like a whole one."
+      },
+      "ImportSummary": {
+        "properties": {
+          "questions": {
+            "type": "integer",
+            "title": "Questions"
+          },
+          "nodes": {
+            "type": "integer",
+            "title": "Nodes"
+          },
+          "surveyRows": {
+            "type": "integer",
+            "title": "Surveyrows"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Languages"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          },
+          "warnings": {
+            "type": "integer",
+            "title": "Warnings"
+          },
+          "notes": {
+            "type": "integer",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "questions",
+          "nodes",
+          "surveyRows",
+          "languages",
+          "errors",
+          "warnings",
+          "notes"
+        ],
+        "title": "ImportSummary"
       },
       "KeyRegistrationFailure": {
         "type": "string",
@@ -2762,6 +4142,71 @@
         "title": "ProjectSummary",
         "description": "One project, enough for the console to name it and route to it."
       },
+      "PublishDatasetResponse": {
+        "properties": {
+          "datasetId": {
+            "type": "string",
+            "title": "Datasetid"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "datasetKey": {
+            "type": "string",
+            "title": "Datasetkey"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetId",
+          "datasetVersionId",
+          "datasetKey",
+          "version",
+          "rowCount",
+          "checksum",
+          "created",
+          "warnings",
+          "publishedAt"
+        ],
+        "title": "PublishDatasetResponse",
+        "description": "One immutable dataset version (Form IR §3, sync §5)."
+      },
       "PublishVersionRequest": {
         "properties": {
           "projectId": {
@@ -2796,6 +4241,30 @@
               }
             ],
             "title": "Publishedby"
+          },
+          "deployTo": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentKind"
+            },
+            "type": "array",
+            "title": "Deployto"
+          },
+          "importRecord": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetPin"
+            },
+            "type": "array",
+            "title": "Datasets"
           }
         },
         "type": "object",
@@ -2845,6 +4314,20 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "deployments": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentKind"
+            },
+            "type": "array",
+            "title": "Deployments"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetPin"
+            },
+            "type": "array",
+            "title": "Datasets"
           }
         },
         "type": "object",
@@ -2855,7 +4338,8 @@
           "irChecksum",
           "publishedAt",
           "created",
-          "warnings"
+          "warnings",
+          "deployments"
         ],
         "title": "PublishVersionResponse"
       },
@@ -2875,6 +4359,27 @@
             "type": "array",
             "title": "Tombstones"
           },
+          "forms": {
+            "items": {
+              "$ref": "#/components/schemas/DeployedFormVersion"
+            },
+            "type": "array",
+            "title": "Forms"
+          },
+          "datasets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DeployedDatasetVersion"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datasets"
+          },
           "nextCursor": {
             "type": "integer",
             "title": "Nextcursor"
@@ -2888,6 +4393,7 @@
         "required": [
           "ops",
           "tombstones",
+          "forms",
           "nextCursor",
           "hasMore"
         ],

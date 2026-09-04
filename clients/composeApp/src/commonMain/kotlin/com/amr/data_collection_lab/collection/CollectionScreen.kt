@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -93,6 +96,45 @@ fun CollectionScreen(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
+                return@Scaffold
+            }
+            if (state.missingReferenceData.isNotEmpty()) {
+                // Before the first question, not after the enumerator has met
+                // an empty dropdown and drawn their own conclusion (§3.2).
+                Text(
+                    text = UiStrings.referenceDataMissing(
+                        state.missingReferenceData.joinToString(", "),
+                        state.language,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                )
+            }
+            if (state.missingFormVersion != null) {
+                // Reachable only if form retention failed (Form IR §9): the
+                // store keeps every version a submission refers to. Rendering
+                // an empty question list instead would be indistinguishable
+                // from a submission whose answers were lost, and would be
+                // reported as exactly that.
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "This submission cannot be opened",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        modifier = Modifier.padding(top = 8.dp),
+                        text = "This device no longer holds ${state.missingFormVersion}, the " +
+                            "form version these answers were collected under. The answers are " +
+                            "safe and will still sync — only the questions are missing. Sync " +
+                            "again, and report this if it persists.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 return@Scaffold
             }
             LazyColumn(
@@ -230,15 +272,27 @@ private fun QuestionItem(
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(bottom = 4.dp),
         )
+        // Every branch here must have an entry in specs/collectable-types-v0.1.json
+        // and every entry there must have a branch — CollectableTypesTest drives
+        // this composable in both directions and fails on either drift.
         when (question.dataType) {
             "text" -> TextAnswer(question, enabled, KeyboardType.Text, onAction)
             "integer" -> TextAnswer(question, enabled, KeyboardType.Number, onAction)
             "decimal" -> TextAnswer(question, enabled, KeyboardType.Decimal, onAction)
-            "select_one" -> SelectOneAnswer(question, enabled, onAction)
+            "select_one" -> SelectOneAnswer(question, language, enabled, onAction)
+            "select_multiple" -> SelectMultipleAnswer(question, enabled, onAction)
             "date" -> DateAnswer(question, language, enabled, onAction)
+            "note" -> Unit // Display only (§2.1): the label above is the whole widget.
             "image" -> ImageAnswer(question, language, enabled, onAction)
             "signature" -> SignatureAnswer(question, language, enabled, onAction)
             "geopoint" -> GeoPointAnswer(question, language, enabled, onAction)
+            // The one that matters most, and the one that was missing. A form
+            // deployed for a newer app version than this phone runs reaches
+            // here, and it must be visibly unanswerable rather than blank — an
+            // enumerator cannot otherwise tell "nothing to do" from "this build
+            // cannot ask you this". Never a control that takes input and drops
+            // it, which is defect 2's mistake.
+            else -> UnsupportedAnswer(question, language)
         }
         val supporting = question.error ?: question.hint
         if (supporting != null) {
@@ -271,12 +325,179 @@ private fun TextAnswer(
     )
 }
 
+/**
+ * A question this build has no widget for (Form IR §2.1 has more dataTypes
+ * than any one app version implements).
+ *
+ * Drawn as text, deliberately: there is no control, nothing focusable and
+ * nothing that could be mistaken for an input. The alternative that keeps
+ * being reached for — render a text box "so at least they can type something"
+ * — collects a string where a barcode or a time belongs, and that is wrong in
+ * a way nobody notices until fieldwork is over.
+ */
 @Composable
-private fun SelectOneAnswer(
+private fun UnsupportedAnswer(question: QuestionUi, language: String) {
+    Text(
+        text = UiStrings.unsupportedQuestionType(language, question.dataType),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    )
+}
+
+/**
+ * A long option list: type to narrow, and only what is on screen is composed.
+ *
+ * This is what a dataset-backed select looks like in the field. The engine has
+ * already narrowed the list by the form's own filter — a district's 229
+ * villages out of 37,852 (Form IR §3.2) — and what is left is still more than
+ * anybody scrolls, so the enumerator types.
+ *
+ * Two things here are load-bearing rather than styling:
+ *
+ * - **`LazyColumn`, not `Column`.** Every other answer widget in this file
+ *   composes its options eagerly, which is right for the twenty-option lists a
+ *   form is mostly made of and wrong the moment a list comes from a dataset.
+ * - **The count is shown.** "229 villages" is how an enumerator knows the
+ *   filter did something, and an empty list with a reason under it
+ *   ("no villages match") is how they tell "I typed badly" from "the reference
+ *   data has not arrived" — which is the failure §3.2 spends its length on.
+ */
+@Composable
+private fun SearchableSelectOne(
+    question: QuestionUi,
+    language: String,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    // Keyed on the question path so moving between screens does not carry one
+    // question's search text onto another's list.
+    var query by remember(question.path) { mutableStateOf("") }
+    val matching = remember(question.choices, query) {
+        if (query.isBlank()) {
+            question.choices
+        } else {
+            question.choices.filter { choice -> choice.label.contains(query, ignoreCase = true) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            enabled = enabled,
+            singleLine = true,
+            label = { Text(UiStrings.searchOptions(question.choices.size, language)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (matching.isEmpty()) {
+            Text(
+                text = UiStrings.noOptionsMatch(language),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+            return@Column
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).selectableGroup(),
+        ) {
+            items(matching, key = { it.value }) { choice ->
+                val selected = choice.value == question.selectedValue
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = selected,
+                            enabled = enabled,
+                            role = Role.RadioButton,
+                            onClick = {
+                                onAction(
+                                    CollectionAction.OnChoiceSelect(question.path, choice.value)
+                                )
+                            },
+                        )
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = selected, onClick = null, enabled = enabled)
+                    Text(
+                        text = choice.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * `select_multiple` (§2.1): zero or more choices, stored as a sequence.
+ *
+ * Order-insensitive per the spec, and the order the enumerator tapped in is not
+ * meaningful — so the value is rebuilt in the form's own choice order on every
+ * toggle rather than appended to. Two devices answering the same question the
+ * same way then produce the same value, which matters because these are the
+ * bytes that get encrypted and compared.
+ */
+@Composable
+private fun SelectMultipleAnswer(
     question: QuestionUi,
     enabled: Boolean,
     onAction: (CollectionAction) -> Unit,
 ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        question.choices.forEach { choice ->
+            val checked = choice.value in question.selectedValues
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = checked,
+                        enabled = enabled,
+                        role = Role.Checkbox,
+                        onValueChange = {
+                            onAction(CollectionAction.OnChoiceToggle(question.path, choice.value))
+                        },
+                    )
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+                Text(
+                    text = choice.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Beyond this many options a list is searched rather than scrolled.
+ *
+ * Not a round number chosen for looks. A district in the generated UCL data
+ * holds 229 villages, and every option below is an eager composable inside a
+ * `Column` — 229 of them is a visible pause on a handset and 37,852 is not a
+ * screen at all. The threshold sits under the smallest real cascade so that the
+ * case this feature exists for takes the searchable path, and the twenty-option
+ * lists a form is mostly made of keep the radio buttons an enumerator can tap
+ * without reading.
+ */
+private const val SEARCHABLE_ABOVE = 20
+
+@Composable
+private fun SelectOneAnswer(
+    question: QuestionUi,
+    language: String,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    if (question.choices.size > SEARCHABLE_ABOVE) {
+        SearchableSelectOne(question, language, enabled, onAction)
+        return
+    }
     Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
         question.choices.forEach { choice ->
             val selected = choice.value == question.selectedValue

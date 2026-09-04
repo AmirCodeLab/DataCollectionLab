@@ -1,12 +1,25 @@
 package com.dcp.form
 
+import kotlin.math.PI
+import kotlin.math.pow
+
 /**
  * Function library (spec 4.3).
  *
  * Every function here must match the Python reference implementation exactly,
- * including null handling and rounding mode.
+ * including null handling (§4.4) and type mismatch (§4.7): an argument that is
+ * not of its declared type is null, and evaluation raises for exactly one
+ * reason — integer overflow.
  */
 object Functions {
+
+    /**
+     * Regex features §4.6 forbids, because RE2 cannot express them and the
+     * reason RE2 is the rule is that backtracking on a respondent's answer is a
+     * way to hang a phone.
+     */
+    private val FORBIDDEN_REGEX_FEATURES =
+        listOf("(?=", "(?!", "(?<=", "(?<!", "\\1", "\\2")
 
     private data class Sig(val minArity: Int, val maxArity: Int)
 
@@ -37,6 +50,12 @@ object Functions {
         "dec" to Sig(1, 1),
         "str" to Sig(1, 1),
         "distance" to Sig(2, 2),
+        "pulldata" to Sig(4, 4),
+        "sqrt" to Sig(1, 1),
+        "sin" to Sig(1, 1),
+        "cos" to Sig(1, 1),
+        "tan" to Sig(1, 1),
+        "atan" to Sig(1, 1),
         "is_null" to Sig(1, 1),
         "is_not_null" to Sig(1, 1),
     )
@@ -70,21 +89,16 @@ object Functions {
             "today" -> FormValue.Text(ctx.today)
             "now" -> FormValue.Text(ctx.now)
             "date_diff_days" -> {
-                val a = parseDateOrNull(args[0])
-                val b = parseDateOrNull(args[1])
+                val a = isoDate(args[0])
+                val b = isoDate(args[1])
                 if (a == null || b == null) FormValue.Null
                 else FormValue.Integer(epochDays(a) - epochDays(b))
             }
             "date_add_days" -> {
-                val a = parseDateOrNull(args[0])
-                val days = args[1]
-                if (a == null || days.isNull) FormValue.Null
-                else FormValue.Text(
-                    fromEpochDays(
-                        epochDays(a) + (numberOf(days)?.toLong()
-                            ?: throw EvaluationException("date_add_days expects a number of days"))
-                    )
-                )
+                val a = isoDate(args[0])
+                val days = integerOf(args[1])
+                if (a == null || days == null) FormValue.Null
+                else FormValue.Text(fromEpochDays(epochDays(a) + days))
             }
             "age_years" -> ageYears(args, ctx)
             "len" -> textOrNull(args[0])?.let { FormValue.Integer(it.length.toLong()) }
@@ -92,17 +106,46 @@ object Functions {
             "upper" -> textOrNull(args[0])?.let { FormValue.Text(it.uppercase()) } ?: FormValue.Null
             "lower" -> textOrNull(args[0])?.let { FormValue.Text(it.lowercase()) } ?: FormValue.Null
             "trim" -> textOrNull(args[0])?.let { FormValue.Text(it.trim()) } ?: FormValue.Null
-            "concat" -> FormValue.Text(args.joinToString("") { textOrNull(it) ?: "" })
+            // The one function that renders rather than refuses (§4.7): its
+            // job is to build text, so each argument is rendered the way `str`
+            // renders it and a null contributes the empty string.
+            "concat" -> FormValue.Text(
+                args.joinToString("") { if (it.isNull) "" else castText(it)?.value ?: "" }
+            )
             "contains" -> binaryText(args) { a, b -> a.contains(b) }
             "starts_with" -> binaryText(args) { a, b -> a.startsWith(b) }
             "ends_with" -> binaryText(args) { a, b -> a.endsWith(b) }
             "round" -> round(args)
-            "int" -> numberOf(args[0])?.let { FormValue.Integer(it.toLong()) } ?: FormValue.Null
-            "dec" -> numberOf(args[0])?.let { FormValue.Decimal(it) } ?: FormValue.Null
-            "str" -> if (args[0].isNull) FormValue.Null else FormValue.Text(render(args[0]))
+            // §4.3.1. `castNumber`, not `numberOf`: a cast is the only way this
+            // IR gets from text to a number, and a dataset column is always
+            // text — a CSV holds nothing else — so `int($row.population)` is
+            // the ordinary case. `numberOf` returns null for text and stays
+            // that way, because it is what arithmetic uses and §4.5 has no
+            // implicit coercion.
+            "int" -> castNumber(args[0])?.let { FormValue.Integer(it.toLong()) } ?: FormValue.Null
+            "dec" -> castNumber(args[0])?.let { FormValue.Decimal(it) } ?: FormValue.Null
+            "str" -> if (args[0].isNull) FormValue.Null else castText(args[0]) ?: FormValue.Null
+            "substr" -> substr(args)
+            "regex" -> regex(args)
+            "distance" -> distance(args[0], args[1])
+            "pulldata" -> pulldata(args, ctx)
+            // `(number) -> decimal`. `sqrt` of a negative is null, never NaN:
+            // a NaN compares false to everything including itself, so it would
+            // make a constraint pass and a relevance hide, both silently (§4.7).
+            "sqrt" -> numberOf(args[0])
+                ?.takeIf { it >= 0 }
+                ?.let { FormValue.Decimal(kotlin.math.sqrt(it)) } ?: FormValue.Null
+            "sin" -> trig(args[0]) { kotlin.math.sin(it) }
+            "cos" -> trig(args[0]) { kotlin.math.cos(it) }
+            "tan" -> trig(args[0]) { kotlin.math.tan(it) }
+            "atan" -> trig(args[0]) { kotlin.math.atan(it) }
             else -> throw CompileException("function not implemented: $fn")
         }
     }
+
+    /** `(number) -> decimal`, in radians (§4.3). */
+    private inline fun trig(value: FormValue, fn: (Double) -> Double): FormValue =
+        numberOf(value)?.let { FormValue.Decimal(fn(it)) } ?: FormValue.Null
 
     private fun sequenceOf(v: FormValue): List<FormValue> = when (v) {
         is FormValue.Null -> emptyList()
@@ -113,6 +156,48 @@ object Functions {
     private fun numberOf(v: FormValue): Double? = when (v) {
         is FormValue.Integer -> v.value.toDouble()
         is FormValue.Decimal -> v.value
+        else -> null
+    }
+
+    /**
+     * A value as a number for `int`/`dec` (§4.3.1), or null if it is not one.
+     *
+     * Text is parsed after trimming surrounding whitespace and nothing else: a
+     * thousands separator or a currency symbol makes it unparseable rather than
+     * being stripped, because stripping one would be a coercion this IR does
+     * not have (§4.5).
+     *
+     * Unparseable text is null, never an error — a cast is evaluated on every
+     * keystroke over whatever has been typed so far, and `int("8a")` on the way
+     * to `int("81")` must not stop the form.
+     *
+     * Booleans are deliberately not numbers: §4.4 keeps booleans and numbers
+     * apart everywhere else, and a dynamically typed engine's `int(true) == 1`
+     * would be a divergence no vector had ever asked about. Break 44.
+     */
+    private fun castNumber(v: FormValue): Double? = when (v) {
+        is FormValue.Integer -> v.value.toDouble()
+        is FormValue.Decimal -> v.value
+        is FormValue.Text -> v.value.trim().toDoubleOrNull()
+        else -> null
+    }
+
+    /**
+     * A value rendered by `str` (§4.3.1), or null where §4.3.1 gives no text.
+     *
+     * A geopoint, a media reference and a sequence have no rendering the two
+     * engines could be held to, so they are null rather than each engine's
+     * `toString`.
+     */
+    private fun castText(v: FormValue): FormValue.Text? = when (v) {
+        is FormValue.Text -> v
+        is FormValue.Integer -> FormValue.Text(v.value.toString())
+        // `str(dec("800"))` is "800", so it can be compared against a text
+        // column. A trailing `.0` is an artefact of the double, not the value.
+        is FormValue.Decimal -> FormValue.Text(
+            if (v.value % 1.0 == 0.0) v.value.toLong().toString() else v.value.toString()
+        )
+        is FormValue.Bool -> FormValue.Text(if (v.value) "true" else "false")
         else -> null
     }
 
@@ -127,18 +212,119 @@ object Functions {
         else -> v.toString()
     }
 
+    /** `(text, integer, integer?) → text`, 0-based (spec 4.3). */
+    private fun substr(args: List<FormValue>): FormValue {
+        val text = textOrNull(args[0]) ?: return FormValue.Null
+        val start = (integerOf(args[1]) ?: return FormValue.Null).toInt()
+        val from = start.coerceIn(0, text.length)
+        if (args.size > 2 && !args[2].isNull) {
+            val length = (integerOf(args[2]) ?: return FormValue.Null).toInt()
+            val to = (from + length).coerceIn(from, text.length)
+            return FormValue.Text(text.substring(from, to))
+        }
+        return FormValue.Text(text.substring(from))
+    }
+
+    /**
+     * `(text, pattern) → boolean`, RE2 syntax only (spec 4.6).
+     *
+     * Matches anywhere in the subject, like the reference's `re.search`.
+     *
+     * A pattern using a feature §4.6 forbids is **null**, not an exception —
+     * §4.7 permits evaluation to raise only on integer overflow, and the
+     * pattern is not executed either way. Refusing such a form is the publish
+     * gate's job (`forms.service.check_publishable`), where somebody is reading.
+     */
+    private fun regex(args: List<FormValue>): FormValue {
+        val subject = textOrNull(args[0]) ?: return FormValue.Null
+        val pattern = textOrNull(args[1]) ?: return FormValue.Null
+        if (FORBIDDEN_REGEX_FEATURES.any { it in pattern }) return FormValue.Null
+        val compiled = try {
+            Regex(pattern)
+        } catch (_: IllegalArgumentException) {
+            // A pattern that is not a pattern is not something to match
+            // against, and a half-typed one is the ordinary state of a form
+            // being authored.
+            return FormValue.Null
+        }
+        return FormValue.Bool(compiled.containsMatchIn(subject))
+    }
+
+    /**
+     * `(dataset, column, keyColumn, keyValue) → any` — a dataset lookup (§4.3).
+     *
+     * The value of `column` on the first row whose `keyColumn` equals
+     * `keyValue`, or null when there is no such row. Null rather than an error,
+     * like every other unusable argument (§4.7): on a device the commonest
+     * reason for no match is that the reference data has not finished syncing,
+     * and stopping the form is not an improvement on that.
+     *
+     * Goes through the same [DatasetSource] the choice filters use, so it obeys
+     * the same rule: the source is bound to a form version, and this reads the
+     * list that form version was **published against** rather than whatever is
+     * newest (§3.2).
+     */
+    private fun pulldata(args: List<FormValue>, ctx: EvalContext): FormValue {
+        val dataset = textOrNull(args[0]) ?: return FormValue.Null
+        val column = textOrNull(args[1]) ?: return FormValue.Null
+        val keyColumn = textOrNull(args[2]) ?: return FormValue.Null
+        if (args[3].isNull) return FormValue.Null
+        val source = ctx.datasets ?: return FormValue.Null
+        val rows = source.rows(dataset, mapOf(keyColumn to args[3]))
+        // The first match, in dataset order, which is the file's own order
+        // (§3.2). A dataset key is unique per version, so "first" is a
+        // formality for the ordinary case and a defined answer otherwise.
+        return rows.firstOrNull()?.get(column) ?: FormValue.Null
+    }
+
+    /** `(geopoint, geopoint) → decimal` — metres, haversine, WGS-84 (spec 4.3). */
+    private fun distance(a: FormValue, b: FormValue): FormValue {
+        val p = a as? FormValue.GeoPoint ?: return FormValue.Null
+        val q = b as? FormValue.GeoPoint ?: return FormValue.Null
+        val radius = 6371008.8 // WGS-84 mean radius, metres — the reference's constant
+        val lat1 = p.lat * PI / 180.0
+        val lon1 = p.lon * PI / 180.0
+        val lat2 = q.lat * PI / 180.0
+        val lon2 = q.lon * PI / 180.0
+        val dLat = lat2 - lat1
+        val dLon = lon2 - lon1
+        val h = kotlin.math.sin(dLat / 2).pow(2) +
+            kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * kotlin.math.sin(dLon / 2).pow(2)
+        // Rounded to millimetres, deliberately (§4.3) — see the reference's
+        // note. Two engines four transcendental calls deep differ in the last
+        // bit and a vector cannot be written against that.
+        val metres = 2 * radius * kotlin.math.asin(kotlin.math.sqrt(h))
+        return FormValue.Decimal(kotlin.math.round(metres * 1000.0) / 1000.0)
+    }
+
     private fun binaryText(args: List<FormValue>, op: (String, String) -> Boolean): FormValue {
         val a = textOrNull(args[0]) ?: return FormValue.Null
         val b = textOrNull(args[1]) ?: return FormValue.Null
         return FormValue.Bool(op(a, b))
     }
 
+    /**
+     * Beyond this many digits a decimal has no more information to give, so a
+     * request for them is not a question about this number. Bounded rather than
+     * clamped, because §4.7 does not permit evaluation to produce a non-finite
+     * result any more than it permits an exception.
+     */
+    private const val MAX_ROUND_DIGITS = 15
+
     /** Half away from zero, NOT banker's rounding (spec 4.5). */
     private fun round(args: List<FormValue>): FormValue {
         val x = numberOf(args[0]) ?: return FormValue.Null
-        val digits = if (args.size > 1) numberOf(args[1])?.toInt() ?: 0 else 0
+        val digits = if (args.size > 1 && !args[1].isNull) {
+            (integerOf(args[1]) ?: return FormValue.Null).toInt()
+        } else 0
+        if (digits < -MAX_ROUND_DIGITS || digits > MAX_ROUND_DIGITS) return FormValue.Null
+        // Negative digits round to tens, hundreds and so on, so the factor has
+        // to divide rather than be skipped: `repeat(-2)` does nothing at all,
+        // and `round(1234, -2)` came back 1234 on this engine and 1200 on the
+        // reference.
         var factor = 1.0
-        repeat(digits) { factor *= 10 }
+        repeat(kotlin.math.abs(digits)) { factor *= 10 }
+        if (digits < 0) factor = 1.0 / factor
         val scaled = x * factor
         val rounded = if (scaled >= 0) {
             kotlin.math.floor(scaled + 0.5)
@@ -151,7 +337,9 @@ object Functions {
 
     private fun ageYears(args: List<FormValue>, ctx: EvalContext): FormValue {
         val born = isoDate(args[0]) ?: return FormValue.Null
-        val ref = if (args.size > 1 && !args[1].isNull) isoDate(args[1])!! else parse(ctx.today)
+        val ref =
+            if (args.size > 1 && !args[1].isNull) isoDate(args[1]) ?: return FormValue.Null
+            else parseOrNull(ctx.today) ?: return FormValue.Null
         var years = ref.year - born.year
         if (ref.month < born.month || (ref.month == born.month && ref.day < born.day)) years -= 1
         return FormValue.Integer(years.toLong())
@@ -159,29 +347,49 @@ object Functions {
 
     private data class Ymd(val year: Int, val month: Int, val day: Int)
 
-    private fun parse(iso: String): Ymd {
-        val parts = if (iso.length >= 10) iso.substring(0, 10).split("-") else emptyList()
-        if (parts.size != 3) throw EvaluationException("invalid date: '$iso'")
-        return Ymd(
-            parts[0].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
-            parts[1].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
-            parts[2].toIntOrNull() ?: throw EvaluationException("invalid date: '$iso'"),
-        )
+    /**
+     * An ISO date, or null when the text is not one (§4.7).
+     *
+     * Never raises. A half-typed date is the ordinary state of a date field
+     * mid-interview, and `date_diff_days("2026-01", today())` must not stop a
+     * form — the Python reference raised ValueError here and it reached the API
+     * as a 500.
+     */
+    private fun parseOrNull(iso: String): Ymd? {
+        val parts = if (iso.length >= 10) iso.substring(0, 10).split("-") else return null
+        if (parts.size != 3) return null
+        val y = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        val d = parts[2].toIntOrNull() ?: return null
+        // A well-shaped string that is not a date on any calendar is not a date.
+        if (m !in 1..12 || d !in 1..daysInMonth(y, m)) return null
+        return Ymd(y, m, d)
     }
 
+    private fun daysInMonth(year: Int, month: Int): Int = when (month) {
+        1, 3, 5, 7, 8, 10, 12 -> 31
+        4, 6, 9, 11 -> 30
+        else -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
+    }
+
+    /** The value as a date (§4.3), or null when it is not one (§4.7). */
     private fun isoDate(v: FormValue): Ymd? = when (v) {
-        is FormValue.DateValue -> parse(v.iso)
-        is FormValue.Text -> parse(v.value)
+        is FormValue.DateValue -> parseOrNull(v.iso)
+        is FormValue.Text -> parseOrNull(v.value)
         else -> null
     }
 
-    /** Mirrors the reference `_parse_date`: null passes through, a non-date
-     * operand is an evaluation error. */
-    private fun parseDateOrNull(v: FormValue): Ymd? = when (v) {
-        is FormValue.Null -> null
-        is FormValue.DateValue -> parse(v.iso)
-        is FormValue.Text -> parse(v.value)
-        else -> throw EvaluationException("expected date, got $v")
+    /**
+     * The value as an integer, for arguments §4.3 declares `integer` (§4.7).
+     *
+     * A whole-valued decimal counts: `date_add_days(d, 3.0)` is the same
+     * question as `date_add_days(d, 3)`, and refusing one would make the answer
+     * depend on how the number was arrived at.
+     */
+    private fun integerOf(v: FormValue): Long? = when (v) {
+        is FormValue.Integer -> v.value
+        is FormValue.Decimal -> if (v.value % 1.0 == 0.0) v.value.toLong() else null
+        else -> null
     }
 
     // Civil-date <-> epoch-day conversion (Howard Hinnant's algorithms), so day

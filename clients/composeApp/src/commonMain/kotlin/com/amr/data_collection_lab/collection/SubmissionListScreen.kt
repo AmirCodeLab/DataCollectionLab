@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,10 +24,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SubmissionListRoot(
     viewModel: SubmissionListViewModel,
     onNavigateToCollection: (String) -> Unit,
+    onNavigateToSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -45,13 +49,18 @@ fun SubmissionListRoot(
         }
     }
 
-    SubmissionListScreen(state = state, onAction = viewModel::onAction)
+    SubmissionListScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        onNavigateToSettings = onNavigateToSettings,
+    )
 }
 
 @Composable
 fun SubmissionListScreen(
     state: SubmissionListState,
     onAction: (SubmissionListAction) -> Unit,
+    onNavigateToSettings: () -> Unit = {},
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
@@ -64,13 +73,31 @@ fun SubmissionListScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Text(
-                text = "Submissions",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Submissions",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                // The only route to the settings screen, and it has to be
+                // reachable from the first screen after launch: a device
+                // pointed at the wrong server cannot get past this one.
+                TextButton(onClick = onNavigateToSettings) { Text("Settings") }
+            }
             SyncBar(state = state, onAction = onAction)
             HorizontalDivider()
+            if (state.isChoosingForm) {
+                FormPicker(
+                    forms = state.startableForms,
+                    onChoose = { onAction(SubmissionListAction.OnFormChosen(it)) },
+                    onDismiss = { onAction(SubmissionListAction.OnFormChoiceDismissed) },
+                )
+            }
             when {
                 state.isLoading -> Box(
                     modifier = Modifier.fillMaxSize(),
@@ -82,9 +109,18 @@ fun SubmissionListScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "No submissions yet. Start one with “New submission”.",
+                        // Two different situations, and telling an enumerator
+                        // the wrong one wastes their morning: with no forms the
+                        // next step is a sync, not a tap on "New submission".
+                        text = if (state.startableForms.isEmpty()) {
+                            "No forms on this device yet. Tap Sync to get the forms " +
+                                "your project has deployed."
+                        } else {
+                            "No submissions yet. Start one with “New submission”."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
 
@@ -138,6 +174,15 @@ private fun SyncBar(state: SubmissionListState, onAction: (SubmissionListAction)
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            if (state.formError != null) {
+                Text(
+                    // Reported apart from lastSyncError because the sync did
+                    // not fail: the answers moved and the forms did not.
+                    text = "Forms not refreshed: ${state.formError}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             if (state.lastSyncError != null) {
                 Text(
                     text = state.lastSyncError,
@@ -177,7 +222,10 @@ private fun SubmissionCard(submission: SubmissionUi, onClick: () -> Unit) {
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = submission.savedAt,
+                        // The version is not decoration: two drafts of the same
+                        // form can be on different versions, and they are not
+                        // the same questionnaire (Form IR §9).
+                        text = "v${submission.formVersion} · ${submission.savedAt}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -198,6 +246,43 @@ private fun SubmissionCard(submission: SubmissionUi, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Which form to start, for a device holding more than one.
+ *
+ * Only shown when there is a choice to make: one form starts straight away and
+ * no form says so in the list instead. A dialog that always appears turns every
+ * new interview into two taps for no information.
+ */
+@Composable
+private fun FormPicker(
+    forms: List<FormChoice>,
+    onChoose: (FormChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Which form?") },
+        text = {
+            Column {
+                forms.forEach { form ->
+                    TextButton(
+                        onClick = { onChoose(form) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "${form.title} · v${form.version}",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
 @Preview
 @Composable
 private fun SubmissionListScreenPreview() {
@@ -207,12 +292,21 @@ private fun SubmissionListScreenPreview() {
                 isLoading = false,
                 pendingTotal = 75,
                 lastSyncAt = "2026-08-29 12:40",
+                startableForms = listOf(FormChoice("household_survey", 2, "Household Survey")),
                 submissions = listOf(
-                    SubmissionUi("01A", "Household Survey", "2026-08-29 10:12", false, 14),
-                    SubmissionUi("01B", "Household Survey", "2026-08-28 16:40", true, 61),
+                    SubmissionUi("01A", "Household Survey", 2, "2026-08-29 10:12", false, 14),
+                    SubmissionUi("01B", "Household Survey", 1, "2026-08-28 16:40", true, 61),
                 ),
             ),
             onAction = {},
         )
+    }
+}
+
+@Preview
+@Composable
+private fun SubmissionListNoFormsPreview() {
+    MaterialTheme {
+        SubmissionListScreen(state = SubmissionListState(isLoading = false), onAction = {})
     }
 }

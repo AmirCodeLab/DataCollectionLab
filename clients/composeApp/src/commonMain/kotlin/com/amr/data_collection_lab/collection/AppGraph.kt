@@ -13,6 +13,9 @@ import com.dcp.core.media.MediaUploader
 import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
+import com.dcp.core.sync.DatasetStore
+import com.dcp.core.sync.FormStore
+import com.dcp.core.sync.ServerConfig
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
 import com.dcp.core.sync.openDatabase
@@ -60,7 +63,38 @@ class AppGraph(
     private val db = openDatabase(driverFactory, keyStore)
 
     val store: SubmissionStore = SubmissionStore(db)
-    val formCatalog: FormCatalog = FormCatalog()
+
+    /**
+     * The form versions this device has been sent (sync §5). Empty until the
+     * first sync — there is no bundled form any more, and a device is not
+     * entitled to collect on a form nobody deployed to it.
+     */
+    val formStore: FormStore = FormStore(db)
+
+    /**
+     * The reference data behind `select_one_from_file` (Form IR §3, sync §5).
+     *
+     * Held per dataset *version*, and readable only through the form version
+     * that was published against it. That is not caution: the failure it
+     * refuses has no symptom. A device holding last month's village list
+     * collects perfectly, syncs perfectly, and files answers against places
+     * that no longer exist, with every screen looking exactly right. See
+     * [DatasetStore].
+     */
+    val datasetStore: DatasetStore = DatasetStore(db)
+
+    val formCatalog: FormCatalog = FormCatalog(formStore, store, datasetStore)
+
+    /**
+     * Which server this device talks to, and the settings screen's subject.
+     *
+     * [defaultSyncBaseUrl] is now a *fallback* rather than the answer: it is
+     * what a fresh install uses until somebody enters an address. That is the
+     * whole of Phase 2 item 1 at this layer — the constant was right for an
+     * emulator and could never be right for a physical phone, which is why one
+     * had never reached a server.
+     */
+    val serverConfig: ServerConfig = ServerConfig(db, defaultSyncBaseUrl())
 
     val media: MediaCaptureGraph? = platform?.let { p ->
         val mediaStore = MediaStore(db)
@@ -78,16 +112,25 @@ class AppGraph(
      * a form version this device has not compiled makes the sync path fail
      * closed and encrypt the value rather than assume it is safe to send in the
      * clear.
+     *
+     * Now a lookup across every version the device holds rather than a check
+     * against the one bundled form. That matters more than it looks: with one
+     * form the wrong answer was "encrypt everything", which is safe; with
+     * several, resolving to the wrong *version* would apply another version's
+     * sensitivity flags to these answers, and a field that stopped being
+     * sensitive in v3 would be sent in the clear from a v2 submission.
      */
     private val formSensitivity = FormSensitivity { formId, formVersion ->
-        formCatalog.compiledForm()
-            .takeIf { it.formId == formId && it.version == formVersion }
-            ?.sensitiveFields()
+        formCatalog.compiledForm(formId, formVersion)?.sensitiveFields()
     }
 
     val syncClient: SyncClient = SyncClient(
         store,
-        defaultSyncBaseUrl(),
+        // The configuration itself. There is deliberately no way to hand this
+        // an address: passing `{ defaultSyncBaseUrl() }` here is the mistake
+        // that every test in the repository once missed, and it is now a type
+        // error rather than a silent one.
+        serverConfig,
         deviceInfo = platformDeviceInfo(),
         formSensitivity = formSensitivity,
         // Media rides the same sync, after the ops (sync §9). Null here means
@@ -98,8 +141,17 @@ class AppGraph(
                 files = platform!!.files,
                 staging = graph.staging,
                 submissions = store,
-                baseUrl = defaultSyncBaseUrl(),
+                serverConfig = serverConfig,
             )
         },
+        // Where delivered forms land. Passed on every client that collects —
+        // without it a device asks the server for no manifest and stays on
+        // whatever forms it already had, which for a fresh install is none.
+        forms = formStore,
+        // And the lists those forms choose from. Passed together with `forms`
+        // for a reason: what a device must hold is derived from the form
+        // versions deployed to it, so a client that delivered one without the
+        // other would have forms whose questions offer nothing.
+        datasets = datasetStore,
     )
 }

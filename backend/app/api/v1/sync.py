@@ -37,13 +37,46 @@ async def pull(
     cursor: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=service.MAX_PULL_LIMIT)] = service.DEFAULT_PULL_LIMIT,
     scope: Annotated[str | None, Query()] = None,
+    device_id: Annotated[str | None, Query(alias="deviceId", max_length=64)] = None,
 ) -> PullResponse:
-    """Resume the op and tombstone streams from a cursor.
+    """Resume the op and tombstone streams from a cursor, and optionally list
+    the form versions this device should be running.
 
-    `scope` (spec §5: assignments, forms, datasets) selects additional
-    resource streams; only the submission stream exists yet, so it is
-    accepted and currently ignored.
+    `scope` is the comma-separated list of spec §5: `assignments`, `forms`,
+    `datasets`. `assignments` is accepted and ignored, so a newer client asking
+    for all three still works against this server rather than failing on an
+    unknown word.
+
+    `scope=datasets` returns the dataset versions the form versions deployed to
+    this device were **published against** (`form_version_dataset`), not the
+    datasets its project happens to own. The pinning that lets an answer be
+    explained later is the same thing that decides which rows travel. Like the
+    form manifest it names versions and checksums, never rows: those are fetched
+    once per version, paged, from `GET /datasets/versions/{id}/rows`.
+
+    `datasets` is **null** when nothing was asked or the device is unknown, and
+    `[]` when the answer is genuinely "none" — a device must be able to tell an
+    unanswered question from an answer, or it will delete a village list because
+    it synced against an older server.
+
+    `scope=forms` needs `deviceId`, because deployment is per environment
+    (`form_deployment`): a device is told about the versions deployed to its own
+    environment, never everything the project has published. The manifest names
+    versions and their checksums, not their IR — the documents are fetched one
+    at a time from `GET /forms/versions/{formVersionId}`, so a device that
+    already holds a version spends nothing re-reading it.
+
+    Unlike the op stream, the manifest is a complete statement rather than a
+    delta: it is how a device notices a version has been *withdrawn*, which no
+    stream of additions could tell it.
     """
-    del scope
+    wanted = {part.strip() for part in (scope or "").split(",") if part.strip()}
     async with session.begin():
-        return await service.pull(session, cursor=cursor, limit=limit)
+        return await service.pull(
+            session,
+            cursor=cursor,
+            limit=limit,
+            device_id=device_id,
+            want_forms="forms" in wanted,
+            want_datasets="datasets" in wanted,
+        )

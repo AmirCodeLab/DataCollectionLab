@@ -3,10 +3,20 @@
 
 Creates exactly: one organisation, one project with its development, staging
 and production environments, and the household_survey form with version 1
-loaded from the same JSON the app bundles
-(clients/composeApp/src/commonMain/composeResources/files/household_survey.json).
-Nothing else — no devices (they self-register on first sync, sync §4) and no
-users.
+loaded from specs/examples/household_survey.json, **deployed to all three
+environments**.
+
+That file used to live in the app's own resources, because the app compiled it
+at startup. It does not any more — a device gets its forms from this server
+(sync §5), which is the whole point of form delivery — so the example lives
+beside the specification it exercises and reaches a phone the way a customer's
+form does. Nothing else — no devices (they
+self-register on first sync, sync §4) and no users.
+
+The deployment is not decoration. A published version that nothing deploys
+appears in no device's manifest (sync §5), so a freshly seeded database would
+hand every phone an empty form list and look, from the phone, exactly like a
+broken sync.
 
 Idempotent: rows are matched by natural key (slug, environment kind, form key,
 version number) and only created when missing, so running it twice is safe.
@@ -80,7 +90,7 @@ def _reexec_in_backend_venv() -> None:
 _reexec_in_backend_venv()
 
 FORM_JSON = (
-    REPO_ROOT / "clients/composeApp/src/commonMain/composeResources/files/household_survey.json"
+    REPO_ROOT / "specs/examples/household_survey.json"
 )
 
 # Fixed ids so every developer's database reads the same; creation is guarded
@@ -98,14 +108,15 @@ def _report(created: bool, kind: str, name: str) -> None:
 
 async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
     from app.core.config import get_settings
     from app.infrastructure.database import create_session_factory
     from app.modules.auth.models import PlatformOrganization
     from app.modules.forms import service as forms_service
     from app.modules.projects.models import Environment, Project
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import create_async_engine
 
     ir: dict[str, Any] = json.loads(FORM_JSON.read_text())
     form_key, version = str(ir["formId"]), int(ir["version"])
@@ -186,6 +197,10 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
                     ir=ir,
                     form_id=FORM_ID,
                     form_version_id=FORM_VERSION_ID,
+                    # Every environment, because a dev device resolves to
+                    # whichever the project has (production first) and nothing
+                    # yet enrols one deliberately.
+                    deploy_to=["development", "staging", "production"],
                 )
             except forms_service.PublishRefused as refusal:
                 print(f"  REFUSED  form_version: {form_key} v{version}")
@@ -196,6 +211,7 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
                 ) from refusal
 
             _report(published.created, "form_version", f"{form_key} v{version}")
+            _report(True, "deployment", ", ".join(published.deployments) or "NONE")
             for warning in published.warnings:
                 print(f"    warning: {warning}")
     finally:

@@ -1,0 +1,95 @@
+{
+  "id": "cast-004",
+  "description": "A cast of null is null, and str of null is null rather than the text 'null'",
+  "spec": "4.3.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "cast4",
+    "version": 1,
+    "title": {
+      "en": "cast4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "source",
+        "dataType": "text",
+        "label": {
+          "en": "Source"
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_int",
+        "dataType": "integer",
+        "label": {
+          "en": "As Int"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "int",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_dec",
+        "dataType": "decimal",
+        "label": {
+          "en": "As Dec"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "dec",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "as_str",
+        "dataType": "text",
+        "label": {
+          "en": "As Str"
+        },
+        "calculate": {
+          "op": "call",
+          "fn": "str",
+          "args": [
+            {
+              "op": "ref",
+              "path": "source"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "as_int": null,
+          "as_dec": null,
+          "as_str": null
+        }
+      }
+    }
+  ]
+}
