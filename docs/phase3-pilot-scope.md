@@ -65,6 +65,27 @@ a fortnight, and therefore whether the pilot is one month away or three.
 corpus answers the question; the Migration Center integration follows once the
 answer is known.
 
+### What the number means depends on an answer we do not have
+
+§11 question 1 — **can RCons's questionnaire → CSV tool emit XLSForm?** — is not
+a detail of item 0, it decides what item 0 is measuring. The prototype produces
+the same percentage either way and that percentage means two different things:
+
+- **If the tool can emit XLSForm**, skip-to conversion is a **one-off migration**
+  of the existing corpus. Everything authored from then on arrives already
+  declarative, and a throwaway script that converts 2,128 questions once is the
+  whole of the work. A poor percentage costs a fixed, bounded amount of manual
+  fixing, once.
+- **If it cannot**, every questionnaire RCons writes from now on also arrives as
+  ordered conditional jumps, so the conversion is a **permanent stage of the
+  import pipeline** and has to be built as a product — Migration Center, with a
+  compatibility report, on the shapes that do not convert. A poor percentage is
+  then a recurring cost on every future survey and a much larger commitment.
+
+So ask question 1 **before** running the prototype, not after. It costs an email
+and it decides whether the deliverable is a number or a number plus a
+specification.
+
 ---
 
 ## 3. Item 1 — identity and permissions
@@ -326,13 +347,18 @@ Named so their absence is a decision:
 | 0 | Skip-to prototype | The only unknown cost. Cheap to resolve |
 | 1 | Identity and permissions | Everything below depends on it |
 | 2 | Sample assignment and isolation | The daily work of a survey firm |
-| 3 | User-driven roster | Small, and blocks household listing |
+| 3 | User-driven roster | Blocks household listing. **Not small — see §5**: the engine is done, the screen plan is not |
 | 4 | Separate sample/form sync | Field usability |
 | 5 | Supervisor monitoring | Fieldwork needs oversight from day one |
 | 6 | Review and correction | Closes the quality loop |
 
 Items 1–6 are roughly two months. Item 0 could change that, in either
 direction, which is why it is first.
+
+**That estimate predates the §5 correction and has not been redone.** Item 3 was
+costed as a widget; it is a v0.2 spec decision on repeat screen flow, then the
+screen planner on both engines, then the UI. It is still the third-smallest item
+here, and it is no longer a day's work. Re-cost items 1–6 once item 0 reports.
 
 ---
 
