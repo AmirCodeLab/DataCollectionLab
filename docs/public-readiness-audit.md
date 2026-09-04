@@ -30,8 +30,8 @@ actually looked at.
   no `AKIA…`, `ghp_…`, `xox…` or `sk-…` tokens, no cloud credentials. The one
   `BEGIN PRIVATE KEY` hit is a deliberately malformed 12-byte stub in
   `backend/tests/test_project_keys.py`, testing that a bad key is refused.
-- **No absolute paths carrying the username in the tree.** Zero `/Users/amir`
-  occurrences. (See finding 1 — this is *not* true of the GitHub-side refs.)
+- **No absolute paths carrying the username in the tree.** Zero occurrences of
+  a home directory named for the author. (See finding 1 — this is *not* true of the GitHub-side refs.)
 - **No real email addresses.** The single regex hit is a Kotlin `this@Class`
   qualifier, not an address.
 - **No tracked junk.** No `.DS_Store`, IDE directories, `.env`, or build output
@@ -50,9 +50,17 @@ actually looked at.
 - **Fixture provenance was already documented.** `PROVENANCE.md` correctly names
   all four workbooks, their upstream, and BSD-2-Clause.
 
-## 1. BLOCKER — the pre-rewrite history is still live on GitHub, in `refs/pull/*`
+## 1. CLOSED — the pre-rewrite history was still live on GitHub, in `refs/pull/*`
 
-**This is the finding that matters. Everything else on this list is smaller.**
+**This was the finding that mattered, and it is why this repository is not the
+one the project started in.** Resolved on 2026-09-04 by publishing from a new
+repository: the full rewritten history was pushed to a fresh remote, verified
+commit-for-commit against the local copy, and the original was bundled and
+deleted. This repository has never had a pull request, so `refs/pull/*` is
+empty and there is nothing frozen behind the branches. Keep it that way —
+merge branches locally rather than through a PR.
+
+The original finding follows, because the reasoning is the reason for the move.
 
 The force-push rewrote every branch. It did not — and cannot — touch the
 snapshots GitHub keeps of merged pull requests. Right now, on the remote:
@@ -67,12 +75,11 @@ snapshots GitHub keeps of merged pull requests. Right now, on the remote:
 `refs/pull/5/*` updated to the rewritten commits, because PR #5 is open and
 tracks the branch. The four merged ones are frozen at the old commits.
 
-Reachable from all four, verified against the live remote:
-
-```
-551ec3a:local.properties          sdk.dir=/Users/amir/Library/Android/sdk
-d2dd1eb:clients/local.properties  sdk.dir=
-```
+Reachable from all four, verified against the live remote: both
+`local.properties` blobs, one of them carrying an `sdk.dir` under a home
+directory named for the author. The value is deliberately not reproduced
+here — quoting it in the file that asks for its removal is how it comes
+back, which is the mistake finding 3 records one section down.
 
 So both things the rewrite was for — the attribution and the username-bearing
 SDK path — remain fetchable by anyone who can read the repository. Today that is
