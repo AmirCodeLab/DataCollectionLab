@@ -9,6 +9,13 @@ local.properties
 .idea/
 *.iml
 
+# Secrets. `.env` was NOT covered here until 2026-09-04, while the audit's
+# clean-results section recorded that it was — true only because no .env had
+# been created yet. backend/.env.example is committed and is the one exception.
+.env
+.env.*
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
