@@ -1508,6 +1508,30 @@ def _rewrite_refs(node: Any, renames: dict[str, str]) -> None:
             _rewrite_refs(item, renames)
 
 
+def _answerable_nodes(
+    children: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Every node an enumerator is meant to answer or read, with its id.
+
+    Excludes `calculate`, which is computed and never asked — a calculate with
+    no screen is normal. A `note` is included: it is display-only and stores no
+    answer, but a note nobody can see is still content that silently vanished.
+    """
+    found: list[tuple[str, dict[str, Any]]] = []
+
+    def walk(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            if node.get("type") == "question":
+                if node.get("calculate") is None:
+                    found.append((node["id"], node))
+            children_of = node.get("children")
+            if children_of:
+                walk(children_of)
+
+    walk(children)
+    return found
+
+
 def import_workbook(
     data: bytes,
     *,
@@ -1791,11 +1815,13 @@ def import_workbook(
     # inside a repeat, which IR v0.1 does not support. Without this the importer
     # cheerfully returned IR that could not be compiled and called it
     # publishable.
+    compiles = True
     try:
         from app.modules.form_engine.runtime import CompiledForm
 
         CompiledForm(form)
     except Exception as failure:  # noqa: BLE001 - any refusal is the author's problem
+        compiles = False
         # The engine names the node it refused ("repeat 'stems'"), so the row
         # it came from is knowable — and an author with the file open should
         # not have to hunt for it.
@@ -1824,6 +1850,61 @@ def import_workbook(
             blame="platform" if already else "author",
             remedy=None if already else "Simplify the structure the message names.",
         )
+
+    # Questions no client can ever put on a screen.
+    #
+    # This is defect 7's shape one level up and strictly worse. Defect 7 was a
+    # widget that rendered and could not answer: visible, and an enumerator
+    # could report it. This is a question that is never drawn at all — the form
+    # imports, compiles, publishes, deploys, reaches a handset, and simply does
+    # not ask it. Nothing on any screen looks wrong, so nobody reports anything,
+    # and the answers are missing with no trace of why.
+    #
+    # Today the only cause is a repeat: Form IR §11.1 excludes a repeat subtree
+    # from the screen plan and defers repeat screen flow to v0.2. The check is
+    # written against reachability rather than against repeats, because the
+    # question worth asking is "can every question be asked" and the next reason
+    # it goes false will not be this one.
+    #
+    # An **error**, on the same principle as the no-questions refusal above: a
+    # form that collects nothing it claims to collect must not deploy. The blame
+    # is `platform`, so the report leads with "nothing in your form is wrong" —
+    # the author has written valid XLSForm and we have not built the screen yet.
+    #
+    # `calculate` fields are excluded: they are computed, never asked, and a
+    # calculate having no screen is normal rather than a loss.
+    if compiles and question_count:
+        from app.modules.form_engine.screens import build_screen_plan
+
+        on_screen = {q for screen in build_screen_plan(form) for q in screen.question_ids}
+        unreachable = [
+            node_id
+            for node_id, node in _answerable_nodes(children)
+            if node_id not in on_screen
+        ]
+        if unreachable:
+            shown = ", ".join(f"`{n}`" for n in unreachable[:5])
+            if len(unreachable) > 5:
+                shown += f" and {len(unreachable) - 5} more"
+            first = unreachable[0]
+            importer.log.error(
+                "questions_cannot_be_asked",
+                f"{len(unreachable)} question(s) in this form cannot be asked by any "
+                f"client yet, so they would be silently skipped in the field: {shown}. "
+                "They are inside a repeat, and this platform's form format excludes a "
+                "repeat from the screen plan until repeat screen flow is built (Form "
+                "IR §11.1).",
+                ref=CellRef(SURVEY_SHEET, importer.node_rows[first], "type")
+                if first in importer.node_rows
+                else None,
+                node_id=first,
+                blame="platform",
+                key="questions_cannot_be_asked",
+                remedy="Nothing is wrong with your spreadsheet. Until repeat screen "
+                "flow is built, a roster has to come out of the form or wait — a form "
+                "that deploys and asks none of these would lose the answers with "
+                "nothing on screen to show for it.",
+            )
 
     dropped_rows = ledger.row_residue(SURVEY_SHEET)
     if dropped_rows:

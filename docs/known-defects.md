@@ -408,6 +408,48 @@ not for a country.** A form with more than about 10,000 submissions needs either
 the streaming rewrite or an export sliced by environment, status or date — and
 there is no date filter yet, which is the cheapest of the three to add.
 
+## 14. A repeat's questions reach a handset and are never asked
+
+| | |
+|---|---|
+| **Where** | `shared/form-engine/.../Screens.kt` and `backend/app/modules/form_engine/screens.py` — `is RepeatNode -> Unit // excluded from the screen plan (spec 11.1)` |
+| **Status** | Open. **The importer now refuses such a form**, so it cannot reach a device silently; the gap itself is Phase 3 item 3 |
+| **Why not fixed** | Form IR §11.1 defers repeat screen flow to v0.2 on purpose — whether an instance is a screen, a sub-sequence or a list with a detail view is undecided, and guessing it would be worse than the gap. It is item 3 of the current phase |
+
+**This is defect 7's shape one level up, and strictly worse.** Defect 7 was a
+widget that rendered and could not answer: visible, and an enumerator could
+report it. This one is a question that is never drawn at all. A form containing
+a repeat imports, compiles, publishes, deploys, reaches a handset — and asks
+none of the roster's questions. Nothing on any screen looks wrong, no control
+misbehaves, and nobody has anything to report. The answers are simply missing,
+with no trace of why.
+
+For the pilot customer that is the household member roster, which is most of a
+listing survey.
+
+Measured on the XLSForm template's own IR before the refusal was added: 13
+screens, and **none** of the roster's four questions on any of them — while the
+import report said, in those words, "This form can be published."
+
+**What was done about it, 4 September 2026.** The defect is not fixed; it is no
+longer silent. `import_workbook` refuses a form whose answerable questions are
+not all reachable from the screen plan — error `questions_cannot_be_asked`,
+`blame="platform"`, so the report leads with "nothing in your form is wrong" and
+the form is not publishable. The check is written against **reachability** and
+not against repeats, because the question worth asking is "can every question be
+asked" and the next reason it goes false will not be this one. `calculate`
+fields are excluded: they are computed, never asked.
+
+That is the same rule as the existing no-questions refusal — a form that
+collects nothing it claims to collect must not deploy — and break 79 is the
+evidence it fires.
+
+**To close this row:** repeat screen flow specified (Form IR §11.1 and §11.2 for
+v0.2), implemented in the screen planner on both engines with vectors, and the
+roster UI built on it. At that point the refusal above stops firing on its own,
+`test_xlsform_template.py` fails on the assertion that says the roster is still
+off-screen, and `docs/xlsform-template.md` §5 has to be rewritten.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be

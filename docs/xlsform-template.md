@@ -3,15 +3,18 @@
 **For:** RCons, so their questionnaire tool emits something this platform
 imports without a round trip. **Written:** 4 September 2026.
 
-The workbook is `docs/xlsform-template/dcp-xlsform-template.xlsx`, with
-`districts.csv` beside it. It is a worked example rather than a blank form:
-every question type DCP can collect today appears in it once, with relevance,
-constraints, a roster and an external choice list, so "what should our tool
-emit" is answered by a file that runs rather than by prose.
+Two workbooks in `docs/xlsform-template/`, with `districts.csv` beside them:
 
-**It has been run through our own importer** — 0 errors, 0 warnings, every
-non-empty cell accounted for — and the resulting IR compiles on the reference
-engine. We are not handing over a template we have never executed.
+- **`dcp-xlsform-template.xlsx`** — build against this. Every question type DCP
+  can collect today appears in it once, with relevance, constraints and an
+  external choice list. **0 errors, 0 warnings**, every non-empty cell accounted
+  for, and the IR it produces compiles on the reference engine.
+- **`dcp-xlsform-roster-example.xlsx`** — the roster shape, which the importer
+  **refuses** today. Read §5 before using it; it is in the pack so your tool
+  emits the right thing now and needs no change when the refusal lifts.
+
+Both have been run through our own importer. We are not handing over a template
+we have never executed.
 
 ```bash
 python scripts/import_xlsform.py docs/xlsform-template/dcp-xlsform-template.xlsx
@@ -53,8 +56,8 @@ them**, so the workbook is the reference for the exact spelling.
 | `geopoint` | one GPS point |
 | `signature` | |
 
-Plus the structural rows: `begin group` / `end group`, `begin repeat` /
-`end repeat`, and `calculate`.
+Plus the structural rows: `begin group` / `end group` and `calculate`.
+`begin repeat` / `end repeat` parse correctly and are **refused** — see §5.
 
 ### Types that are in our specification and that a phone cannot yet show
 
@@ -118,30 +121,44 @@ options.
 
 ---
 
-## 5. Rosters, and the one thing to know before you use one
+## 5. Rosters are refused today, and that is deliberate
 
-A roster is `begin repeat` / `end repeat`. The template's `members` repeat takes
-its instance count from an earlier answer:
+A roster is `begin repeat` / `end repeat`, with the instance count from an
+earlier answer:
 
 ```
 repeat_count:  ${hh_size}
 ```
 
-**Read this before putting a roster in a form you intend to deploy.** A repeat
-imports cleanly, compiles, publishes and deploys — and **its questions do not
-appear on the collection screen**, because our form specification currently
-excludes a repeat from the screen plan and defers repeat screen flow to the next
-version (Form IR §11.1). The importer does not warn about this: it checks that
-each *type* is collectable, and every type inside the roster is.
+**The importer refuses a form containing one.** Not a warning — an error, and
+the form cannot be published:
 
-So today the template's roster is correct XLSForm that collects nothing. It is
-in the template because the shape is what we want your tool to emit and it will
-work without change once the screen flow lands — that work is item 3 of the
-current phase (`docs/phase3-pilot-scope.md` §5). Until then, keep rosters out of
-anything going to a real handset.
+```
+ERROR  survey row 6, column 'type'
+       4 question(s) in this form cannot be asked by any client yet, so they
+       would be silently skipped in the field: `member_name`, `member_age`,
+       `member_relation`, `member_in_school`. They are inside a repeat, and
+       this platform's form format excludes a repeat from the screen plan
+       until repeat screen flow is built (Form IR §11.1).
+```
 
-The enumerator-driven roster — *keep adding members until the respondent says
-stop* — is the same item. Use `repeat_count` for now.
+**Why refusing rather than warning.** Until repeat screen flow is built, a form
+with a roster imports, compiles, publishes, deploys, reaches a handset — and
+asks none of the roster's questions. Nothing on any screen looks wrong, so
+nobody reports anything, and the answers are missing with no trace of why. For a
+household listing that is most of the survey. A form that collects nothing it
+claims to collect must not deploy, which is the same rule that refuses a form
+with no questions at all.
+
+**The shape is still in the pack.** `dcp-xlsform-roster-example.xlsx` carries
+exactly the roster your tool should emit, and running the importer over it shows
+the refusal above. It is there so your tool emits the right thing now and needs
+no change when the refusal lifts.
+
+**When it lifts:** repeat screen flow is item 3 of the current phase
+(`docs/phase3-pilot-scope.md` §5). The enumerator-driven roster — *keep adding
+members until the respondent says stop* — is the same item; use `repeat_count`
+until then.
 
 ---
 
