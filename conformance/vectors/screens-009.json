@@ -1,0 +1,110 @@
+{
+  "id": "screens-009",
+  "description": "A calculate produces no screen of its own and is not listed on a field-list screen; a field-list holding only calculates produces no screen at all",
+  "spec": "11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr9",
+    "version": 1,
+    "title": { "en": "scr9" },
+    "defaultLanguage": "en",
+    "languages": ["en"],
+    "children": [
+      {
+        "type": "question",
+        "id": "before",
+        "dataType": "integer",
+        "label": { "en": "Before" }
+      },
+      {
+        "type": "question",
+        "id": "doubled",
+        "dataType": "integer",
+        "label": { "en": "Doubled" },
+        "calculate": {
+          "op": "mul",
+          "args": [
+            { "op": "ref", "path": "before" },
+            { "op": "lit", "value": 2 }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "after",
+        "dataType": "integer",
+        "label": { "en": "After" }
+      },
+      {
+        "type": "group",
+        "id": "fl",
+        "label": { "en": "Field list" },
+        "appearance": "field-list",
+        "children": [
+          {
+            "type": "question",
+            "id": "fl_real",
+            "dataType": "text",
+            "label": { "en": "Real" }
+          },
+          {
+            "type": "question",
+            "id": "fl_calc",
+            "dataType": "integer",
+            "label": { "en": "Calculated" },
+            "calculate": {
+              "op": "add",
+              "args": [
+                { "op": "ref", "path": "before" },
+                { "op": "lit", "value": 1 }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "type": "group",
+        "id": "fl_all_calc",
+        "label": { "en": "Only calculations" },
+        "appearance": "field-list",
+        "children": [
+          {
+            "type": "question",
+            "id": "only_calc",
+            "dataType": "integer",
+            "label": { "en": "Only" },
+            "calculate": { "op": "lit", "value": 7 }
+          }
+        ]
+      }
+    ]
+  },
+  "context": { "today": "2026-08-28" },
+  "steps": [
+    {
+      "set": { "before": 5 }
+    },
+    {
+      "expect": {
+        "values": {
+          "doubled": 10,
+          "fl_calc": 6,
+          "only_calc": 7
+        },
+        "screens": {
+          "count": 3,
+          "questions": {
+            "0": ["before"],
+            "1": ["after"],
+            "2": ["fl_real"]
+          },
+          "groups": {
+            "0": null,
+            "1": null,
+            "2": "fl"
+          }
+        }
+      }
+    }
+  ]
+}

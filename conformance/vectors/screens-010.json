@@ -1,0 +1,142 @@
+{
+  "id": "screens-010",
+  "description": "The relevant-screen list a progress indicator counts holds only screens somebody can answer: three calculates never appear in it, whichever way relevance goes",
+  "spec": "11.2, 4.4",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr10",
+    "version": 1,
+    "title": {
+      "en": "scr10"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "owns_land",
+        "dataType": "text",
+        "label": {
+          "en": "Owns land?"
+        }
+      },
+      {
+        "type": "question",
+        "id": "calc_one",
+        "dataType": "integer",
+        "label": {
+          "en": "One"
+        },
+        "calculate": {
+          "op": "lit",
+          "value": 1
+        }
+      },
+      {
+        "type": "question",
+        "id": "acres",
+        "dataType": "decimal",
+        "label": {
+          "en": "How many acres?"
+        },
+        "relevant": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "ref",
+              "path": "owns_land"
+            },
+            {
+              "op": "lit",
+              "value": "yes"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "calc_two",
+        "dataType": "integer",
+        "label": {
+          "en": "Two"
+        },
+        "calculate": {
+          "op": "lit",
+          "value": 2
+        }
+      },
+      {
+        "type": "question",
+        "id": "calc_three",
+        "dataType": "integer",
+        "label": {
+          "en": "Three"
+        },
+        "calculate": {
+          "op": "lit",
+          "value": 3
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "screens": {
+          "count": 2,
+          "questions": {
+            "0": [
+              "owns_land"
+            ],
+            "1": [
+              "acres"
+            ]
+          },
+          "relevant": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "owns_land": "no"
+      }
+    },
+    {
+      "expect": {
+        "screens": {
+          "relevant": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "owns_land": "yes"
+      }
+    },
+    {
+      "expect": {
+        "screens": {
+          "relevant": [
+            0,
+            1
+          ]
+        },
+        "values": {
+          "calc_one": 1,
+          "calc_two": 2,
+          "calc_three": 3
+        }
+      }
+    }
+  ]
+}

@@ -25,7 +25,11 @@ fun buildScreenPlan(ir: FormIr): List<FormScreen> {
 
     fun collectQuestions(nodes: List<FormNode>, out: MutableList<String>) {
         for (node in nodes) when (node) {
-            is QuestionNode -> out.add(node.id)
+            // A calculate is computed, never asked (spec 11.1). Listing it on a
+            // field-list screen puts a control nobody can answer beside the ones
+            // they can, and makes the screen relevant on the strength of a field
+            // that is never drawn.
+            is QuestionNode -> if (node.calculate == null) out.add(node.id)
             is GroupNode -> collectQuestions(node.children, out)
             is RepeatNode -> Unit // excluded from the screen plan (spec 11.1)
         }
@@ -33,7 +37,12 @@ fun buildScreenPlan(ir: FormIr): List<FormScreen> {
 
     fun walk(nodes: List<FormNode>, sectionId: String?) {
         for (node in nodes) when (node) {
-            is QuestionNode -> screens.add(
+            // A calculate produces NO screen. It has nothing to read and nothing
+            // to answer, so its screen is blank: the enumerator taps past it,
+            // and — the part that is not merely ugly — it counts toward the
+            // "N of M" progress, which then overstates how much work is left on
+            // every form that carries one.
+            is QuestionNode -> if (node.calculate == null) screens.add(
                 FormScreen(screens.size, groupId = null, sectionId = sectionId,
                     questionIds = listOf(node.id))
             )
