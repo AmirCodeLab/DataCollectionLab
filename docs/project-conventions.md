@@ -629,51 +629,45 @@ that cite this file for "item 4", "item 5" or "Plainly NOT done yet" mean that
 one: the text moved, unchanged, and the section names did not.
 
 **Phase 3 — the RCons pilot: in progress.** Scope agreed 4 September 2026 and
-written up in `docs/phase3-pilot-scope.md`; the analysis it rests on is
+re-ordered the same day: `docs/phase3-pilot-scope.md`, resting on
 `docs/rcons-current-system.md`. Read those before starting an item — what is
 below is the order and the reason for it, not the scope.
 
-The collection chain is necessary and not sufficient. A survey firm cannot run
-fieldwork on it, because the platform knows a device but not a person, and has
-no way to say which enumerator works on which households. Phase 3 closes that.
+The collection chain is necessary and not sufficient: the platform knows a
+device but not a person. Phase 3 closes that. Seven items, in this order:
 
-Seven items, in this order:
-
-0. **The skip-to prototype.** Convert the skip rules on the 2,128 questions in
-   the Sindh listing database to declarative relevance, and report the
-   percentage that converts without manual work plus the shapes that do not.
-   **First, because it is the only unknown cost in the phase** — and it is
-   cheap to resolve. RCons expresses navigation as ordered conditional jumps;
-   DCP, like XLSForm and SurveyCTO, uses declarative relevance, and the two are
-   not mechanically interchangeable. The number decides whether importing an
-   RCons questionnaire is an afternoon or a fortnight, and therefore whether
-   the pilot is one month away or three. A throwaway script over the real
-   corpus, **not** the production importer — that follows once the answer is
-   known
-1. **Identity and permissions.** Everything below depends on it: today DCP
-   identifies a device, not a person. A user belongs to the organization, not
-   to a project; a role is a set of permissions plus a scope, never a
-   hard-coded branch, and every console screen checks a permission
-2. **Sample assignment and supervisor isolation.** The daily work of a survey
-   firm. Isolation is the requirement and it is visibility, not only
-   assignment — which is why scope is part of the role rather than a filter
+0. **The visual form builder.** RCons authors their own forms in the dashboard,
+   and **nothing else starts without it** — until they can, we are in the loop
+   for every change to every questionnaire. Three decisions are already made and
+   are binding: it produces Form IR and holds no form logic; **preview runs the
+   same engine the handset runs**; the relevance editor is visual **with** a code
+   escape hatch. Publishing goes through the **same** path an import does, not a
+   second route into `form_version`. Scope doc §2 for why each
+1. **Login and permissions.** Everything below depends on it. A user belongs to
+   the organization, not to a project; a role is a set of permissions plus a
+   scope, never a hard-coded branch, and every console screen checks a permission
+2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
+   only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot
-3. **The user-driven roster.** Blocks household listing: the enumerator adds
-   repeat instances until the respondent stops. The engine already does this —
-   what is missing is a screen to put a roster on, because §11.1 excludes a
-   repeat subtree from the screen plan and defers repeat screen flow to v0.2.
-   So the item is a spec decision first, not a widget (`docs/phase3-pilot-scope.md` §5)
-4. **Separate sync for sample and form.** Field usability. A 37,000-row sample
-   over a village connection is a different proposition from a small form
-   update, and the person holding the handset should decide which they are doing
-5. **Supervisor monitoring**, within scope only. Fieldwork needs oversight from
-   day one
-6. **Review and correction.** Closes the quality loop. Reviewing what is
-   flagged rather than everything is the differentiator, and it is a project
-   setting
+3. **Repeat screen flow**, and the roster it unblocks. The engine already manages
+   instances; what is missing is a screen to put a roster on, because Form IR
+   §11.1 excludes repeats from the screen plan and defers their flow to v0.2. A
+   spec decision first, then the planner on both engines, then the UI
+4. **Separate sync for sample and form.** A 37,000-row sample over a village
+   connection is a different proposition from a small form update, and the person
+   holding the handset should decide which they are doing
+5. **Supervisor monitoring**, within scope only
+6. **Review and correction.** Reviewing what is flagged rather than everything is
+   the differentiator, and it is a project setting
 
-Items 1–6 are roughly two months. Item 0 could change that in either direction,
-which is why it is first.
+**The skip-to prototype was item 0 and is now optional** (scope doc §12): RCons's
+tool can emit XLSForm once given a template, and their existing surveys are
+finished. Giving them that template is a real dependency of item 0.
+
+**There is no timeline, deliberately** — the pilot happens when the platform is
+ready, not on a date. The "roughly two months" this section used to carry
+predated both item 0 and the item 3 correction, and survived them by looking
+like a fact. Scope doc §11.
 
 **Not in this phase**, named so the absence is a decision: desktop data entry
 (the phase after this one — see `docs/known-defects.md` 1 and 2), the `Person

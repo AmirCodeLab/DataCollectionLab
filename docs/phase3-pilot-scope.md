@@ -2,7 +2,11 @@
 
 **Goal:** RCons runs a small real pilot on DCP.
 **Decided:** 4 September 2026
-**Status:** scope, agreed. Sequencing inside it is open.
+**Re-ordered:** 4 September 2026 — RCons will author their forms in the
+dashboard, so the visual form builder is item 0 and the skip-to prototype comes
+out of the sequence (§12).
+**Status:** scope and order agreed.
+**Timeline:** deliberately none. See §11.
 
 Phase 2 part one ended with the collection chain working end to end: a form
 authored elsewhere, imported, deployed, delivered to a handset that had never
@@ -29,66 +33,93 @@ number is zero.
 
 **The one real incompatibility is skip-to versus relevance.** RCons expresses
 navigation as ordered conditional jumps; DCP, like XLSForm and SurveyCTO, uses
-declarative relevance. They are not mechanically interchangeable. This is the
-only item in Phase 3 whose cost is unknown, and it is cheap to find out — so it
-goes first.
+declarative relevance. They are not mechanically interchangeable.
+
+**That incompatibility stopped setting the order on 4 September 2026.** RCons
+confirmed their questionnaire tool can emit XLSForm once we give them a
+template, and their existing surveys are finished. So new forms arrive already
+declarative and the conversion problem applies only to a corpus nobody is
+waiting on. The prototype that was item 0 is kept as optional work in §12,
+against the day that corpus has to move.
+
+**What replaced it follows from the same conversation.** RCons will build their
+forms in the dashboard themselves rather than handing us questionnaires to
+import. That makes the visual form builder the thing nothing else starts
+without, and it was not in this document at all.
 
 ---
 
-## 2. Item 0 — the skip-to prototype
+## 2. Item 0 — the visual form builder
 
-**Before anything else is scheduled.**
+**Nothing in this phase starts without it.** RCons will author their forms in
+the dashboard themselves. Until they can, every form on the platform arrives
+through an importer or a seed script, which means we are in the loop for every
+change to every questionnaire — and a survey firm changes questions the week
+before fieldwork, not the month before.
 
-Take the 2,128 questions in the Sindh listing database and convert their skip
-rules to declarative relevance. Count what converts cleanly and read the
-residue.
+### 2.1 Three decisions, stated here rather than left to whoever builds it
 
-```
-q8==1 to q10
-q11==2 to q12a, q10<=6 to q12b, q10<15 to endSection, q11 to q13
-```
+**The builder produces Form IR and nothing else.** No form logic lives in the
+builder. It is an editor for a document, and the document is the same
+`specs/form-ir-v0.1.md` an XLSForm import produces. A builder that carries any
+evaluation of its own creates a second definition of what a form means, and the
+one that ships to the handset is then not the one the author was looking at.
 
-Read as: *after this question, if q11==2 go to q12a; otherwise if q10<=6 go to
-q12b; otherwise if q10<15 end the section; otherwise go to q13.*
+**Preview runs the same engine the handset runs.** Not a preview renderer, not
+an approximation — the engine. A form cannot behave one way in preview and
+another in the field, and the only way to guarantee that is to have one
+implementation of the behaviour. The engine already compiles to Wasm for exactly
+this reason (`shared/form-engine` is dependency-free of UI and Android framework
+code, which is what makes it possible).
 
-A single rule determines the relevance of every question it jumps over, not
-just its target. Chains compose. Some sets — backward jumps, overlapping
-conditions — have no single declarative reading.
+**The relevance and constraint editor is visual with a code escape hatch, and
+both are required.** RCons's own rules settle this. `q1>5 && q1<20` and
+`q11!=1` are what most of their conditions look like and a dropdown builder
+handles them comfortably — field, operator, value, joined by and/or. But their
+corpus also contains `count-selected()` and nested and/or, which a dropdown
+builder cannot express without becoming a programming language with a mouse.
+Visual for the common case, a code field for the rest, and the code field
+validates against the same expression grammar the engine parses (§4 of the IR).
+Neither alone is enough: visual-only strands the hard forms, code-only means
+every author writes expressions by hand.
 
-**Deliverable:** a number. The percentage that converts without manual work,
-and a list of the shapes that do not.
+### 2.2 What already exists, so this is not overestimated
 
-That number decides whether importing an RCons questionnaire is an afternoon or
-a fortnight, and therefore whether the pilot is one month away or three.
+The builder is a UI over machinery that is already built and already tested:
 
-**Do not build the production importer yet.** A throwaway script over the real
-corpus answers the question; the Migration Center integration follows once the
-answer is known.
+| Already there | Where |
+|---|---|
+| The IR itself, versioned and normative | `specs/form-ir-v0.1.md` |
+| Compile, with document-shape refusal (§10.1) | both engines, 22 `malformed` vectors |
+| The publish path, with the sensitivity check | `check_publishable`, `conformance/sensitivity` |
+| A route that accepts IR and publishes a version | `POST /api/v1/forms/versions`, with `deployTo` |
+| Version freeze, deployment per environment, retention | Form IR §9, sync §5.1 |
+| The engine the preview needs | `shared/form-engine`, 85 vectors on two engines |
+| The console it lives in | `web/`, React 19 + Vite, generated wire types |
 
-### What the number means depends on an answer we do not have
+What is missing is the editing surface: a question list, a property panel per
+question type, the choice-list editor, the relevance/constraint editor above,
+and preview. Not the form model, not compilation, not publishing.
 
-§11 question 1 — **can RCons's questionnaire → CSV tool emit XLSForm?** — is not
-a detail of item 0, it decides what item 0 is measuring. The prototype produces
-the same percentage either way and that percentage means two different things:
+### 2.3 Publishing goes through the import path, not beside it
 
-- **If the tool can emit XLSForm**, skip-to conversion is a **one-off migration**
-  of the existing corpus. Everything authored from then on arrives already
-  declarative, and a throwaway script that converts 2,128 questions once is the
-  whole of the work. A poor percentage costs a fixed, bounded amount of manual
-  fixing, once.
-- **If it cannot**, every questionnaire RCons writes from now on also arrives as
-  ordered conditional jumps, so the conversion is a **permanent stage of the
-  import pipeline** and has to be built as a product — Migration Center, with a
-  compatibility report, on the shapes that do not convert. A poor percentage is
-  then a recurring cost on every future survey and a much larger commitment.
+**The builder gets no route of its own into `form_version`.** It produces IR and
+hands it to the same endpoint an import uses — the same compile, the same
+sensitivity check at publish time, the same version freeze and dataset pinning.
 
-So ask question 1 **before** running the prototype, not after. It costs an email
-and it decides whether the deliverable is a number or a number plus a
-specification.
+This is the decision most likely to be quietly undone by whoever is in a hurry,
+and the reason it must not be is in this repository's own history: the export
+work found that a second way to reach the same artifact is how two callers end
+up disagreeing about which version a submission belongs to (breaks 40, 42, 61).
+A builder that writes `form_version` directly would be a second definition of
+"published" — one that has never been through the sensitivity gate, and one the
+conformance vectors cannot see, because a vector compares engines and this is a
+caller. `docs/project-conventions.md`, "Where the conformance architecture stops
+protecting you", is about exactly this shape of mistake.
 
 ---
 
-## 3. Item 1 — identity and permissions
+## 3. Item 1 — login and permissions
 
 Everything else in this phase depends on it. Today DCP identifies a device, not
 a person.
@@ -235,7 +266,7 @@ decision, and this is the same question one level up.
 
 ---
 
-## 5. Item 3 — the roster gap
+## 5. Item 3 — repeat screen flow, and the roster it unblocks
 
 RCons's roster is DCP's `repeat`. Three ways of deciding the count:
 
@@ -278,7 +309,8 @@ Item 3 is therefore three things, and the first is the one with no budget yet:
    label for the add control, which `RepeatNode` has no field to carry
    (`specs/form-ir-v0.1.md` §12).
 
-**Smaller than "Missing" implied, and larger than a button.** Still blocking: a
+**Smaller than "Missing" implied, and larger than a button** — which is why the
+item is named for the screen flow and not for the roster. Still blocking: a
 household listing cannot be collected without it.
 
 ---
@@ -328,7 +360,9 @@ is flagged is the differentiator, and it should be a project setting.
 Named so their absence is a decision:
 
 - Desktop data entry. Two known defects block it (dates, media widgets). RCons
-  is not doing paper entry yet, but wants it — this is the next phase.
+  collects on paper and keys the forms in afterwards, and desktop entry is what
+  they want for it — this is the next phase, and the defect rows say so
+  (`docs/known-defects.md` 1 and 2).
 - `Person Id`, `Structure Map`, and the `Custom` selection types. Understood
   later; ignored for now by agreement.
 - Entity relationships and longitudinal linking. RCons generates the next
@@ -344,29 +378,89 @@ Named so their absence is a decision:
 
 | # | Item | Why here |
 |---|---|---|
-| 0 | Skip-to prototype | The only unknown cost. Cheap to resolve |
-| 1 | Identity and permissions | Everything below depends on it |
-| 2 | Sample assignment and isolation | The daily work of a survey firm |
-| 3 | User-driven roster | Blocks household listing. **Not small — see §5**: the engine is done, the screen plan is not |
+| 0 | **Visual form builder** | RCons authors forms themselves; nothing starts without it |
+| 1 | Login and permissions | Everything below depends on it |
+| 2 | Sample assignment and supervisor isolation | The daily work of a survey firm |
+| 3 | Repeat screen flow | Spec, then planner, then UI, per Form IR §11.1. Blocks household listing |
 | 4 | Separate sample/form sync | Field usability |
 | 5 | Supervisor monitoring | Fieldwork needs oversight from day one |
 | 6 | Review and correction | Closes the quality loop |
 
-Items 1–6 are roughly two months. Item 0 could change that, in either
-direction, which is why it is first.
+**What changed on 4 September 2026.** The skip-to prototype was item 0 because
+it was the only unknown cost and it was cheap to resolve. It is neither of those
+now: RCons's questionnaire tool can emit XLSForm once given a template, and
+their existing surveys are finished, so nothing is waiting on the conversion. It
+moves to §12 as optional work. The visual form builder takes its place, because
+RCons authoring their own forms is the thing every other item assumes.
 
-**That estimate predates the §5 correction and has not been redone.** Item 3 was
-costed as a widget; it is a v0.2 spec decision on repeat screen flow, then the
-screen planner on both engines, then the UI. It is still the third-smallest item
-here, and it is no longer a day's work. Re-cost items 1–6 once item 0 reports.
+Item 3 was also re-costed — see §5. It was in this table as "small" while it was
+understood as a widget; it is a v0.2 spec decision on repeat screen flow, then
+the screen planner on both engines, then the UI.
 
 ---
 
-## 11. Open questions for RCons
+## 11. There is no timeline, and that is deliberate
 
-1. **Can the questionnaire → CSV tool emit XLSForm?** If yes, the skip-to
-   problem applies only to the existing corpus, not to everything written from
-   now on. This is the highest-value question in the list.
+**The pilot happens when the platform is ready, not on a date.** No item here
+carries an estimate and the phase carries no target month.
+
+This is worth stating because the absence will otherwise look like an oversight
+and somebody will fill it in. An earlier version of this document said items 1–6
+were "roughly two months". That number was written before item 3 was understood
+(§5) and before item 0 existed at all, and it survived both corrections by
+looking like a fact. A date set now would be built on the same kind of guess,
+and the cost of missing it is a customer's fieldwork season.
+
+What replaces it: the items are ordered, each says what it blocks, and the
+sequence is the plan. When RCons needs a date they get one from the item that is
+actually in progress, not from this document.
+
+---
+
+## 12. Optional — the skip-to prototype
+
+**Not scheduled. Kept because the reasoning that removed it could change.**
+
+This was item 0. Take the 2,128 questions in the Sindh listing database, convert
+their skip rules to declarative relevance, and report the percentage that
+converts without manual work plus the shapes that do not.
+
+```
+q8==1 to q10
+q11==2 to q12a, q10<=6 to q12b, q10<15 to endSection, q11 to q13
+```
+
+Read as: *after this question, if q11==2 go to q12a; otherwise if q10<=6 go to
+q12b; otherwise if q10<15 end the section; otherwise go to q13.* A single rule
+determines the relevance of every question it jumps over, not just its target.
+Chains compose. Some sets — backward jumps, overlapping conditions — have no
+single declarative reading.
+
+**Why it came out of the sequence.** RCons confirmed their questionnaire → CSV
+tool can emit XLSForm once we give them a template, and their existing surveys
+are finished. So every form authored from now on arrives already declarative,
+and the conversion problem applies only to a corpus that nobody is waiting on.
+
+**What would bring it back.** That the old corpus has to move — a longitudinal
+follow-up on a finished survey, a re-run, or a question set RCons wants to reuse
+rather than re-author. If that happens this is a throwaway script over the real
+corpus, still not a production importer, and the number it reports still decides
+whether the migration is an afternoon or a fortnight.
+
+**Giving RCons the XLSForm template is now the real dependency**, and it is
+small. It belongs with item 0: a builder that produces Form IR and an importer
+that consumes XLSForm are the two ends of the same question, which is what a
+form is allowed to contain.
+
+---
+
+## 13. Open questions for RCons
+
+1. ~~**Can the questionnaire → CSV tool emit XLSForm?**~~ **Answered, 4
+   September 2026: yes, once we give them a template.** It was the
+   highest-value question in this list and it turned out to be the one that
+   re-ordered the phase — the skip-to conversion applies only to the existing
+   corpus (§12), and the template is a dependency of item 0.
 2. Do enumerators rely on resuming at **section** granularity, or is resuming
    within a submission enough? `section_progress` suggests the former.
 3. When a sample row is updated during collection — `memberAge` beside
