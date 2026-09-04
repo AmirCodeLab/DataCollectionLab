@@ -374,10 +374,45 @@ class FormInstance:
     def _fields_of(self, repeat_id: str) -> list[str]:
         return [fid for fid, f in self.form.fields.items() if f.repeat == repeat_id]
 
+    def _assert_creation_order(self, repeat_id: str) -> None:
+        """A repeat's instance list is in creation order. Checked, not argued.
+
+        Spec 2.3's "shrinking discards the trailing instances" is only true
+        while this holds: the shrink pops from the END, so a list out of
+        creation order discards somebody else's answers with the count still
+        reading correctly — break 75's damage, arriving by a different road.
+        The countExpr guard on `delete_instance` closes the one path inside the
+        engine that could reorder a list. This closes the rest.
+
+        The two halves of 2.3 are load bearing on each other and neither
+        sentence says so, which is the reason this is an assertion rather than
+        a comment.
+
+        Ordinals are read off the id, because `i<n>` is minted sequentially and
+        is therefore its own creation ordinal — so a `restore()` that hands
+        minted ids back out of order fails here rather than silently reordering
+        a household. Ids from another minter carry no readable ordinal and the
+        caller's order stands; that is the caller boundary described in
+        docs/project-conventions.md, and no assertion inside the engine can
+        reach it.
+        """
+        serials: list[int] = []
+        for instance_id in self.instances[repeat_id]:
+            minted = SERIAL_ID.fullmatch(instance_id)
+            if minted is None:
+                return
+            serials.append(int(minted.group(1)))
+        if any(a >= b for a, b in zip(serials, serials[1:], strict=False)):
+            raise CompileError(
+                f"repeat {repeat_id} instances are not in creation order: "
+                f"{list(self.instances[repeat_id])}"
+            )
+
     def _create_instance(self, repeat_id: str) -> str:
         self._instance_serial += 1
         instance_id = f"i{self._instance_serial}"
         self.instances[repeat_id].append(instance_id)
+        self._assert_creation_order(repeat_id)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
             self.values[path] = None
@@ -430,6 +465,7 @@ class FormInstance:
         if minimum is not None and len(ordered) <= minimum:
             raise CompileError(f"repeat {repeat_id} is at its minimum of {minimum}")
         instance_id = ordered.pop(index)
+        self._assert_creation_order(repeat_id)
         self._destroy_instance(repeat_id, instance_id)
         self.recalculate()
 
@@ -497,6 +533,7 @@ class FormInstance:
         if instance_id in ordered:
             return
         ordered.append(instance_id)
+        self._assert_creation_order(repeat_id)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
             self.values[path] = None
@@ -816,6 +853,8 @@ class FormInstance:
                 continue
             wanted = evaluate(node["countExpr"], self._context())
             wanted = 0 if wanted is None else max(0, int(wanted))
+            # Before the shrink pops from the end, not after.
+            self._assert_creation_order(rid)
             while len(self.instances[rid]) < wanted:
                 self._create_instance(rid)
             while len(self.instances[rid]) > wanted:
