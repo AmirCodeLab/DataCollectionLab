@@ -62,16 +62,22 @@ The goal is not a UI clone. Compatibility lowers switching cost; the moat is the
 5. **Analytics that replace the export.** Saved views, cross-tabs, charts, maps, scheduled reports — so users stop exporting to Stata and Power BI for basic monitoring.
 6. **Workforce layer.** Assignment routing, geofenced attendance, supervision, messaging, incentive tracking. Survey firms run this on spreadsheets today.
 
-### 2.3 First market — **OPEN, blocks Phase 1 sequencing**
+### 2.3 First market — **DECIDED: survey and research agencies**
 
-The two candidates pull the roadmap in opposite directions:
+Decided 4 September 2026, on the rule this section always carried: by which existing relationship signs first, not by market size. **RCons is the pilot customer** — a survey firm running household listings in Sindh. The analysis of their existing system is `docs/rcons-current-system.md`; the phase that follows from it is `docs/phase3-pilot-scope.md`.
+
+The two candidates pulled the roadmap in opposite directions:
 
 | Choice | What moves up | What can slip |
 |---|---|---|
-| **Survey & research agencies** | Workforce ops, per-seat pricing, Stata/SPSS export, QC audits, migration centre | Self-hosting, E2EE, data residency |
-| **Government / health ministries** | Self-hosting, data residency, E2EE, audit, compliance | Workforce ops, advanced analytics |
+| **Survey & research agencies** — chosen | Workforce ops, per-seat pricing, Stata/SPSS export, QC audits, migration centre | Self-hosting, E2EE, data residency |
+| Government / health ministries | Self-hosting, data residency, E2EE, audit, compliance | Workforce ops, advanced analytics |
 
-**Recommendation:** decide by which existing relationship signs first, not by market size. Until answered, Phase 1 scope stays provisional.
+**What the decision changes.** Self-hosting, data residency and SSO move back — they are what a ministry buys and not what a survey firm does; none of them blocks a pilot. Assignment, supervision and review move forward, out of the workforce module and into the next phase, because they are the daily work of a survey firm and the platform cannot run fieldwork without them: it knows a device but not a person.
+
+E2EE is the one row of this table that did not slip. It was built ahead of the decision — client-side encryption, the envelope spec, per-project key custody — so the table's "what can slip" column is a record of what was weighed, not of what happened.
+
+Phase 1 scope is no longer provisional.
 
 ---
 
@@ -680,11 +686,16 @@ The critical expertise is form engineering, offline synchronisation, data modell
 |---|---|
 | Compose Multiplatform for iOS UI | iOS spike must show acceptable performance and platform feel; SwiftUI over shared core is the fallback, so keep the UI/core boundary strict |
 
+### Closed
+
+| # | Decision | Answer | Decided |
+|---|---|---|---|
+| O-1 | **First market** | **Survey and research agencies**, with **RCons as the pilot customer**. Decided by which existing relationship signed first, not by market size. Self-hosting, data residency and SSO move back; assignment, supervision and review move forward. §2.3 | 4 Sep 2026 |
+
 ### Open — must be answered before Phase 1
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
-| O-1 | **First market** | Survey/research agencies vs government/health | Decide by which existing relationship signs first |
 | O-2 | **Server-side evaluation** | JVM engine sidecar vs Python port | JVM sidecar |
 | O-3 | **Web forms runtime** | Compose Web vs engine-to-Wasm + React | Engine-to-Wasm + React |
 | O-4 | **Pricing model** | Per-seat vs per-submission vs flat tiers | Per-seat — attacks the competitor's weakness directly; but it dictates whether metering and quotas are core |

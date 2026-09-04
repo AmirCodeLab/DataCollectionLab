@@ -63,7 +63,12 @@ does not need a Node runtime beside Python.
 
 ## Open decisions — ask before assuming
 
-- **O-1** First target market (survey agencies vs government/health)
+**O-1 is closed.** First market: **survey and research agencies**, with RCons
+as the pilot customer — decided 4 September 2026 by which existing relationship
+signed first, not by market size. Self-hosting, data residency and SSO move
+back; assignment, supervision and review move forward, which is what Phase 3 is.
+`docs/DCP-Product-and-System-Architecture-v1.0.md` §2.3.
+
 - **O-2** Server-side form evaluation: JVM engine sidecar vs Python port
 - **O-3** Web forms runtime: Compose Web vs engine-to-Wasm + React
 - **O-4** Pricing model (affects whether metering is core)
