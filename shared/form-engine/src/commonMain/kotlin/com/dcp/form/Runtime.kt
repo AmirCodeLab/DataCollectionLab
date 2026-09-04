@@ -340,6 +340,8 @@ internal fun inlineValuesOutsideChoices(node: QuestionNode, value: FormValue): L
 }
 
 
+private val SERIAL_ID = Regex("i(\\d+)")
+
 class FormInstance(
     val form: CompiledForm,
     private val today: String,
@@ -381,9 +383,45 @@ class FormInstance(
     private fun fieldsOf(repeatId: String): List<String> =
         form.fields.entries.filter { it.value.repeat == repeatId }.map { it.key }
 
+    /**
+     * A repeat's instance list is in creation order. Checked, not argued.
+     *
+     * Spec 2.3's "shrinking discards the trailing instances" is only true while
+     * this holds: the shrink pops from the END, so a list out of creation order
+     * discards somebody else's answers with the count still reading correctly —
+     * break 75's damage, arriving by a different road. The countExpr guard on
+     * [deleteInstance] closes the one path inside the engine that could reorder
+     * a list; this closes the rest, and [instances] hands out mutable lists.
+     *
+     * The two halves of 2.3 are load bearing on each other and neither sentence
+     * says so, which is why this is an assertion rather than a comment.
+     *
+     * Ordinals are read off the id, because `i<n>` is minted sequentially and is
+     * therefore its own creation ordinal. An id from another minter carries no
+     * readable ordinal and is left alone — the Python reference restores such
+     * ids when a server rebuilds a submission, and that order is a caller's
+     * claim, which is the boundary no assertion inside the engine can reach.
+     */
+    private fun assertCreationOrder(repeatId: String) {
+        val serials = mutableListOf<Int>()
+        for (instanceId in instances.getValue(repeatId)) {
+            val minted = SERIAL_ID.matchEntire(instanceId) ?: return
+            serials.add(minted.groupValues[1].toInt())
+        }
+        for (i in 1 until serials.size) {
+            if (serials[i - 1] >= serials[i]) {
+                throw CompileException(
+                    "repeat $repeatId instances are not in creation order: " +
+                        "${instances.getValue(repeatId)}"
+                )
+            }
+        }
+    }
+
     private fun createInstance(repeatId: String): String {
         val instanceId = "i${++instanceCounter}"
         instances.getValue(repeatId).add(instanceId)
+        assertCreationOrder(repeatId)
         for (fid in fieldsOf(repeatId)) {
             val path = "$repeatId[$instanceId].$fid"
             values[path] = FormValue.Null
@@ -440,6 +478,7 @@ class FormInstance(
             throw CompileException("repeat $repeatId is at its minimum of $minimum")
         }
         val instanceId = ordered.removeAt(index)
+        assertCreationOrder(repeatId)
         destroyInstance(repeatId, instanceId)
         recalculate()
     }
@@ -761,6 +800,8 @@ class FormInstance(
                 },
             )
             val ordered = instances.getValue(rid)
+            // Before the shrink pops from the end, not after.
+            assertCreationOrder(rid)
             while (ordered.size < wanted) createInstance(rid)
             while (ordered.size > wanted) {
                 destroyInstance(rid, ordered.removeAt(ordered.size - 1))

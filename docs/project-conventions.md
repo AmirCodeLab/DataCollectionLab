@@ -350,6 +350,7 @@ What watches that layer, and all there is:
 | That a repeat row is keyed on a stable id and not a position | `test_export.py` (`backend`) | 59 |
 | Which form version and which dataset version an export explains a submission through | `test_export_binding.py` (`backend`, `-m db`) | 61 |
 | That a value survives a `.dta`/`.sav` as well as a CSV, and that a column is the type it says | `test_export.py`, `test_statistical_writers.py` (`backend`) | 62, 63, 64, 65 |
+| That a repeat's instance list stays in creation order — which is what makes §2.3's "shrinking discards the trailing instances" true | `test_instance_order_invariant.py` (`backend`), `InstanceOrderTest` (`:shared:form-engine:jvmTest`) | 77 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
