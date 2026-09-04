@@ -19,7 +19,7 @@ Phase 3 closes that gap.
 ## 1. What decided this scope
 
 RCons is the first customer. Their current system was examined in detail
-(`RCons-on-DCP-analysis.md`). Two findings drive everything here:
+(`docs/rcons-current-system.md`). Two findings drive everything here:
 
 **The commercial case is measured, not asserted.** Their largest survey carries
 102 hand-written Kotlin section screens — 48,769 lines — written per survey and
