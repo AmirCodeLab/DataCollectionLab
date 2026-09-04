@@ -27,6 +27,7 @@ from app.modules.forms.xlsform.importer import import_workbook
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = REPO_ROOT / "docs" / "xlsform-template" / "dcp-xlsform-template.xlsx"
+ROSTER = REPO_ROOT / "docs" / "xlsform-template" / "dcp-xlsform-roster-example.xlsx"
 COMPANION = REPO_ROOT / "docs" / "xlsform-template" / "districts.csv"
 GUIDE = REPO_ROOT / "docs" / "xlsform-template.md"
 
@@ -70,29 +71,75 @@ def test_the_template_demonstrates_every_collectable_type(imported) -> None:
     )
 
 
-def test_the_template_compiles_and_its_roster_is_still_off_screen(imported) -> None:
-    """The caveat §5 of the guide spends a section on, asserted rather than said.
-
-    A repeat is excluded from the screen plan (Form IR §11.1), so the template's
-    roster imports, compiles, publishes — and collects nothing. The guide tells
-    RCons that in as many words. When repeat screen flow lands (phase 3 item 3)
-    this test fails, and the guide's §5 is what has to be rewritten.
-    """
-    compiled = CompiledForm(imported.form)
-    assert "members" in compiled.repeats
-
-    on_screen = {q for screen in build_screen_plan(imported.form) for q in screen.question_ids}
-    in_repeat = {f for f, c in compiled.fields.items() if c.repeat is not None}
-
-    assert in_repeat, "precondition: the template has a roster"
-    assert not (in_repeat & on_screen), (
-        "a repeat's questions now reach a screen. That is good news and it makes "
-        "docs/xlsform-template.md §5 wrong — it tells RCons to keep rosters out "
-        "of forms going to a handset."
+@pytest.fixture(scope="module")
+def roster():
+    assert ROSTER.is_file(), f"the roster example is missing: {ROSTER}"
+    return import_workbook(
+        ROSTER.read_bytes(),
+        companions={COMPANION.name: COMPANION.read_bytes()},
     )
 
 
-def test_the_guide_exists_and_names_the_template_it_documents() -> None:
+def test_the_roster_example_is_refused_and_says_why(roster) -> None:
+    """Defect 14, from the outside.
+
+    A repeat is excluded from the screen plan (Form IR §11.1), so a form with a
+    roster would deploy and ask none of it. The importer refuses rather than
+    warns — the same rule as the no-questions refusal — and the roster example
+    is the workbook that proves the refusal fires on the shape RCons will emit.
+    """
+    refusals = [d for d in roster.diagnostics if d.code == "questions_cannot_be_asked"]
+    assert len(refusals) == 1, [d.code for d in roster.diagnostics]
+
+    refusal = refusals[0]
+    assert refusal.severity == "error"
+    assert not roster.publishable
+    # `platform`, so the report opens with "nothing in your form is wrong".
+    assert refusal.blame == "platform"
+    # Every unaskable question named, not just a count.
+    for name in ("member_name", "member_age", "member_relation", "member_in_school"):
+        assert name in refusal.message, refusal.message
+    assert refusal.ref is not None, "the refusal must name the row it came from"
+
+    # Nothing else is wrong with it: the refusal is the only complaint.
+    others = [
+        d for d in roster.diagnostics
+        if d.severity in ("error", "warning") and d.code != "questions_cannot_be_asked"
+    ]
+    assert not others, [f"{d.severity} {d.code}" for d in others]
+
+
+def test_a_calculate_is_not_counted_as_a_question_nobody_can_ask(imported) -> None:
+    """The exclusion that keeps the refusal from crying wolf.
+
+    A `calculate` is computed and never asked, so having no screen is normal for
+    it. If it counted, every form carrying one would be refused — and the
+    template carries one.
+    """
+    compiled = CompiledForm(imported.form)
+    calculated = [f for f, c in compiled.fields.items() if c.node.get("calculate")]
+
+    assert calculated, "precondition: the template has a calculate"
+    assert imported.publishable
+
+
+def test_the_template_compiles_and_its_roster_example_is_still_off_screen(roster) -> None:
+    """When item 3 lands this fails, and §5 of the guide is what to rewrite."""
+    compiled = CompiledForm(roster.form)
+    assert "members" in compiled.repeats
+
+    on_screen = {q for screen in build_screen_plan(roster.form) for q in screen.question_ids}
+    in_repeat = {f for f, c in compiled.fields.items() if c.repeat is not None}
+
+    assert in_repeat, "precondition: the roster example has a roster"
+    assert not (in_repeat & on_screen), (
+        "a repeat's questions now reach a screen. That is good news, and it makes "
+        "docs/xlsform-template.md §5 and docs/known-defects.md 14 both wrong."
+    )
+
+
+def test_the_guide_exists_and_names_both_workbooks_it_documents() -> None:
     text = GUIDE.read_text()
     assert TEMPLATE.name in text
+    assert ROSTER.name in text
     assert COMPANION.name in text
