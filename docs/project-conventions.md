@@ -658,8 +658,11 @@ Seven items, in this order:
    firm. Isolation is the requirement and it is visibility, not only
    assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot
-3. **The user-driven roster.** Small, and it blocks household listing: the
-   enumerator adds repeat instances until the respondent stops
+3. **The user-driven roster.** Blocks household listing: the enumerator adds
+   repeat instances until the respondent stops. The engine already does this —
+   what is missing is a screen to put a roster on, because §11.1 excludes a
+   repeat subtree from the screen plan and defers repeat screen flow to v0.2.
+   So the item is a spec decision first, not a widget (`docs/phase3-pilot-scope.md` §5)
 4. **Separate sync for sample and form.** Field usability. A 37,000-row sample
    over a village connection is a different proposition from a small form
    update, and the person holding the handset should decide which they are doing
