@@ -93,7 +93,7 @@ backend.
 docker compose up -d postgres redis minio
 
 cd backend
-pip install -e ".[dev]"
+pip install -r requirements.lock && pip install -e . --no-deps
 alembic upgrade head              # create the schema
 python ../scripts/seed_dev.py     # minimum data to be usable — see below
 pytest tests/ -v
