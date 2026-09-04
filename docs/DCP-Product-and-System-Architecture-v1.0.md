@@ -1,7 +1,7 @@
 # Data Collection Platform — Product & System Architecture
 
 **Final baseline for product and engineering planning**
-**Version 1.0 · 28 August 2026 · Owner: Amr-Khn**
+**Version 1.0 · 28 August 2026 · Owner: AmirCodeLab**
 
 This document merges the v0.1 product plan with the v1.0 system architecture draft. It is the single baseline from which the Phase 0 specifications are written. Everything marked **LOCKED** is settled. Everything marked **CONDITIONAL** is settled subject to a Phase 0 spike. Everything marked **OPEN** must be answered before Phase 1 begins.
 

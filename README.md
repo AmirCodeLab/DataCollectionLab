@@ -1,5 +1,7 @@
 # Data Collection Platform (DCP)
 
+[![CI](https://github.com/AmirCodeLab/DataCollectionLab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AmirCodeLab/DataCollectionLab/actions/workflows/ci.yml)
+
 Offline-first field data collection and operations platform.
 
 **assignment → collection → validation → supervision → review → approval → analytics**

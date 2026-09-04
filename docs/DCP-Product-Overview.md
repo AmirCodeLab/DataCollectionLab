@@ -1,7 +1,7 @@
 ---
 title: "Data Collection Platform"
 subtitle: "Product Overview & Technology Blueprint"
-author: "Prepared by Amr-Khn"
+author: "Prepared by AmirCodeLab"
 date: "Version 1.0 · August 2026"
 ---
 
