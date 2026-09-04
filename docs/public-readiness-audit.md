@@ -143,25 +143,27 @@ A recovered `.env.example` from an abandoned Aug-28 clone is saved at
 predates the media and export settings — so it wants updating rather than
 copying. Left as found.
 
-## 5. SHOULD FIX — `jwt_secret` defaults to a known value with nothing to stop it
+## 5. CLOSED — `jwt_secret` defaulted to a known value with nothing to stop it
 
 ```python
 jwt_secret: str = "change-me-in-production"
 ```
 
-Nothing refuses to start when `ENVIRONMENT != development` and the secret is
-still the default. A self-hoster who misses one line signs tokens with a value
-printed in this repository, and there is no symptom — everything works.
+Nothing refused to start when `ENVIRONMENT != development` and the secret was
+still the default. A self-hoster who missed one line signed tokens with a value
+printed in this repository, with no symptom — everything works, because both
+ends share the secret.
 
-This is the same failure shape the codebase already refuses elsewhere and has a
-name for: `published_test_keys.py` makes the equivalent mistake unexpressible
-for project keys by having the *server* refuse them outside development. The
-same guard, applied at startup to `jwt_secret`, would close it. Left as found —
-it is a behavioural change and belongs in its own commit.
+Closed the way the codebase already closes the equivalent for project keys:
+`app/core/published_defaults.py` holds the constant and the refusal, `main.py`
+refuses to start, and `Settings` imports the constant rather than repeating it,
+so the value the guard recognises cannot drift from the value the application
+falls back to. Break 71 records both halves watched to fail.
 
-Related, and lower: `docker-compose.yml` ships `dcp:dcp` and
+Related and still open: `docker-compose.yml` ships `dcp:dcp` and
 `minioadmin:minioadmin`. Correct for a local stack, and now stated in
-`SECURITY.md` as defaults rather than a deployment baseline.
+`SECURITY.md` as defaults rather than a deployment baseline. Left as found —
+unlike the signing key, a database password that is wrong fails loudly.
 
 ## 6. CONSIDER — no per-file licence headers
 

@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.published_defaults import PUBLISHED_JWT_SECRET
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -37,7 +39,9 @@ class Settings(BaseSettings):
     # not accumulate forever.
     media_session_ttl_seconds: int = 60 * 60 * 24 * 7
 
-    jwt_secret: str = "change-me-in-production"
+    # Published, and refused outside development at startup. See
+    # app/core/published_defaults.py.
+    jwt_secret: str = PUBLISHED_JWT_SECRET
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 60 * 60 * 24 * 30
 
