@@ -1,13 +1,13 @@
 {
-  "id": "repeat-006",
-  "description": "countExpr controls the instance count, and shrinking drops data (repeat-012 is what pins WHICH instance)",
+  "id": "repeat-012",
+  "description": "countExpr shrinking discards the TRAILING instance specifically, keeps the survivors in place, and growing back creates an empty one rather than restoring the discarded data",
   "spec": "2.3",
   "form": {
     "irVersion": "0.1",
-    "formId": "rep6",
+    "formId": "rep12",
     "version": 1,
     "title": {
-      "en": "rep6"
+      "en": "rep12"
     },
     "defaultLanguage": "en",
     "languages": [
@@ -16,10 +16,10 @@
     "children": [
       {
         "type": "question",
-        "id": "household_size",
+        "id": "n",
         "dataType": "integer",
         "label": {
-          "en": "Household Size"
+          "en": "How many live here?"
         }
       },
       {
@@ -27,6 +27,10 @@
         "id": "members",
         "label": {
           "en": "Members"
+        },
+        "countExpr": {
+          "op": "ref",
+          "path": "n"
         },
         "children": [
           {
@@ -37,11 +41,7 @@
               "en": "Name"
             }
           }
-        ],
-        "countExpr": {
-          "op": "ref",
-          "path": "household_size"
-        }
+        ]
       }
     ]
   },
@@ -50,33 +50,32 @@
   },
   "steps": [
     {
-      "expect": {
-        "instanceCount": {
-          "members": 0
-        }
+      "set": {
+        "n": 3
       }
     },
     {
       "set": {
-        "household_size": 3
+        "members[0].name": "A",
+        "members[1].name": "B",
+        "members[2].name": "C"
       }
     },
     {
       "expect": {
         "instanceCount": {
           "members": 3
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "B",
+          "members[2].name": "C"
         }
       }
     },
     {
       "set": {
-        "members[0].name": "A",
-        "members[2].name": "C"
-      }
-    },
-    {
-      "set": {
-        "household_size": 2
+        "n": 2
       }
     },
     {
@@ -85,7 +84,25 @@
           "members": 2
         },
         "values": {
-          "members[0].name": "A"
+          "members[0].name": "A",
+          "members[1].name": "B"
+        }
+      }
+    },
+    {
+      "set": {
+        "n": 3
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "B",
+          "members[2].name": null
         }
       }
     }
