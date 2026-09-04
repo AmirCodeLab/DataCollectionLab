@@ -412,12 +412,21 @@ class FormInstance:
         ordered = self.instances.get(repeat_id)
         if ordered is None:
             raise CompileError(f"unknown repeat: {repeat_id}")
+        node = self.form.repeats[repeat_id]
+        # Spec 2.3: under a countExpr the user can neither add nor remove. The
+        # add refused and the delete did not, and the delete is the dangerous
+        # half — recalculate() restores the COUNT by appending a new instance,
+        # so the answers are gone and the id is different. Vector repeat-011.
+        if node.get("countExpr") is not None:
+            raise CompileError(
+                f"repeat {repeat_id} is controlled by countExpr; instances cannot be removed"
+            )
         if index < 0 or index >= len(ordered):
             raise CompileError(f"no instance at {repeat_id}[{index}]")
         # Spec 2.3 bounds the count by minInstances AND maxInstances. The
         # ceiling was checked on the add and the floor was checked nowhere, so
         # a roster declaring minInstances 1 could be emptied. Vector repeat-009.
-        minimum = self.form.repeats[repeat_id].get("minInstances")
+        minimum = node.get("minInstances")
         if minimum is not None and len(ordered) <= minimum:
             raise CompileError(f"repeat {repeat_id} is at its minimum of {minimum}")
         instance_id = ordered.pop(index)

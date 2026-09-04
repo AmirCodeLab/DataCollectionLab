@@ -1,0 +1,102 @@
+{
+  "id": "repeat-011",
+  "description": "A countExpr-controlled repeat refuses both add and delete, and a refused delete leaves every instance where it was",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep11",
+    "version": 1,
+    "title": {
+      "en": "rep11"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "n",
+        "dataType": "integer",
+        "label": {
+          "en": "How many live here?"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "countExpr": {
+          "op": "ref",
+          "path": "n"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "n": 3
+      }
+    },
+    {
+      "set": {
+        "members[0].name": "A",
+        "members[1].name": "B",
+        "members[2].name": "C"
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "B",
+          "members[2].name": "C"
+        }
+      }
+    },
+    {
+      "refuse": {
+        "addInstance": "members"
+      }
+    },
+    {
+      "refuse": {
+        "deleteInstance": {
+          "repeat": "members",
+          "index": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "B",
+          "members[2].name": "C"
+        }
+      }
+    }
+  ]
+}

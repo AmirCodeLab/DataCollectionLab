@@ -419,13 +419,23 @@ class FormInstance(
     /** Deletes by position. Remaining instances keep their stable ids. */
     fun deleteInstance(repeatId: String, index: Int) {
         val ordered = instances[repeatId] ?: throw CompileException("unknown repeat: $repeatId")
+        val node = form.repeats[repeatId]
+        // Spec 2.3: under a countExpr the user can neither add nor remove. The
+        // add refused and the delete did not, and the delete is the dangerous
+        // half — recalculate() restores the COUNT by appending a new instance,
+        // so the answers are gone and the id is different. Vector repeat-011.
+        if (node?.countExpr != null) {
+            throw CompileException(
+                "repeat $repeatId is controlled by countExpr; instances cannot be removed"
+            )
+        }
         if (index < 0 || index >= ordered.size) {
             throw CompileException("no instance at $repeatId[$index]")
         }
         // Spec 2.3 bounds the count by minInstances AND maxInstances. The
         // ceiling was checked on the add and the floor was checked nowhere, so
         // a roster declaring minInstances 1 could be emptied. Vector repeat-009.
-        val minimum = form.repeats[repeatId]?.minInstances
+        val minimum = node?.minInstances
         if (minimum != null && ordered.size <= minimum) {
             throw CompileException("repeat $repeatId is at its minimum of $minimum")
         }
