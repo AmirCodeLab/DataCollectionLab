@@ -381,6 +381,42 @@ with the same three functions in the Python reference specifically so that the
 clients could not each decide it for themselves, which is what they had been
 doing.
 
+### A spec sentence that names two operations needs two vectors
+
+The boundary above is structural: those things are invisible to a vector however
+many you write. This one is the opposite, and worth keeping separate for that
+reason — **it is perfectly visible to a vector, and the vector was not written.**
+
+> **When a sentence in the spec names two operations, or two bounds, or a rule
+> and its inverse, each half needs its own vector. One half passing is not
+> evidence about the other. Prose reads symmetric far more easily than code
+> behaves symmetrically.**
+
+Three breaks on 2026-09-04, all against Form IR §2.3, all the same shape:
+
+- **74.** "bounded by `minInstances` / `maxInstances`" — the ceiling was
+  enforced on the add and the floor was enforced nowhere, so a roster declaring
+  `minInstances: 1` could be emptied. Neither bound had a vector at all.
+- **75.** "the user cannot add or remove instances" — the add refused and the
+  delete did not. And the delete was the dangerous half: `recalculate()` restores
+  the *count* by appending a fresh instance, so the answers were destroyed, the
+  stable id changed, and every count on every screen still read correctly.
+- **76.** "shrinking discards the **trailing** instances" — the engine is right,
+  but `repeat-006` claimed to cover it and could not see it. It answered two of
+  three instances and asserted a count plus the first survivor, both of which
+  hold when the *middle* instance is discarded instead.
+
+74 and 75 are one operation of a pair going unimplemented. 76 is one half of a
+pair going unasserted while the vector's title says otherwise, which is worse,
+because it reads as covered. All three were found by reading §2.3 against the
+code rather than by any test.
+
+**The tell is the conjunction.** `and`, `or`, `/`, "cannot X or Y", "X creates
+and Y discards" — a sentence joining two operations is one an engine can
+implement half of and look finished, and a vector can assert half of and look
+thorough. When you meet one, write down both halves before writing either
+vector, and make the second one's failure message name which half it is.
+
 ## Commands
 
 ```bash
