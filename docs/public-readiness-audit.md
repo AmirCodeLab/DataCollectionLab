@@ -107,21 +107,23 @@ Enable it in **Settings → Advanced Security → Private vulnerability reportin
 at the same time you flip the repository public. If you publish without it, the
 policy file names a channel that is not there, which is worse than naming none.
 
-## 3. SHOULD FIX — your home network layout and a device id are in the docs
+## 3. CLOSED — your home network layout and a device id were in the docs
 
-Seven occurrences, all in prose recording the real hardware runs:
+Seven occurrences, in prose recording the real hardware runs: six in
+`docs/project-conventions.md` and one in break 35 of `docs/known-breaks.md`.
+They named a specific private network, the two DHCP reassignments it handed out
+mid-run, and a real device identifier.
 
-| Where | What |
-|---|---|
-| `docs/project-conventions.md` (6) | `192.168.2.44:8001`, the DHCP reassignments `192.168.2.49` → `.12`, and the device id `dev_aecfb103` |
-| `docs/known-breaks.md` (1) | `192.168.2.44:8001` in break 35 |
+RFC1918 addresses are not routable and exposed no service, so this was never
+urgent — but they were load-bearing in neither document. The point of break 35
+is that the app synced to the wrong address, which reads identically with a
+placeholder.
 
-These are RFC1918 addresses — not routable, and they expose no service. But they
-do describe a specific private network and name a real device, and they are load
--bearing in neither document: the point of break 35 is that the app synced to
-the wrong address, which reads identically with `192.168.x.y`.
-
-Recommendation: replace with a documentation placeholder. Left as found.
+Replaced with `192.168.1.20`, which is already the placeholder
+`SettingsScreen` shows, so the docs and the UI now agree; the reassignments
+became `.25` and `.31`, and the device id a generic one. The real values are
+deliberately not restated here — an audit that quotes what it asked you to
+remove republishes it.
 
 ## 4. SHOULD FIX — a self-hoster has no map of the configuration surface
 

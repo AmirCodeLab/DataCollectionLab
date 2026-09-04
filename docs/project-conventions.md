@@ -725,14 +725,14 @@ has now. Pixel 6 Pro, Wi-Fi, a server on the LAN — not `10.0.2.2`, which is a
 loopback alias the emulator resolves to its own host and therefore cannot stand
 in for a network hop.
 
-Fresh install (`pm clear`, device `dev_aecfb103`), then, entirely from the
+Fresh install (`pm clear`, device `dev_a1b2c3d4`), then, entirely from the
 phone:
 
 1. Settings showed `http://10.0.2.2:8000` and *"Using this build's default
    address. No address has been set on this device."*
-2. Typed `192.168.2.44:8001`; stored as `http://192.168.2.44:8001` — scheme
+2. Typed `192.168.1.20:8001`; stored as `http://192.168.1.20:8001` — scheme
    added, and on the emulator run a trailing `/` was dropped
-3. **Test connection:** *"Reached http://192.168.2.44:8001 — this is the
+3. **Test connection:** *"Reached http://192.168.1.20:8001 — this is the
    development server."* Save greyed out (draft equals what is in effect),
    Reset appeared
 4. **Sync:** manifest, then the document. Settings then listed *"Household
@@ -743,7 +743,7 @@ phone:
    only offered Finalize on the last screen (§6.2: navigation is never gated,
    finalisation always is)
 7. Synced the answers back. `submission_op` on the server holds
-   `set enumerator_name` and `set consent` from `dev_aecfb103`, both as
+   `set enumerator_name` and `set consent` from `dev_a1b2c3d4`, both as
    **ciphertext** (32 and 21 bytes) — the project is `project_e2e` and the
    server stored what it cannot read
 
@@ -753,7 +753,7 @@ opened, answered, and pushed back encrypted.
 
 One practical note for whoever repeats this: adb-over-Wi-Fi to this handset
 drops whenever its DHCP lease changes, and it changed twice mid-run
-(`192.168.2.49` → `.12`). Run the sequence as one script rather than as a
+(`192.168.1.25` → `.31`). Run the sequence as one script rather than as a
 series of calls.
 
 ### Item 4 — datasets and `select_one_from_file`: IN PROGRESS
@@ -1027,7 +1027,7 @@ Wi-Fi, a server on the LAN, the UCL biomass form's own three cascading questions
 lifted verbatim from the import, and the generated village data.
 
 ```
-  server: http://192.168.2.44:8001
+  server: http://192.168.1.20:8001
   RESULT sync_wall_ms=33782ms
   RESULT sync_rx_mb=7.047776222229004MB
   RESULT dataset_rows_fetched=38044
