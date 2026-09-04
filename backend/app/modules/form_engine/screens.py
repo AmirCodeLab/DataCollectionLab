@@ -31,7 +31,12 @@ def build_screen_plan(ir: dict[str, Any]) -> list[FormScreen]:
         for node in nodes:
             kind = node["type"]
             if kind == "question":
-                out.append(node["id"])
+                # A calculate is computed, never asked (§11.1). Listing it on a
+                # field-list screen puts a control nobody can answer beside the
+                # ones they can, and makes the screen relevant on the strength
+                # of a field that is never drawn.
+                if node.get("calculate") is None:
+                    out.append(node["id"])
             elif kind == "group":
                 collect_questions(node.get("children", []), out)
             # repeat: excluded from the screen plan (spec 11.1)
@@ -40,9 +45,15 @@ def build_screen_plan(ir: dict[str, Any]) -> list[FormScreen]:
         for node in nodes:
             kind = node["type"]
             if kind == "question":
-                screens.append(
-                    FormScreen(len(screens), None, section_id, (node["id"],))
-                )
+                # A calculate produces NO screen. It has nothing to read and
+                # nothing to answer, so its screen is blank: the enumerator taps
+                # past it, and — the part that is not merely ugly — it counts
+                # toward the "N of M" progress, which then overstates how much
+                # work is left on every form that carries one.
+                if node.get("calculate") is None:
+                    screens.append(
+                        FormScreen(len(screens), None, section_id, (node["id"],))
+                    )
             elif kind == "group":
                 if node.get("appearance") == "field-list":
                     questions: list[str] = []

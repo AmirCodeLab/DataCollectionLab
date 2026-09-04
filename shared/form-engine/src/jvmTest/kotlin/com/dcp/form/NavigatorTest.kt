@@ -152,4 +152,52 @@ class NavigatorTest {
         assertTrue(nav.canFinalize, "a question never asked cannot block")
         assertNull(firstBlockingScreen(nav.plan, instance))
     }
+
+    /**
+     * The "N of M" an enumerator reads, on a form carrying calculations.
+     *
+     * [FormNavigator.progress] is Kotlin-only — the Python reference has no
+     * cursor — so no conformance vector reaches it. `screens-009` and
+     * `screens-010` pin the plan and the relevant list on both engines; this
+     * pins the pair of numbers the collection screen actually renders, which is
+     * where the wrongness was visible: a calculate used to produce a blank
+     * screen, so a two-question form with three calculations counted five.
+     */
+    @Test
+    fun `progress counts only screens somebody can answer`() {
+        val instance = FormInstance(
+            CompiledForm(
+                FormIr.parse(
+                    """
+                    {
+                      "irVersion": "0.1", "formId": "prog", "version": 1,
+                      "title": {"en": "prog"}, "defaultLanguage": "en",
+                      "languages": ["en"],
+                      "children": [
+                        {"type": "question", "id": "a", "dataType": "integer",
+                         "label": {"en": "A"}},
+                        {"type": "question", "id": "c1", "dataType": "integer",
+                         "label": {"en": "C1"}, "calculate": {"op": "lit", "value": 1}},
+                        {"type": "question", "id": "c2", "dataType": "integer",
+                         "label": {"en": "C2"}, "calculate": {"op": "lit", "value": 2}},
+                        {"type": "question", "id": "c3", "dataType": "integer",
+                         "label": {"en": "C3"}, "calculate": {"op": "lit", "value": 3}},
+                        {"type": "question", "id": "b", "dataType": "integer",
+                         "label": {"en": "B"}}
+                      ]
+                    }
+                    """
+                )
+            ),
+            today = "2026-08-28",
+        )
+        val nav = FormNavigator(instance)
+
+        assertEquals(2, nav.progress().second, "three calculations must not be counted")
+        assertEquals(1 to 2, nav.progress())
+
+        assertTrue(nav.next(), "the next screen is the second real question, not a calculation")
+        assertEquals(2 to 2, nav.progress())
+        assertEquals("b", instance.form.screens[nav.currentIndex].questionIds.single())
+    }
 }

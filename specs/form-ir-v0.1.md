@@ -1040,10 +1040,15 @@ The screen plan is a pure function of the IR, computed once at compile time:
 
 - Walk `children` in document order.
 - A `question` becomes its own screen. **One question per screen is the default.**
+- **A `question` carrying a `calculate` produces no screen and appears on none.**
+  It is computed, never asked: its own screen would be blank, and counting it
+  would make §11.2's progress overstate the work left on every form that
+  carries one.
 - A `group` with `appearance: "field-list"` becomes a single screen containing
-  every question in its subtree, in document order. Nested plain groups inside
-  it are flattened into the screen; a nested `field-list` has no additional
-  effect. A field-list group containing no questions produces no screen.
+  every question in its subtree **that is not a `calculate`**, in document
+  order. Nested plain groups inside it are flattened into the screen; a nested
+  `field-list` has no additional effect. A field-list group containing no
+  questions — or only calculates — produces no screen.
 - Any other `group` contributes no screen of its own; its children are walked.
 - A `repeat` subtree is excluded from the screen plan entirely. Screen flow for
   repeats is deferred to v0.2 together with repeat navigation UX.

@@ -353,6 +353,7 @@ What watches that layer, and all there is:
 | That a repeat's instance list stays in creation order — which is what makes §2.3's "shrinking discards the trailing instances" true | `test_instance_order_invariant.py` (`backend`), `InstanceOrderTest` (`:shared:form-engine:jvmTest`) | 77 |
 | That the ordering guard above can still read an id at all — the minter and the assertion agreeing is what stops it going dark | the same two files, one test each | 78 |
 | That every question in an imported form can actually be put on a screen — a repeat's cannot, and the form used to publish anyway | `test_xlsform_template.py` (`backend`) | 79 |
+| That the "N of M" an enumerator reads counts only screens somebody can answer | `NavigatorTest` (`:shared:form-engine:jvmTest`) — the vectors pin the plan, this pins the displayed pair | 80 |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
