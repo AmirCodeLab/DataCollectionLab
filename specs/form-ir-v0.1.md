@@ -1074,6 +1074,38 @@ Navigation is over the static plan filtered by live relevance:
 ## 12. Open questions for v0.2
 
 - **Nested repeats** — reference resolution, aggregate semantics across levels, and instance lifecycle when a parent instance is deleted
+- **The enumerator-driven roster — the fourth way an instance count is decided,
+  and the one no client offers.** Three ways are reachable today: `countExpr`
+  over an earlier answer ("how many live here?"), `countExpr` over a dataset
+  value carried on the sample row, and `minInstances` fixing the count at open.
+  The fourth is the common case for a household member roster — the enumerator
+  keeps adding until the respondent says stop — and it is what a household
+  listing cannot be collected without.
+
+  Being precise about where the gap is, because §2.3 already reads as though
+  there is none: **the semantics are specified and both engines implement
+  them.** §2.3 says that with `countExpr` absent the user controls the count,
+  bounded by `minInstances` / `maxInstances`; `Runtime.addInstance` and
+  `deleteInstance` exist in the Kotlin and Python engines and refuse an add on a
+  `countExpr`-controlled repeat. `minInstances` and `maxInstances` are on
+  `RepeatNode` and in the schema. **What is missing is the add itself** — the
+  collection screen renders no repeat affordance at all, so there is no control
+  an enumerator can press, and the engine capability is unreachable from a
+  handset.
+
+  Two things the spec owes v0.2 before that control can be built, and neither is
+  answered above:
+
+  - **The control has no label and the IR has no field to carry one.**
+    `RepeatNode` is `id`, `label`, `relevant`, `countExpr`, `minInstances`,
+    `maxInstances`, `children`. "Add another household member" is per-form and
+    per-language, so it is `{lang: string}` on the node, not a client string.
+  - **`minInstances` does not bound removal, in either engine.**
+    `addInstance` checks `maxInstances`; `deleteInstance` checks only that the
+    position exists. §2.3 says "bounded by `minInstances` / `maxInstances`",
+    which is true of the add and not of the delete. Decide which the spec means
+    — a floor the enumerator cannot go under, or an opening count only — and say
+    it, because the two give different forms.
 - Screen flow across repeats — per-instance sub-screens vs one screen per repeat
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
