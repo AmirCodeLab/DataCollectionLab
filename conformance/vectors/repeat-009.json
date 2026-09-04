@@ -1,0 +1,104 @@
+{
+  "id": "repeat-009",
+  "description": "minInstances is a floor: a delete that would go under it is refused, and the instance survives",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep9",
+    "version": 1,
+    "title": {
+      "en": "rep9"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "minInstances": 1,
+        "maxInstances": 3,
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        }
+      }
+    },
+    {
+      "set": {
+        "members[0].name": "A"
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[1].name": "B"
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 1
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "values": {
+          "members[0].name": "A"
+        }
+      }
+    },
+    {
+      "refuse": {
+        "deleteInstance": {
+          "repeat": "members",
+          "index": 0
+        }
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "values": {
+          "members[0].name": "A"
+        }
+      }
+    }
+  ]
+}

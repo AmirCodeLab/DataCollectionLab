@@ -73,6 +73,16 @@ and a click that focuses the field means the overlay was not hit. The only way
 reported symptom do not fit together in this code, which is the strongest
 reason to think something environmental was in play.
 
+**This row is now blocking something, 4 September 2026.** It never carried the
+"desktop was never Phase 1 scope" reason — its reason is and remains that there
+is nothing yet to fix, four reproductions having failed. What has changed is the
+cost of leaving it unresolved: RCons collects on paper and keys the forms in
+afterwards, and desktop entry is what they want for it
+(`docs/phase3-pilot-scope.md` §9 — the phase after Phase 3). A date question
+that may or may not open its picker cannot be an open question on the client
+somebody is about to key a survey into. Resolve it one way or the other before
+that phase starts, rather than letting it sit.
+
 **To close this row:** a reproduction on the current tree that says which build
 was running, or a decision that the report was an artefact of the synthetic
 input and the row can go. Do not close it on the strength of the tests alone —
@@ -86,7 +96,7 @@ them passed before the investigation started too.
 |---|---|
 | **Where** | `clients/composeApp/src/jvmMain/.../MediaCapture.jvm.kt`, and `mediaCapture == null` in `CollectionViewModel` |
 | **Status** | Open |
-| **Why not fixed** | Desktop collection was never Phase 1 scope. Wiring a Swing file chooser and a location source into the desktop app would build a collection path nobody uses and nothing tests — the fix is to stop drawing the widgets, not to implement them |
+| **Why not fixed** | Scheduled, not deprioritised: desktop entry is the phase after this one. The old reason — "desktop collection was never Phase 1 scope" — is wrong now, see below |
 
 An image, signature or geopoint question on desktop renders its full widget and
 every control on it is inert. No message, no refusal, no disabled state — the
@@ -109,6 +119,23 @@ header says desktop makes the image question "show its gallery button and
 nothing else, rather than a shutter that does nothing", and the gallery button
 *is* the shutter that does nothing. `docs/project-conventions.md` said "desktop refusing rather
 than pretending" until this was filed; it now says desktop collects nothing.
+
+**Why the reason changed, 4 September 2026.** This row said the fix was to stop
+drawing the widgets, on the grounds that implementing them "would build a
+collection path nobody uses and nothing tests". Both halves of that have a
+customer now. RCons collects on paper and keys the forms in afterwards, and
+desktop entry is what they want for it — so the path has a user, and stopping
+at "not available on this device" would close the row while leaving them without
+the client they are asking for.
+
+That does not make it urgent. Desktop data entry is named in
+`docs/phase3-pilot-scope.md` §9 as **not** in Phase 3, deliberately, with these
+two defects given as what blocks it — it is the phase after this one. **Do not
+fix it here.** What changes today is only the reason: this row is scheduled work
+waiting its turn, not a widget nobody wanted.
+
+The smallest honest fix below is still the right thing to do *if* desktop entry
+slips again. It is no longer the thing to do by default.
 
 The smallest honest fix is the one `CollectionViewModel` already documents for
 unsupported question types: on a build with no `MediaCaptureGraph`, render

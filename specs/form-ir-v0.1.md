@@ -1074,6 +1074,44 @@ Navigation is over the static plan filtered by live relevance:
 ## 12. Open questions for v0.2
 
 - **Nested repeats** — reference resolution, aggregate semantics across levels, and instance lifecycle when a parent instance is deleted
+- **The enumerator-driven roster — the fourth way an instance count is decided,
+  and the one no client offers.** Three ways are reachable today: `countExpr`
+  over an earlier answer ("how many live here?"), `countExpr` over a dataset
+  value carried on the sample row, and `minInstances` fixing the count at open.
+  The fourth is the common case for a household member roster — the enumerator
+  keeps adding until the respondent says stop — and it is what a household
+  listing cannot be collected without.
+
+  Being precise about where the gap is, because §2.3 already reads as though
+  there is none: **the instance semantics are specified and both engines
+  implement them.** §2.3 says that with `countExpr` absent the user controls the
+  count; `Runtime.addInstance` and `deleteInstance` exist in the Kotlin and
+  Python engines, refuse an add on a `countExpr`-controlled repeat, and are held
+  to it by `repeat-001`…`repeat-008`. `minInstances` and `maxInstances` are on
+  `RepeatNode` and in the schema.
+
+  **What is missing is a screen to put a roster on, and it is this document's
+  doing.** §11.1 excludes a repeat subtree from the screen plan entirely and
+  defers repeat screen flow to v0.2. A runtime that renders the plan therefore
+  never sees a repeat child, which is why the collection screen offers no add
+  control: not a widget nobody wrote, but a screen the spec does not yet let it
+  compute. **Answering this question means answering §11.1's deferral** —
+  whether an instance is a screen, a sub-sequence, or a list with a detail view,
+  and what `next` / `previous` / progress do across it.
+
+  One thing the spec separately owes v0.2 once that control exists:
+
+  - **The control has no label and the IR has no field to carry one.**
+    `RepeatNode` is `id`, `label`, `relevant`, `countExpr`, `minInstances`,
+    `maxInstances`, `children`. "Add another household member" is per-form and
+    per-language, so it is `{lang: string}` on the node, not a client string.
+
+  `minInstances` not bounding removal was listed here and never belonged here.
+  §2.3 already says "bounded by `minInstances` / `maxInstances`", and both
+  engines honoured that on the add and not on the delete — a defect against
+  v0.1, not a question for v0.2. Fixed, with `repeat-009` holding both engines
+  to the floor and `repeat-010` to the ceiling; break 74 in
+  `docs/known-breaks.md` is the evidence they catch it.
 - Screen flow across repeats — per-instance sub-screens vs one screen per repeat
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population

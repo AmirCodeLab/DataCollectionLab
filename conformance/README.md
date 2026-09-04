@@ -26,12 +26,16 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 | Key | Meaning |
 |---|---|
 | `set` | Apply answers, then recalculate |
+| `addInstance` | Add a repeat instance, by repeat id |
+| `deleteInstance` | Delete one, by `{repeat, index}` |
+| `refuse` | Wraps an `addInstance` or `deleteInstance` the spec says must be **refused** |
 | `expect.relevant` | Expected relevance per field path |
 | `expect.values` | Expected values (after calculations) |
 | `expect.required` | Expected required flag per field |
 | `expect.valid` | Expected per-field validity |
 | `expect.errors` | Expected error kinds per field |
 | `expect.formValid` | Expected whole-form validity |
+| `expect.instanceCount` | Expected number of instances per repeat |
 | `expect.choices` | Expected option values, in order (§3.2) |
 | `expect.labels` | Expected option labels, per language |
 | `expect.selector` | The selector **the source was asked for** (§3.2) |
@@ -41,6 +45,22 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 
 A vector may also carry a top-level `datasets` block — `{key: [rows]}` — for the
 lists a `choices.kind = "dataset"` field chooses from.
+
+## Why `refuse` asserts nothing about the message
+
+A refusal's message is English, and these files are the contract between two
+engines written by different people in different languages. Asserting the
+wording would make a translation a release blocker and a reworded sentence a
+false alarm; the `malformed/` set exists precisely because a *reason code* is
+the thing worth comparing, and the runtime's bound refusals do not carry one.
+
+So `refuse` asserts only that the operation was refused, and the vector around
+it is what makes that specific. `repeat-009` deletes a valid index that a
+permitted delete has already exercised two steps earlier, then asserts the
+instance and its answer survived — so an engine that refused for the wrong
+reason, or refused by throwing after mutating, fails anyway. `repeat-010` is
+its control: the same step kind over `maxInstances`, which was already enforced,
+so a failing `repeat-009` is the engine and not the harness.
 
 ## Why a dataset vector asserts three things and not one
 

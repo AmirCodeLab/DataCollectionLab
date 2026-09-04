@@ -422,6 +422,13 @@ class FormInstance(
         if (index < 0 || index >= ordered.size) {
             throw CompileException("no instance at $repeatId[$index]")
         }
+        // Spec 2.3 bounds the count by minInstances AND maxInstances. The
+        // ceiling was checked on the add and the floor was checked nowhere, so
+        // a roster declaring minInstances 1 could be emptied. Vector repeat-009.
+        val minimum = form.repeats[repeatId]?.minInstances
+        if (minimum != null && ordered.size <= minimum) {
+            throw CompileException("repeat $repeatId is at its minimum of $minimum")
+        }
         val instanceId = ordered.removeAt(index)
         destroyInstance(repeatId, instanceId)
         recalculate()

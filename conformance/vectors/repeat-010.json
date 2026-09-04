@@ -1,0 +1,77 @@
+{
+  "id": "repeat-010",
+  "description": "maxInstances is a ceiling: an add over it is refused, and the count is unchanged",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rep10",
+    "version": 1,
+    "title": {
+      "en": "rep10"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "maxInstances": 2,
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 0
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "A",
+        "members[1].name": "B"
+      }
+    },
+    {
+      "refuse": {
+        "addInstance": "members"
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[0].name": "A",
+          "members[1].name": "B"
+        }
+      }
+    }
+  ]
+}
