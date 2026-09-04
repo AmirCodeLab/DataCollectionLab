@@ -1,0 +1,157 @@
+{
+  "id": "screens-011",
+  "description": "A field-list screen's relevance is decided by its answerable questions alone: with only a calculate left relevant the screen disappears rather than showing empty, and navigation skips it. Relevance is asserted before membership, so this vector's first failure is its own claim rather than screens-009's",
+  "spec": "11.1, 11.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr11",
+    "version": 1,
+    "title": {
+      "en": "scr11"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "gate",
+        "dataType": "text",
+        "label": {
+          "en": "Gate"
+        }
+      },
+      {
+        "type": "group",
+        "id": "fl",
+        "label": {
+          "en": "Field list"
+        },
+        "appearance": "field-list",
+        "children": [
+          {
+            "type": "question",
+            "id": "fl_calc",
+            "dataType": "integer",
+            "label": {
+              "en": "Always computed"
+            },
+            "calculate": {
+              "op": "lit",
+              "value": 42
+            }
+          },
+          {
+            "type": "question",
+            "id": "fl_real",
+            "dataType": "text",
+            "label": {
+              "en": "Only when the gate is yes"
+            },
+            "relevant": {
+              "op": "eq",
+              "args": [
+                {
+                  "op": "ref",
+                  "path": "gate"
+                },
+                {
+                  "op": "lit",
+                  "value": "yes"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "gate": "no"
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "fl_calc": 42
+        },
+        "relevant": {
+          "fl_real": false
+        },
+        "screens": {
+          "count": 3,
+          "relevant": [
+            0,
+            2
+          ],
+          "next": {
+            "0": 2
+          },
+          "previous": {
+            "2": 0
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "gate": "yes"
+      }
+    },
+    {
+      "expect": {
+        "relevant": {
+          "fl_real": true
+        },
+        "screens": {
+          "relevant": [
+            0,
+            1,
+            2
+          ],
+          "next": {
+            "0": 1
+          },
+          "previous": {
+            "2": 1
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "screens": {
+          "count": 3,
+          "questions": {
+            "0": [
+              "gate"
+            ],
+            "1": [
+              "fl_real"
+            ],
+            "2": [
+              "tail"
+            ]
+          },
+          "groups": {
+            "1": "fl"
+          }
+        }
+      }
+    }
+  ]
+}
