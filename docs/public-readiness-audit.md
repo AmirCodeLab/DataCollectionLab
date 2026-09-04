@@ -50,6 +50,12 @@ actually looked at.
 - **No tracked junk.** No `.DS_Store`, IDE directories, `.env`, or build output
   under version control. `.gitignore` covers all of them plus the generated
   dataset CSVs and import reports.
+  **Amended 2026-09-04:** the first sentence was true and the second was not.
+  `.gitignore` had **no `.env` rule at all** — no `.env` was tracked only
+  because none had been created. The pass checked what was in the tree and
+  read the result back as coverage. Fixed alongside finding 4, which is what
+  surfaced it: shipping a file whose first instruction is `cp .env.example
+  .env` made the gap load-bearing.
 - **CI is safe to expose to fork pull requests.** `ci.yml` triggers on
   `pull_request`, **not** `pull_request_target`, declares
   `permissions: contents: read`, and uses no repository secrets. This is the
@@ -180,7 +186,7 @@ network, the two reassignments, or the device id anywhere in the tree. Note the
 scope: this is true of the tip. The original values are in earlier commits of
 the rewritten history and, under rule 11, stay there.
 
-## 4. SHOULD FIX — a self-hoster has no map of the configuration surface
+## 4. RESOLVED — a self-hoster had no map of the configuration surface
 
 There is no `.env.example` in the repository. The old README's first command was
 `cp .env.example .env`, against a file that has never existed on this branch —
@@ -198,14 +204,30 @@ A recovered `.env.example` from an abandoned Aug-28 clone is saved at
 predates the media and export settings — so it wants updating rather than
 copying. Left as found.
 
-**Resolution — 2026-09-04 (going public). Still open, accepted for now.** There
-is still no `.env.example` at the repository root or under `backend/`. The
-README's quick start is honest — the defaults do match `docker-compose.yml`, so
-a local run needs no file — but the discoverability gap this finding names is
-untouched: `JWT_SECRET`, `S3_SECRET_KEY`, `HTTP_LOG` and
-`MEDIA_SESSION_TTL_SECONDS` are still only findable by reading
-`backend/app/core/config.py`. Left as found, and it is the one *should fix* on
-this list that is still outstanding.
+**Resolution — 2026-09-04 (going public). Resolved, and guarded.**
+`backend/.env.example` now lists all fifteen settings `Settings` declares, each
+with its default and a comment saying what it does — `ENVIRONMENT`, `DEBUG`,
+`JWT_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`,
+`DATABASE_URL`, `REDIS_URL`, the four `S3_*`, the two `MEDIA_*`, and the two
+`HTTP_LOG*`. Every line is shipped commented out, so the file describes the
+defaults rather than overriding them and a clone-and-run still needs no
+configuration.
+
+**`JWT_SECRET` ships the published default on purpose**, which looks wrong and
+is not. The startup refusal in `app/core/published_defaults.py` works by
+recognising that exact string, so a friendlier placeholder in this file would
+read as safer, pass the guard, and be just as forgeable — the file would have
+disarmed finding 5 in the course of documenting it. It carries the
+`secrets.token_urlsafe` command instead.
+
+Two things came out of writing it. **`.gitignore` did not cover `.env`** — see
+the amendment in *Clean* above — which mattered the moment this file invited
+`cp .env.example .env`; it does now, with `.env.example` as the one exception.
+And the file is checked rather than trusted:
+`backend/tests/test_env_example_documents_every_setting.py` fails if a setting
+has no line, and also if a line names a setting that no longer exists. Break 73
+records both directions watched to fail. The recovered stale copy mentioned
+above was not used; the file was written from `config.py`.
 
 ## 5. CLOSED — `jwt_secret` defaulted to a known value with nothing to stop it
 

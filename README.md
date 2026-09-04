@@ -87,9 +87,10 @@ install does not need a Node runtime beside Python.
 ## Quick start
 
 Configuration is read from the environment with working defaults that match
-`docker-compose.yml`, so a local run needs no `.env` file. Override anything in
-`backend/app/core/config.py` by exporting it, or by creating a `.env` beside the
-backend.
+`docker-compose.yml`, so a local run needs no `.env` file. Every setting is
+listed with its default and what it does in `backend/.env.example` — copy that
+to `.env` beside the backend and change what you need, or export the variables
+instead.
 
 ```bash
 docker compose up -d postgres redis minio
