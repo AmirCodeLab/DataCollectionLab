@@ -526,14 +526,14 @@
             "description": "Conflict"
           },
           "413": {
+            "description": "The filter selected more than one request will export.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExportTooLargeResponse"
                 }
               }
-            },
-            "description": "Content Too Large"
+            }
           },
           "422": {
             "description": "Validation Error",

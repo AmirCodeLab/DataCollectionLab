@@ -38,15 +38,29 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # .python-version, not a literal, in all three jobs that install the
+          # backend. The API contract is byte-for-byte what the toolchain that
+          # generated it emits and the interpreter is part of that toolchain —
+          # CPython renamed 413's reason phrase in 3.13 — so the version this
+          # is checked on is a fact about the repository, declared once.
+          python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements.lock
 
+      # The lockfile, not the `>=` ranges in pyproject.toml. Every dependency
+      # there is a floor, so before requirements.lock existed each run resolved
+      # whatever PyPI held that morning — and the contract check below compares
+      # a generated document byte for byte, which makes an unpinned fastapi or
+      # pydantic a red build on a day nobody touched the API. `--no-deps` on the
+      # editable install is what keeps the lock authoritative; `pip check` then
+      # fails if the lock no longer satisfies what pyproject.toml declares,
+      # which is how the two are kept from drifting apart.
       - name: Install
-        working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -r backend/requirements.lock
+          pip install -e backend --no-deps
+          pip check
 
       # `.` is backend/, so these paths are what bring scripts/ and
       # conformance/ into the gate. They were outside it entirely until
@@ -105,15 +119,29 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # .python-version, not a literal, in all three jobs that install the
+          # backend. The API contract is byte-for-byte what the toolchain that
+          # generated it emits and the interpreter is part of that toolchain —
+          # CPython renamed 413's reason phrase in 3.13 — so the version this
+          # is checked on is a fact about the repository, declared once.
+          python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements.lock
 
+      # The lockfile, not the `>=` ranges in pyproject.toml. Every dependency
+      # there is a floor, so before requirements.lock existed each run resolved
+      # whatever PyPI held that morning — and the contract check below compares
+      # a generated document byte for byte, which makes an unpinned fastapi or
+      # pydantic a red build on a day nobody touched the API. `--no-deps` on the
+      # editable install is what keeps the lock authoritative; `pip check` then
+      # fails if the lock no longer satisfies what pyproject.toml declares,
+      # which is how the two are kept from drifting apart.
       - name: Install
-        working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -r backend/requirements.lock
+          pip install -e backend --no-deps
+          pip check
 
       # The db tests create and drop their own scratch databases, so they need
       # a role that can CREATE DATABASE — the image's superuser is one.
@@ -195,17 +223,24 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # .python-version, not a literal, in all three jobs that install the
+          # backend. The API contract is byte-for-byte what the toolchain that
+          # generated it emits and the interpreter is part of that toolchain —
+          # CPython renamed 413's reason phrase in 3.13 — so the version this
+          # is checked on is a fact about the repository, declared once.
+          python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements.lock
 
       # PyYAML to read this file, and the backend so `pytest --collect-only`
       # can be asked which tests each of the two marker halves selects.
       - name: Install
         run: |
           python -m pip install --upgrade pip
+          pip install -r backend/requirements.lock
           pip install pyyaml
-          pip install -e "backend/[dev]"
+          pip install -e backend --no-deps
+          pip check
 
       - uses: actions/setup-node@v4
         with:

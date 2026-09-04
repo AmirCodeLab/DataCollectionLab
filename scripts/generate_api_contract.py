@@ -267,6 +267,35 @@ def render_types(schema: dict[str, Any]) -> str:
 DIFF_LINES = 120
 
 
+PYTHON_VERSION_FILE = REPO / ".python-version"
+
+
+def warn_on_a_different_interpreter() -> None:
+    """Say so when this interpreter is not the one CI checks the file against.
+
+    The document is byte-for-byte what the toolchain that wrote it emits, and
+    the toolchain includes the interpreter: FastAPI fills a response
+    description it was not given from `http.HTTPStatus(code).phrase`, which is
+    the standard library's table, and CPython renamed 413 in 3.13. Generating
+    on 3.14 and checking on 3.12 therefore produced a one-line difference in a
+    5000-line file with nothing in the repository to explain it — twice, on
+    main. This is a warning and not a refusal because after that break the
+    known-varying descriptions are stated explicitly, so the output should now
+    be the same on both; if it is not, this line is the first place to look.
+    """
+    if not PYTHON_VERSION_FILE.exists():
+        return
+    pinned = PYTHON_VERSION_FILE.read_text(encoding="utf-8").strip()
+    running = ".".join(platform.python_version_tuple()[:2])
+    if pinned and running != pinned:
+        print(
+            f"warning: generating on python {running}; CI checks this file on "
+            f"{pinned} (.python-version). If the check fails there and passes "
+            "here, that difference is the first thing to suspect.",
+            file=sys.stderr,
+        )
+
+
 def toolchain() -> str:
     """The versions the document depends on, for a failure message to name.
 
@@ -317,6 +346,8 @@ def main() -> int:
         help="do not write; exit 1 if either file differs from what the app generates",
     )
     args = parser.parse_args()
+
+    warn_on_a_different_interpreter()
 
     schema = build_openapi()
     outputs = {

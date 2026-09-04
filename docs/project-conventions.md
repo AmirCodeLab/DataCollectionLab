@@ -348,8 +348,8 @@ doing.
 ## Commands
 
 ```bash
-# Backend
-cd backend && pip install -e ".[dev]"
+# Backend — the lockfile is what CI installs, so develop against it
+cd backend && pip install -r requirements.lock && pip install -e . --no-deps
 uvicorn app.main:app --reload
 pytest tests/ -v
 ruff check . && mypy app
@@ -445,6 +445,23 @@ pytest without `db`), **db** (pytest `-m db` against a PostGIS service),
 
 These are the same commands listed above. Run them locally before pushing —
 but the point of the workflow is that nobody has to remember to.
+
+**The Python toolchain is pinned in two files, and both are load-bearing.**
+`.python-version` is the interpreter — every `setup-python` in the workflow
+reads it rather than repeating a literal — and `backend/requirements.lock` is
+the resolved dependency set, installed with `pip install -e backend --no-deps`
+on top so the lock stays authoritative. `pip check` then fails if the lock no
+longer satisfies what `pyproject.toml` declares, which is what stops the two
+from drifting apart.
+
+The pin exists because of the contract check. `specs/openapi.json` is compared
+byte for byte, every dependency in `pyproject.toml` is a `>=` floor, and the
+interpreter matters too: CPython renamed 413's reason phrase in 3.13, so the
+same app generated a different document on 3.14 than CI checked on 3.12 (break
+72). An unpinned toolchain makes that check fail on a morning nobody touched
+the API — and a gate that goes red at random stops being read, which is the
+failure mode this whole file is written against. Regenerate the lock on Linux
+and the pinned interpreter, not on a laptop; the header in the file says how.
 
 **Two guards watch the other four, and they ask different questions.**
 
