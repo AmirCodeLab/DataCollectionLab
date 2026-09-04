@@ -123,6 +123,37 @@ does not need a Node runtime beside Python.
     `scripts/generate_api_contract.py` from the FastAPI app, and CI fails when
     either is not what the app generates right now. See below.
 
+11. **Nothing that must never be published may enter a commit.** As of
+    2026-09-04 `main` is protected by a ruleset requiring a pull request, so
+    every change reaches it through one — and GitHub freezes
+    `refs/pull/<n>/head` at the commits the PR opened with. No force-push, no
+    `git filter-repo`, no history rewrite reaches those refs. They stay
+    fetchable by anyone, forever, including the commits a rewrite was meant to
+    erase.
+
+    This is not hypothetical. The previous repository was abandoned and rebuilt
+    from a clean history on 2026-09-04 for exactly this reason: four merged pull
+    requests held pre-rewrite commits — attribution trailers and a home
+    directory path — permanently reachable, and nothing could remove them. The
+    rebuild bought a repository with zero pull refs. Requiring pull requests
+    spends that, deliberately, in exchange for a default branch that cannot go
+    red unnoticed; two merges had just landed on a red `main`, which is the
+    failure a bypass would have made permanent.
+
+    The consequence is a working rule, not a preference. **The check happens
+    before `git commit`, not before `git push`.** A secret, a signing key, a
+    home directory path, a real customer or network name, a device id, a
+    respondent's data: once committed on a branch that becomes a pull request,
+    it is published and it cannot be withdrawn. "We can strip that later" is no
+    longer true of this repository.
+
+    Two things follow. `.gitignore` is not this check — it only covers what
+    somebody already thought of, and everything caught by the public-readiness
+    audit was in a *tracked* file. And when something does turn out to be
+    committed, treat it as published: rotate the key, accept the disclosure,
+    tell whoever it concerns. Do not plan a rewrite; there is no longer one that
+    works.
+
 ## The API contract
 
 The app is the source of truth. Everything downstream is generated from it:
