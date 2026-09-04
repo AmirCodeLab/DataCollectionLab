@@ -222,13 +222,43 @@ RCons's roster is DCP's `repeat`. Three ways of deciding the count:
 |---|---|
 | From an earlier answer — "how many live here?" | `countExpr` — works |
 | From the sample — a column giving the number | `countExpr` over a dataset value — works |
-| **The enumerator decides as they go** | **Missing** |
+| **The enumerator decides as they go** | Engine: works. **Nothing can show it** |
 
 The third is the common case for a household member roster: keep adding until
-the respondent says stop. `minInstances` and `maxInstances` exist; what is
-missing is the user-driven add.
+the respondent says stop.
 
-Small, and blocking — a household listing cannot be collected without it.
+**Corrected 4 September 2026.** This section first said the third way was
+"Missing" and that what was missing was the user-driven add. That was wrong, and
+reading the code moved the gap rather than closing it.
+
+**The engine already does it.** `addInstance` and `deleteInstance` are on the
+runtime in both engines; `minInstances` instances are created when the form
+opens; `maxInstances` bounds the add; and an add on a `countExpr`-controlled
+repeat is refused with a message rather than silently ignored. Vectors
+`repeat-001`…`repeat-008` hold both engines to the instance semantics. None of
+that has to be built.
+
+**What is missing is a screen to put a roster on.** Form IR §11.1: *"A repeat
+subtree is excluded from the screen plan entirely. Screen flow for repeats is
+deferred to v0.2 together with repeat navigation UX."* The collection screen
+renders `screen.questionIds`, and by construction that never contains a repeat
+child — so there is no control to press because there is no screen for it to be
+on. The engine's roster capability is unreachable from a handset, and it is the
+screen plan and not the widget that makes it so.
+
+Item 3 is therefore three things, and the first is the one with no budget yet:
+
+1. **Specify repeat screen flow.** §11.1 and §11.2 for v0.2: whether an
+   instance is a screen, a sub-sequence or a list with a detail view, and what
+   `next` / `previous` / progress do across it. A spec decision, and the real
+   cost of the item.
+2. Implement that plan in the screen planner on both engines, with vectors.
+3. Build the roster UI on it — the list, the add and remove affordance, and a
+   label for the add control, which `RepeatNode` has no field to carry
+   (`specs/form-ir-v0.1.md` §12).
+
+**Smaller than "Missing" implied, and larger than a button.** Still blocking: a
+household listing cannot be collected without it.
 
 ---
 
