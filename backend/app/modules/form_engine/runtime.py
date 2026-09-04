@@ -414,6 +414,12 @@ class FormInstance:
             raise CompileError(f"unknown repeat: {repeat_id}")
         if index < 0 or index >= len(ordered):
             raise CompileError(f"no instance at {repeat_id}[{index}]")
+        # Spec 2.3 bounds the count by minInstances AND maxInstances. The
+        # ceiling was checked on the add and the floor was checked nowhere, so
+        # a roster declaring minInstances 1 could be emptied. Vector repeat-009.
+        minimum = self.form.repeats[repeat_id].get("minInstances")
+        if minimum is not None and len(ordered) <= minimum:
+            raise CompileError(f"repeat {repeat_id} is at its minimum of {minimum}")
         instance_id = ordered.pop(index)
         self._destroy_instance(repeat_id, instance_id)
         self.recalculate()

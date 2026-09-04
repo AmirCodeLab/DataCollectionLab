@@ -33,6 +33,37 @@ fun vectorDir(): File {
 fun loadVector(file: File): JsonObject = Json.parseToJsonElement(file.readText()).jsonObject
 
 /**
+ * Runs an operation the spec says must be refused.
+ *
+ * Asserts the refusal and nothing about its wording: a message is English and
+ * the vectors are the contract between two engines. What stops this passing on
+ * the wrong refusal is the vector around it — `repeat-009` deletes a valid
+ * index that a permitted delete has already exercised two steps earlier, so a
+ * bound is the only thing left to refuse it.
+ */
+fun refuse(instance: FormInstance, op: JsonObject, where: String) {
+    val refused =
+        try {
+            when {
+                op.containsKey("addInstance") ->
+                    instance.addInstance(op.getValue("addInstance").jsonPrimitive.content)
+                op.containsKey("deleteInstance") ->
+                    op.getValue("deleteInstance").jsonObject.let { deletion ->
+                        instance.deleteInstance(
+                            deletion.getValue("repeat").jsonPrimitive.content,
+                            deletion.getValue("index").jsonPrimitive.content.toInt(),
+                        )
+                    }
+                else -> error("$where: refuse step names no operation: ${op.keys}")
+            }
+            false
+        } catch (expected: CompileException) {
+            true
+        }
+    assertTrue(refused, "$where: expected ${op.keys.first()} to be refused, it succeeded")
+}
+
+/**
  * Dataset rows from a vector's `datasets` block, as the source hands them back.
  *
  * Rows are plain JSON — text, numbers, nulls — and become [FormValue] the same
@@ -102,6 +133,9 @@ fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit
                 deletion.getValue("repeat").jsonPrimitive.content,
                 deletion.getValue("index").jsonPrimitive.content.toInt(),
             )
+        }
+        step["refuse"]?.jsonObject?.let { op ->
+            refuse(instance, op, "${vector.getValue("id").jsonPrimitive.content} step $i")
         }
         step["set"]?.jsonObject?.let { answers ->
             instance.setMany(answers.mapValues { formValueFromJson(it.value) })

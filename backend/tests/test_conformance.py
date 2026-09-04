@@ -13,7 +13,7 @@ from datetime import date, datetime
 import pytest
 
 from app.modules.form_engine.datasets import InMemoryDatasetSource
-from app.modules.form_engine.runtime import CompiledForm, FormInstance
+from app.modules.form_engine.runtime import CompiledForm, CompileError, FormInstance
 from app.modules.form_engine.screens import (
     blocking_fields,
     build_screen_plan,
@@ -60,6 +60,30 @@ def _load(path: pathlib.Path) -> dict:
 def _state(instance: FormInstance, path: str):
     """Resolve a positional path from a vector to the canonical state entry."""
     return instance.states[instance._canonical(path)]
+
+
+def _refuse(instance: FormInstance, op: dict, vector_id: str, step_index: int) -> None:
+    """Run an operation the spec says must be refused.
+
+    Asserts the refusal and nothing about its wording: a message is English and
+    the vectors are the contract between two engines. What stops this passing
+    on the wrong refusal is the vector around it — repeat-009 deletes a valid
+    index that a permitted delete has already exercised two steps earlier, so a
+    bound is the only thing left to refuse it.
+    """
+    where = f"{vector_id} step {step_index}"
+    try:
+        if "addInstance" in op:
+            instance.add_instance(op["addInstance"])
+        elif "deleteInstance" in op:
+            instance.delete_instance(
+                op["deleteInstance"]["repeat"], op["deleteInstance"]["index"]
+            )
+        else:
+            raise AssertionError(f"{where}: refuse step names no operation: {sorted(op)}")
+    except CompileError:
+        return
+    raise AssertionError(f"{where}: expected {sorted(op)[0]} to be refused, it succeeded")
 
 
 def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int) -> None:
@@ -282,6 +306,8 @@ def test_vector(vector_path: pathlib.Path) -> None:
             instance.delete_instance(
                 step["deleteInstance"]["repeat"], step["deleteInstance"]["index"]
             )
+        if "refuse" in step:
+            _refuse(instance, step["refuse"], vector["id"], i)
         if "set" in step:
             instance.set_many(step["set"])
         if "expect" in step:

@@ -1106,10 +1106,12 @@ Navigation is over the static plan filtered by live relevance:
     `maxInstances`, `children`. "Add another household member" is per-form and
     per-language, so it is `{lang: string}` on the node, not a client string.
 
-  `minInstances` not bounding removal was listed here and does not belong here:
-  §2.3 already says "bounded by `minInstances` / `maxInstances`" and both engines
-  fail to honour it on the delete. That is a defect against v0.1, not a question
-  for v0.2 — `docs/known-defects.md` 14.
+  `minInstances` not bounding removal was listed here and never belonged here.
+  §2.3 already says "bounded by `minInstances` / `maxInstances`", and both
+  engines honoured that on the add and not on the delete — a defect against
+  v0.1, not a question for v0.2. Fixed, with `repeat-009` holding both engines
+  to the floor and `repeat-010` to the ceiling; break 74 in
+  `docs/known-breaks.md` is the evidence they catch it.
 - Screen flow across repeats — per-instance sub-screens vs one screen per repeat
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
