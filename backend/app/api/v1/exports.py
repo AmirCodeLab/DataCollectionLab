@@ -67,7 +67,18 @@ class ZipResponse(Response):
         200: ZIP_BODY,
         404: {"model": MessageError},
         409: {"model": ExportValueTooLongResponse},
-        413: {"model": ExportTooLargeResponse},
+        # An explicit description, where the 404 and 409 take FastAPI's
+        # default. FastAPI fills a missing one from `http.HTTPStatus(code)
+        # .phrase`, which is the standard library's table and therefore the
+        # interpreter's: CPython renamed 413 from "Request Entity Too Large"
+        # to "Content Too Large" in 3.13, so the same app emitted a different
+        # contract on either side of that line and the byte check failed for a
+        # reason no diff of this repository could explain. Saying it here ties
+        # the document to the app instead. See docs/known-breaks.md break 72.
+        413: {
+            "model": ExportTooLargeResponse,
+            "description": "The filter selected more than one request will export.",
+        },
     },
 )
 async def export_form(
