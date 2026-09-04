@@ -65,7 +65,7 @@ class InstanceOrderTest {
     @Test
     fun `a reordered instance list is refused rather than silently shrunk`() {
         val instance = threeMembers()
-        assertEquals(listOf("i1", "i2", "i3"), instance.instances.getValue("members"))
+        assertEquals(3, instance.instances.getValue("members").size)
 
         instance.instances.getValue("members").reverse()
 
@@ -85,12 +85,56 @@ class InstanceOrderTest {
     @Test
     fun `the same shrink is allowed and discards the trailing member when order holds`() {
         val instance = threeMembers()
+        val (first, second) = instance.instances.getValue("members")
 
         instance.set("n", FormValue.Integer(2))
 
-        assertEquals(listOf("i1", "i2"), instance.instances.getValue("members"))
-        assertEquals(FormValue.Text("A"), instance.values.getValue("members[i1].name"))
-        assertEquals(FormValue.Text("B"), instance.values.getValue("members[i2].name"))
+        assertEquals(listOf(first, second), instance.instances.getValue("members"))
+        assertEquals(FormValue.Text("A"), instance.values.getValue("members[$first].name"))
+        assertEquals(FormValue.Text("B"), instance.values.getValue("members[$second].name"))
+    }
+
+    /**
+     * The guard against the guard going dark.
+     *
+     * [FormInstance.assertCreationOrder] reads its ordinal off the id and returns
+     * **silently** for an id it cannot parse. That is correct — an id from another
+     * minter has no ordinal to read — but it is also a state in which the
+     * assertion sees nothing at all. If this engine's own id scheme ever stopped
+     * being `i<n>`, every list would become unreadable to it and the ordering
+     * invariant would keep passing while checking nothing.
+     *
+     * So this asserts the **link** rather than the format, and it belongs here on
+     * the minter rather than inside the assertion: an assertion cannot tell "this
+     * id is foreign, stand down" from "every id is foreign because the scheme
+     * changed", because from inside it those are the same observation.
+     *
+     * Asserted against [SERIAL_ID] itself rather than a copy of the pattern —
+     * a copied regex would keep agreeing after the real one changed.
+     *
+     * Break 78 is the asymmetry: change the id scheme and this fails while every
+     * ordering test in this class stays green.
+     */
+    @Test
+    fun `every id this engine mints is one the order assertion can read`() {
+        val instance = instance()
+
+        instance.set("n", FormValue.Integer(3))
+        val minted = instance.instances.getValue("members").toList()
+
+        for (instanceId in minted) {
+            assertTrue(
+                SERIAL_ID.matchEntire(instanceId) != null,
+                "the engine minted '$instanceId', which assertCreationOrder cannot read " +
+                    "an ordinal from. The ordering invariant would go dark: it would " +
+                    "return early on every list and never raise again.",
+            )
+        }
+        assertEquals(
+            listOf("i1", "i2", "i3"),
+            minted,
+            "ids are minted sequentially from 1; the serial IS the creation ordinal",
+        )
     }
 
     @Test

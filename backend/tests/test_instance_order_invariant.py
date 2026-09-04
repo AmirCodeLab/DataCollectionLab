@@ -24,7 +24,12 @@ from datetime import date
 
 import pytest
 
-from app.modules.form_engine.runtime import CompiledForm, CompileError, FormInstance
+from app.modules.form_engine.runtime import (
+    SERIAL_ID,
+    CompiledForm,
+    CompileError,
+    FormInstance,
+)
 
 IR = {
     "irVersion": "0.1",
@@ -75,7 +80,7 @@ def three_members() -> FormInstance:
 
 def test_a_reordered_instance_list_is_refused_rather_than_silently_shrunk() -> None:
     instance = three_members()
-    assert instance.instances["members"] == ["i1", "i2", "i3"]
+    assert len(instance.instances["members"]) == 3
 
     instance.instances["members"].reverse()
 
@@ -89,13 +94,14 @@ def test_a_reordered_instance_list_is_refused_rather_than_silently_shrunk() -> N
 def test_the_same_shrink_discards_the_trailing_member_when_the_order_holds() -> None:
     """The control. Without the reorder the shrink is ordinary and correct."""
     instance = three_members()
+    first, second, _third = instance.instances["members"]
 
     instance.set_many({"n": 2})
 
-    assert instance.instances["members"] == ["i1", "i2"]
+    assert instance.instances["members"] == [first, second]
     answers = instance.answers()
-    assert answers["members[i1].name"] == "A"
-    assert answers["members[i2].name"] == "B"
+    assert answers[f"members[{first}].name"] == "A"
+    assert answers[f"members[{second}].name"] == "B"
 
 
 def test_a_swap_of_two_adjacent_instances_is_caught_not_only_a_full_reversal() -> None:
@@ -153,3 +159,37 @@ def test_ids_from_another_minter_are_left_alone() -> None:
 
     assert unplaced == ()
     assert instance.instances["members"] == ["uuid-c", "uuid-a", "uuid-b"]
+
+
+def test_every_id_this_engine_mints_is_one_the_order_assertion_can_read() -> None:
+    """The guard against the guard going dark.
+
+    `_assert_creation_order` reads its ordinal off the id and returns **silently**
+    for an id it cannot parse. That is correct — an id from another minter has no
+    ordinal to read, and the caller's order is the only claim there is — but it
+    is also a state in which the assertion sees nothing at all. If this engine's
+    own id scheme ever stopped being `i<n>`, every list would become unreadable
+    to it and the ordering invariant would keep passing while checking nothing.
+
+    So this asserts the **link** rather than the format: every id the engine
+    mints must be one the assertion can read an ordinal from. The check belongs
+    here, on the minter, and not inside the assertion — an assertion cannot tell
+    "this id is foreign, stand down" from "every id is foreign because the scheme
+    changed", because from inside it those are the same observation.
+
+    Break 78 is the asymmetry: change the id scheme and this fails while every
+    ordering test above stays green.
+    """
+    instance = FormInstance(CompiledForm(PLAIN_IR), today=date(2026, 8, 28))
+
+    minted = [instance.add_instance("members") for _ in range(3)]
+
+    for instance_id in minted:
+        assert SERIAL_ID.fullmatch(instance_id) is not None, (
+            f"the engine minted {instance_id!r}, which _assert_creation_order "
+            "cannot read an ordinal from. The ordering invariant would go dark: "
+            "it would return early on every list and never raise again."
+        )
+    assert minted == ["i1", "i2", "i3"], (
+        "ids are minted sequentially from 1; the serial IS the creation ordinal"
+    )

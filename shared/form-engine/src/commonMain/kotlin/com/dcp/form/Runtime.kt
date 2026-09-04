@@ -340,7 +340,15 @@ internal fun inlineValuesOutsideChoices(node: QuestionNode, value: FormValue): L
 }
 
 
-private val SERIAL_ID = Regex("i(\\d+)")
+/**
+ * The shape of an id this engine mints, and the only shape
+ * [FormInstance.assertCreationOrder] can read an ordinal from.
+ *
+ * `internal` rather than `private` so `InstanceOrderTest` can assert the minter
+ * against the real pattern instead of a copy: the point of that test is the link
+ * between the two, and a copied regex would keep agreeing after this one changed.
+ */
+internal val SERIAL_ID = Regex("i(\\d+)")
 
 class FormInstance(
     val form: CompiledForm,
