@@ -9,19 +9,28 @@ from __future__ import annotations
 import json
 import pathlib
 from datetime import date, datetime
+from typing import Any
 
 import pytest
 
 from app.modules.form_engine.datasets import InMemoryDatasetSource
 from app.modules.form_engine.runtime import CompiledForm, CompileError, FormInstance
 from app.modules.form_engine.screens import (
+    Position,
     blocking_fields,
     build_screen_plan,
     can_finalize,
-    first_blocking_screen,
+    enter_instance,
+    first_blocking_position,
+    instance_progress,
+    next_position,
     next_screen,
+    previous_position,
     previous_screen,
+    progress,
+    relevant_instance_screens,
     relevant_screens,
+    resolve_position,
 )
 
 
@@ -86,7 +95,44 @@ def _refuse(instance: FormInstance, op: dict, vector_id: str, step_index: int) -
     raise AssertionError(f"{where}: expected {sorted(op)[0]} to be refused, it succeeded")
 
 
-def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int) -> None:
+def _instance_id(instance: FormInstance, repeat_id: str, index: int) -> str:
+    """Vectors address instances positionally, as everywhere else in this format.
+
+    A minted id (`i3`) never appears in a vector: it is an engine's private
+    counter, and pinning it would make the format assert something §2.3 does not
+    promise. The *position* an engine holds is an id — that is §11.3's whole
+    point — so the translation happens here, once, at the boundary.
+    """
+    return instance.instances[repeat_id][index]
+
+
+def _want_position(instance: FormInstance, spec: Any, plan: Any) -> Position | None:
+    """A vector's position spec as a Position: an int, `{screen, instanceIndex,
+    instanceScreen}`, or null."""
+    if spec is None:
+        return None
+    if isinstance(spec, int):
+        return Position(spec)
+    screen = plan[int(spec["screen"])]
+    if "instanceIndex" not in spec:
+        return Position(screen.index)
+    assert screen.repeat_id is not None, (
+        f"position names screen {screen.index} as a repeat screen; it is not"
+    )
+    return Position(
+        screen.index,
+        _instance_id(instance, screen.repeat_id, int(spec["instanceIndex"])),
+        int(spec["instanceScreen"]),
+    )
+
+
+def _check(
+    instance: FormInstance,
+    expect: dict,
+    vector_id: str,
+    step_index: int,
+    position: Position,
+) -> None:
     where = f"{vector_id} step {step_index}"
 
     for path, want in expect.get("relevant", {}).items():
@@ -255,10 +301,95 @@ def _check(instance: FormInstance, expect: dict, vector_id: str, step_index: int
                 f"{where}: screens.blocking expected {want_b}, got {got_b}"
             )
         if "firstBlocking" in screens:
-            got_f = first_blocking_screen(plan, instance)
-            assert got_f == screens["firstBlocking"], (
-                f"{where}: screens.firstBlocking expected "
-                f"{screens['firstBlocking']}, got {got_f}"
+            want_f = _want_position(instance, screens["firstBlocking"], plan)
+            got_f = first_blocking_position(plan, instance)
+            assert got_f == want_f, (
+                f"{where}: screens.firstBlocking expected {want_f}, got {got_f}"
+            )
+
+        # --- repeats (§11.3) ----------------------------------------------
+
+        for idx, want in screens.get("kinds", {}).items():
+            got_k = plan[int(idx)].kind
+            assert got_k == want, (
+                f"{where}: screens.kinds[{idx}] expected {want!r}, got {got_k!r}"
+            )
+        for idx, want in screens.get("repeats", {}).items():
+            got_rid = plan[int(idx)].repeat_id
+            assert got_rid == want, (
+                f"{where}: screens.repeats[{idx}] expected {want!r}, got {got_rid!r}"
+            )
+        for repeat_id, want_plan in screens.get("instancePlan", {}).items():
+            inner = plan.instance_plans.get(repeat_id)
+            assert inner is not None, (
+                f"{where}: instancePlan[{repeat_id}] — the plan has no such repeat"
+            )
+            if "count" in want_plan:
+                assert len(inner) == want_plan["count"], (
+                    f"{where}: instancePlan[{repeat_id}].count expected "
+                    f"{want_plan['count']}, got {len(inner)}"
+                )
+            for idx, want_q in want_plan.get("questions", {}).items():
+                got_iq = list(inner[int(idx)].question_ids)
+                assert got_iq == want_q, (
+                    f"{where}: instancePlan[{repeat_id}].questions[{idx}] expected "
+                    f"{want_q}, got {got_iq}"
+                )
+        for repeat_id, by_instance in screens.get("instanceRelevant", {}).items():
+            for inst_idx, want_r in by_instance.items():
+                iid = _instance_id(instance, repeat_id, int(inst_idx))
+                got_ir = relevant_instance_screens(plan, instance, repeat_id, iid)
+                assert got_ir == want_r, (
+                    f"{where}: instanceRelevant[{repeat_id}][{inst_idx}] expected "
+                    f"{want_r}, got {got_ir}"
+                )
+        if "position" in screens:
+            want_p = _want_position(instance, screens["position"], plan)
+            assert position == want_p, (
+                f"{where}: screens.position expected {want_p}, got {position}"
+            )
+        if "progress" in screens:
+            got_pr = list(progress(plan, instance, position))
+            assert got_pr == screens["progress"], (
+                f"{where}: screens.progress expected {screens['progress']}, got "
+                f"{got_pr} — a repeat counts once, whatever it holds (§11.2)"
+            )
+        if "instanceProgress" in screens:
+            want_ip = screens["instanceProgress"]
+            got_ip = instance_progress(plan, instance, position)
+            if want_ip is None:
+                assert got_ip is None, (
+                    f"{where}: instanceProgress expected null (not inside an "
+                    f"instance), got {got_ip}"
+                )
+            else:
+                assert got_ip is not None, (
+                    f"{where}: instanceProgress expected {want_ip}, got null"
+                )
+                got_within, got_across = ([*got_ip[0]], [*got_ip[1]])
+                assert got_within == want_ip["within"], (
+                    f"{where}: instanceProgress.within expected "
+                    f"{want_ip['within']}, got {got_within}"
+                )
+                assert got_across == want_ip["across"], (
+                    f"{where}: instanceProgress.across expected "
+                    f"{want_ip['across']}, got {got_across}"
+                )
+        for probe in screens.get("nextFrom", []):
+            frm = _want_position(instance, probe["from"], plan)
+            assert frm is not None
+            want_to = _want_position(instance, probe.get("to"), plan)
+            got_to = next_position(plan, instance, frm)
+            assert got_to == want_to, (
+                f"{where}: next from {frm} expected {want_to}, got {got_to}"
+            )
+        for probe in screens.get("previousFrom", []):
+            frm = _want_position(instance, probe["from"], plan)
+            assert frm is not None
+            want_to = _want_position(instance, probe.get("to"), plan)
+            got_to = previous_position(plan, instance, frm)
+            assert got_to == want_to, (
+                f"{where}: previous from {frm} expected {want_to}, got {got_to}"
             )
 
 
@@ -299,9 +430,21 @@ def test_vector(vector_path: pathlib.Path) -> None:
     datasets = RecordingDatasetSource(vector.get("datasets") or {})
     instance = FormInstance(compiled, today=today, now=now, datasets=datasets)
 
+    plan = build_screen_plan(vector["form"])
+    # The position a runtime holds (§11.2). It starts where a client opens the
+    # form: the first relevant screen.
+    position = Position(next_screen(plan, instance, -1) or 0)
+
     for i, step in enumerate(vector["steps"]):
+        where = f"{vector['id']} step {i}"
         if "addInstance" in step:
-            instance.add_instance(step["addInstance"])
+            # §11.3: on success the new instance becomes the open one and the
+            # position becomes its first relevant instance screen. That rule is
+            # `enter_instance` — the same function a client calls when the
+            # enumerator taps a row — so applying it here is the rule, not the
+            # harness's own idea of one.
+            added = instance.add_instance(step["addInstance"])
+            position = enter_instance(plan, instance, step["addInstance"], added)
         if "deleteInstance" in step:
             instance.delete_instance(
                 step["deleteInstance"]["repeat"], step["deleteInstance"]["index"]
@@ -310,8 +453,32 @@ def test_vector(vector_path: pathlib.Path) -> None:
             _refuse(instance, step["refuse"], vector["id"], i)
         if "set" in step:
             instance.set_many(step["set"])
+        if "goToScreen" in step:
+            position = Position(int(step["goToScreen"]))
+        if "enterInstance" in step:
+            spec = step["enterInstance"]
+            position = enter_instance(
+                plan,
+                instance,
+                spec["repeat"],
+                _instance_id(instance, spec["repeat"], int(spec["index"])),
+            )
+        if "navigate" in step:
+            move = next_position if step["navigate"] == "next" else previous_position
+            moved = move(plan, instance, position)
+            assert moved is not None, (
+                f"{where}: navigate {step['navigate']} yielded nothing from "
+                f"{position}. A vector asserting that uses the next/previous "
+                "probes, not a move"
+            )
+            position = moved
         if "expect" in step:
-            _check(instance, step["expect"], vector["id"], i)
+            # §11.3: an instance that ceased to exist drops the position back to
+            # its repeat screen. Applied on every read rather than only after a
+            # delete, because a countExpr shrink can discard it too and no step
+            # verb announces that.
+            position = resolve_position(plan, instance, position)
+            _check(instance, step["expect"], vector["id"], i, position)
 
 
 def test_determinism_pairs_agree() -> None:

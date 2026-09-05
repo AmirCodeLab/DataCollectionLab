@@ -1,0 +1,127 @@
+{
+  "id": "screens-017",
+  "description": "Progress does not count instances: the form-level pair is the same before and after the roster grows, and does not move while the enumerator is inside an instance. screens-018 is the pair that DOES move",
+  "spec": "11.2, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr17",
+    "version": 1,
+    "title": {
+      "en": "scr17"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 1,
+        "maxInstances": 6
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "goToScreen": 1,
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "screens": {
+          "progress": [
+            2,
+            3
+          ],
+          "instanceProgress": null
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "goToScreen": 1,
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "screens": {
+          "progress": [
+            2,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 2
+      },
+      "expect": {
+        "screens": {
+          "progress": [
+            2,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "navigate": "next",
+      "expect": {
+        "screens": {
+          "progress": [
+            2,
+            3
+          ]
+        }
+      }
+    }
+  ]
+}

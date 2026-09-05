@@ -1,0 +1,128 @@
+{
+  "id": "screens-012",
+  "description": "A repeat is exactly one screen and its questions live in the instance plan; adding instances changes no index and no count, because an instance count never enters the plan",
+  "spec": "11.1, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr12",
+    "version": 1,
+    "title": {
+      "en": "scr12"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 1,
+        "maxInstances": 3
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "screens": {
+          "count": 3,
+          "kinds": {
+            "0": "questions",
+            "1": "repeat",
+            "2": "questions"
+          },
+          "repeats": {
+            "1": "members"
+          },
+          "questions": {
+            "0": [
+              "hh"
+            ],
+            "1": [],
+            "2": [
+              "tail"
+            ]
+          },
+          "instancePlan": {
+            "members": {
+              "count": 2,
+              "questions": {
+                "0": [
+                  "nm"
+                ],
+                "1": [
+                  "ag"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "screens": {
+          "count": 3,
+          "kinds": {
+            "1": "repeat"
+          },
+          "questions": {
+            "2": [
+              "tail"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

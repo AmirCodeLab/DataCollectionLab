@@ -1,7 +1,7 @@
 {
   "id": "screens-008",
-  "description": "A blocking field inside a repeat has no screen to navigate to and still refuses finalisation",
-  "spec": "6.2",
+  "description": "A blocking field inside a repeat resolves to the full position — the repeat screen, the instance and the instance screen — because landing on the roster and leaving the enumerator to find which member is at fault is a refusal that leads nowhere. screens-006 is the other half, outside a repeat",
+  "spec": "6.2, 11.3",
   "form": {
     "irVersion": "0.1",
     "formId": "scr8",
@@ -50,12 +50,16 @@
       "addInstance": "kids",
       "expect": {
         "screens": {
-          "count": 1,
+          "count": 2,
           "canFinalize": false,
           "blocking": [
             "kids[0].kid_name"
           ],
-          "firstBlocking": null
+          "firstBlocking": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 0
+          }
         }
       }
     },

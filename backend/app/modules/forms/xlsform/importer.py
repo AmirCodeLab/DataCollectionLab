@@ -1876,7 +1876,12 @@ def import_workbook(
     if compiles and question_count:
         from app.modules.form_engine.screens import build_screen_plan
 
-        on_screen = {q for screen in build_screen_plan(form) for q in screen.question_ids}
+        # `askable_question_ids` and not a walk over `.screens`: a repeat's
+        # questions live in its instance plan, and a caller reading the
+        # top-level screens alone would miss every one of them — which is the
+        # exact defect this check exists to catch. There is no half-way way to
+        # ask.
+        on_screen = build_screen_plan(form).askable_question_ids()
         unreachable = [
             node_id
             for node_id, node in _answerable_nodes(children)
@@ -1891,19 +1896,18 @@ def import_workbook(
                 "questions_cannot_be_asked",
                 f"{len(unreachable)} question(s) in this form cannot be asked by any "
                 f"client yet, so they would be silently skipped in the field: {shown}. "
-                "They are inside a repeat, and this platform's form format excludes a "
-                "repeat from the screen plan until repeat screen flow is built (Form "
-                "IR §11.1).",
+                "Nothing in the screen plan reaches them (Form IR §11.1). This is a "
+                "gap in the platform, not in your form.",
                 ref=CellRef(SURVEY_SHEET, importer.node_rows[first], "type")
                 if first in importer.node_rows
                 else None,
                 node_id=first,
                 blame="platform",
                 key="questions_cannot_be_asked",
-                remedy="Nothing is wrong with your spreadsheet. Until repeat screen "
-                "flow is built, a roster has to come out of the form or wait — a form "
-                "that deploys and asks none of these would lose the answers with "
-                "nothing on screen to show for it.",
+                remedy="Nothing is wrong with your spreadsheet. Please send us this "
+                "form — a form that deploys and asks none of these would lose the "
+                "answers with nothing on screen to show for it, so it must not "
+                "publish until we can put them on a screen.",
             )
 
     dropped_rows = ledger.row_residue(SURVEY_SHEET)

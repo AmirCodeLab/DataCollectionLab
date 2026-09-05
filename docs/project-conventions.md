@@ -354,6 +354,8 @@ What watches that layer, and all there is:
 | That the ordering guard above can still read an id at all — the minter and the assertion agreeing is what stops it going dark | the same two files, one test each | 78 |
 | That every question in an imported form can actually be put on a screen — a repeat's cannot, and the form used to publish anyway | `test_xlsform_template.py` (`backend`) | 79 |
 | That the "N of M" an enumerator reads counts only screens somebody can answer | `NavigatorTest` (`:shared:form-engine:jvmTest`) — the vectors pin the plan, this pins the displayed pair | 80 |
+| That the cursor re-reads its position after the instance list changes, and refuses an instance id that does not exist | `NavigatorTest` (`:shared:form-engine:jvmTest`) — §11.3's rules are pure functions the vectors reach; *calling* them from the cursor is not | 89 |
+| That two engines agree about which forms compile, for every §10.2 error except the sensitivity leak | `test_repeat_in_field_list.py` (`backend`) and `ScreensRepeatTest` (`:shared:form-engine:jvmTest`) — a matched pair, and nothing else. See below | — |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -384,6 +386,105 @@ line, where the vectors can see it: §6.2's gate lives in the shared navigator
 with the same three functions in the Python reference specifically so that the
 clients could not each decide it for themselves, which is what they had been
 doing.
+
+### A guard that enumerates what exists cannot see what stopped existing
+
+**The fourth blind spot, and the one that was found the hard way.** On
+2026-09-05 seven conformance vectors were destroyed in a single command —
+`repeat-009`…`repeat-012` and `screens-009`…`screens-011`, which was the whole
+of the previous day's output and the evidence behind breaks 74 to 81. **Every
+gate stayed green.** `conformance/generate_vectors.py` cleared the directory
+before writing and those seven were hand-written straight to JSON rather than
+added to it; `pytest tests/test_conformance.py` reported 96 passed, and every
+other check passed too.
+
+The reason is not that a check was missing. It is that **every check we have
+asks whether what exists is in order, and a deleted thing does not exist.**
+
+```
+check_ci_runs_every_suite.py    "is every suite on disk run by CI?"
+                                "was every vector on disk executed?"
+check_every_directory_is_gated  "is every directory holding source read by a gate?"
+test_conformance.py             "does every vector on disk pass on both engines?"
+```
+
+Read them together and the shape is obvious in hindsight: each one **starts by
+enumerating the present** and then asks a question about what it found. Break 41
+is the closest relative — a vector that existed and was not executed — and even
+that is a question about something present. None of them can ask *"is what used
+to be here still here"*, because none of them has any idea what used to be here.
+A vector that is deleted is not a failing vector. It is an absence, and absence
+is the raw material every one of these guards is built out of.
+
+**A count is not a guard.** `test_conformance.py` printed `96 passed` where it
+had printed `103`, and that number moved past three people and two CI-shaped
+runs without anyone reacting, because nothing anywhere held an expectation of
+it. A number that nothing compares against is decoration. If a count is the
+signal, something has to assert the count.
+
+**So the fix cannot come from inside.** A guard over a set can never notice the
+set shrinking; it needs an **external reference** — some other artifact that
+names what ought to exist and is maintained for its own reasons. Maintained for
+its own reasons is the load-bearing half. A list kept up to date *for the guard*
+decays exactly as the thing it is guarding does, which is why
+`check_ci_runs_every_suite.py` enumerates rather than holding a list in the first
+place.
+
+`docs/known-breaks.md` turned out to be that reference, already written and
+already maintained: every row names the vector that catches its break, because a
+row is worthless without one. So `backend/tests/test_known_breaks_cite_live_vectors.py`
+asserts that every vector named in a code span there is still on disk. It caught
+all seven, and it catches a single file deleted by hand. Break 82.
+
+**The sweep that followed, because one loss is a reason to look for others.**
+Every vector id cited anywhere — `docs/`, `specs/`, every Python and Kotlin
+source and test file, and every commit message on every branch — checked against
+every vector on disk and against what the generator produces. **105 distinct ids
+cited, one absent: `choice-999`, which is the hypothetical inside break 41's
+quoted error message and never named a file.** History agrees: 191 vector files
+have ever been added and 191 are on disk, with no deletion recorded on any
+reachable branch. Nothing else went the same way.
+
+Two things the sweep turned up that were not the thing it was looking for.
+`media-001` exists in **both** `conformance/vectors` and `conformance/crypto` —
+a media round trip and per-chunk media encryption, two claims wearing one name —
+so a bare citation of it names both files and the guard above is genuinely
+weaker for that one id. That is now stated in `KNOWN_COLLISIONS` and a *new*
+collision fails the build, so the next one is a decision rather than a hole. And
+86 vectors on disk are cited nowhere at all: not a problem, but it is the exact
+measure of how far the guard reaches — it protects what somebody wrote down as
+load-bearing, which is not the same as everything.
+
+**Where to apply this next.** The question to ask of any new guard is not "what
+does it check" but *"what would it say if the thing it checks were gone"*. If
+the answer is "nothing", find the artifact that already names what should be
+there:
+
+| Set | Would notice a deletion? | Reference that names it |
+|---|---|---|
+| `conformance/vectors` and the other four sets | **yes**, since break 82 | `docs/known-breaks.md` citations |
+| Test suites | **no** — a deleted suite is a suite that never existed | nothing yet; `check_ci_runs_every_suite.py` enumerates |
+| The rows of `docs/known-breaks.md` itself | **no** | nothing |
+| A `TEST_SOURCE_SETS` entry | **no** | nothing |
+
+The bottom three rows are honest gaps, not work items pretending to be done.
+Delete `NavigatorTest.kt` today and nothing in this repository says a word.
+
+### The refusals no vector format can express
+
+`conformance/vectors` is a form plus an ordered list of steps, and **every step
+assumes a form that compiled**. There is no way to write "this document must be
+refused" in it. Two sets were built to cover that: `malformed` for §10.1, and
+`sensitivity` for exactly one §10.2 rule.
+
+**The rest of §10.2 is held by a test in each engine and nothing else** — the
+nested-repeat refusal, and now the repeat-inside-a-field-list refusal. That is a
+real exposure rather than a tidy division of labour: two engines that disagree
+about which forms compile is a form author meeting a refusal their builder told
+them was not there, which is the same failure the sensitivity set was built to
+prevent and is prevented here only by whoever edits one file remembering the
+other. The pairs are named in the table above so the second file is findable
+from the first.
 
 ### A spec sentence that names two operations needs two vectors
 
@@ -651,10 +752,14 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot
-3. **Repeat screen flow**, and the roster it unblocks. The engine already manages
-   instances; what is missing is a screen to put a roster on, because Form IR
-   §11.1 excludes repeats from the screen plan and defers their flow to v0.2. A
-   spec decision first, then the planner on both engines, then the UI
+3. **Repeat screen flow**, and the roster it unblocks. **Spec and engines done,
+   5 September 2026; the UI is what is left.** Form IR §11.3 decides it — a
+   repeat is one screen holding the instance list, an instance is entered and
+   left, and no instance count enters the screen plan, so the "N of M" a
+   household of six reads is the one it read at five. Both engines implement it
+   under `screens-012`…`screens-025`, and defect 14 is closed. Remaining: the
+   roster UI, and `addLabel` / `summaryLabel`, which §2.3 specifies and neither
+   engine parses yet
 4. **Separate sync for sample and form.** A 37,000-row sample over a village
    connection is a different proposition from a small form update, and the person
    holding the handset should decide which they are doing

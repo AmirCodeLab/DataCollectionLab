@@ -127,6 +127,9 @@ A group does not create a data scope. Child paths are **not** nested under the g
   "countExpr": <expr>,
   "minInstances": 0,
   "maxInstances": 30,
+  "addLabel": { "en": "Add another household member" },
+  "summaryLabel": { "en": "{0}, age {1}" },
+  "summaryLabelArgs": [ <expr>, ... ],
   "children": [ <node>, ... ]
 }
 ```
@@ -136,6 +139,16 @@ A repeat **does** create a data scope. Children are addressed as `members[i].nam
 - If `countExpr` is present the instance count is controlled by it and the user cannot add or remove instances. Growing the count creates empty instances; shrinking it discards the trailing instances and their data.
 - If absent, the user controls instance count, bounded by `minInstances` / `maxInstances`. `minInstances` instances are created when the form opens.
 - **Nested repeats are not supported in v0.1.** A repeat inside a repeat is a compile error. Deferred to v0.2 — the reference-resolution and aggregate rules need designing before implementation, and shipping a half-defined version would be worse than refusing it.
+
+`addLabel` and `summaryLabel` are what a repeat screen renders (§11.3), and both
+are optional. `addLabel` names the add control — "Add another household member"
+is per-form and per-language, so it belongs on the node and not in a client.
+`summaryLabel` is what one row of the instance list says: a §7.1 interpolated
+label evaluated **in the instance's scope**, so a bare reference among its
+arguments resolves to that instance (§4.2), and every §7.1 rule applies to it
+unchanged — null is the empty string, values are bidi-isolated, arguments are
+dependencies, and a slot with no argument is a compile error. Where
+`summaryLabel` is absent a row shows its 1-based position in the current order.
 
 Instances carry **stable ids** internally. Positional addressing (`members[0]`) resolves against the current ordered list at evaluation time. Deleting an instance removes it from the order and destroys its values; it never renumbers the surviving instances in storage, so an operation referring to a surviving instance stays valid after a concurrent delete elsewhere.
 
@@ -741,15 +754,31 @@ blocking fields.
   order. That is the order an engine holds its field states in, so every engine
   reports the same list in the same order.
 - `canFinalize` is true exactly when `blockingFields` is empty.
-- `firstBlockingScreen` is the lowest-index screen (§11.1) containing a blocking
-  field, and nothing when there is none. It is always a relevant screen: a
-  blocking field is relevant, and a screen is relevant while any of its
-  questions is.
-- A blocking field inside a repeat has no screen at all, because §11.1 excludes
-  repeats from the plan. It still blocks finalisation, and `firstBlockingScreen`
-  can therefore be nothing while `canFinalize` is false. Repeat navigation is a
-  v0.2 question (§12); until it is answered a runtime MUST still refuse, and
-  SHOULD name the field it cannot navigate to.
+- `firstBlockingScreen` is a **position** (§11.2), not a bare index: the earliest
+  place a runtime can send the enumerator to see a blocking field, and nothing
+  when there is none. For a field outside a repeat it is that field's screen. For
+  a field inside one it is the full triple — the repeat screen, that instance,
+  and the instance screen holding the field — because landing somebody on the
+  roster and leaving them to work out which of thirty members is at fault is a
+  refusal that does not lead anywhere.
+- "Earliest" is **screen order**: lowest top-level screen index; then, within a
+  repeat screen, earliest instance in instance order; then lowest instance screen
+  index.
+- **That is not `blockingFields[0]`'s screen**, and the two are not
+  interchangeable. `blockingFields` is field-state order — every field outside a
+  repeat, then each repeat instance's — so a blocking field on screen 9 can come
+  first in that list while a blocking field on repeat screen 3 is the earliest
+  place to go. Both orders are defined; they answer different questions.
+- It is always a relevant position: a blocking field is relevant, and a screen is
+  relevant while any of its questions is.
+- `firstBlockingScreen` can still be nothing while `canFinalize` is false, and
+  the case is no longer repeats. **A `calculate` produces no screen** (§11.1),
+  and a calculate carrying a failing hard `constraint` is relevant and blocking,
+  so nothing in the plan holds it. A runtime MUST still refuse, and SHOULD name
+  the field and show its message. This is a live dead end rather than a
+  hypothetical one — `docs/known-defects.md` 15 — and closing it is a decision
+  about where to send somebody for a field nobody can answer, not a repair to
+  this sentence.
 
 `canFinalize` and whole-instance validity are different questions: a form whose
 only fault is a soft constraint is invalid and still finalisable.
@@ -1012,7 +1041,18 @@ number, and a submission records the version it was collected against.
 Checked over a document that passed §10.1. These block publish:
 
 unresolvable reference, dependency cycle, duplicate id, invalid id format, type
-mismatch, unknown function, wrong arity, **sensitivity leak**.
+mismatch, unknown function, wrong arity, **sensitivity leak**, **a repeat inside
+a field-list group**.
+
+A **repeat inside a `field-list` group** is refused because the two say
+contradictory things about the same questions, not because we are choosing
+between two workable behaviours. `appearance: "field-list"` means *these
+questions appear together on one screen*; a `repeat` means *this is a separate
+screen you enter and leave* (§11.3). Both cannot be true of the same subtree, so
+the refusal states what is already the case rather than picking a side. The
+alternative — dropping the repeat's questions from the field-list screen — is
+the silent-omission defect §11.1 exists to close, reappearing in a corner nobody
+would look in.
 
 A **sensitivity leak** is a field that is not `sensitive` but whose `calculate`,
 `relevant`, `constraint`, `required`, `readOnly` or `default` reads a field that
@@ -1050,74 +1090,207 @@ The screen plan is a pure function of the IR, computed once at compile time:
   `field-list` has no additional effect. A field-list group containing no
   questions — or only calculates — produces no screen.
 - Any other `group` contributes no screen of its own; its children are walked.
-- A `repeat` subtree is excluded from the screen plan entirely. Screen flow for
-  repeats is deferred to v0.2 together with repeat navigation UX.
+- A `repeat` becomes **exactly one screen** — its **repeat screen** — carrying no
+  questions of its own. Its children are partitioned separately, by these same
+  rules, into the repeat's **instance plan**, which is rendered once per instance
+  (§11.3). A repeat contributes one screen whether it holds zero instances or
+  thirty.
+- A `repeat` inside a `field-list` group is a **compile error** (§10.2). The two
+  say contradictory things about the same questions: a field-list group means
+  they appear together on one screen, a repeat means they are a separate screen
+  you enter and leave.
 
-Each screen records, in order: its zero-based `index`, the ordered question ids
-it contains, the id of the field-list group that produced it (if any), and the
-id of its nearest enclosing group (for headers). Screen indices are stable for
-a given IR; relevance never renumbers them.
+**Why a repeat is one screen and not one per instance.** The first sentence of
+this section is the load-bearing one, and instances are what would break it. An
+instance count is not in the IR — under `countExpr` it is a function of the
+answers, and without one the enumerator decides, so for a household roster
+nobody knows the number until the interview is over. Instances as screens would
+make the plan a function of answer state, and every index after the repeat would
+move under the enumerator's hand each time they added a member. One screen per
+repeat is what keeps the plan pure and the indices stable; §11.3 says so again,
+where somebody changing it will be reading.
+
+Each screen records, in order: its zero-based `index`; its `kind`, which is
+`questions` or `repeat`; the ordered question ids it contains, empty for a repeat
+screen; the id of the repeat that produced it, only for a repeat screen; the id
+of the field-list group that produced it (if any); and the id of its nearest
+enclosing group (for headers). Screen indices are stable for a given IR;
+relevance never renumbers them, and neither does adding or deleting an instance.
+
+**The instance plan.** A repeat's instance plan is built from the repeat's
+`children` by the rules above. Its screens are indexed from zero *within the
+instance*, and they carry question **ids**, not paths — a runtime binds them to
+`repeatId[instanceId].questionId` when it renders one instance. Because a repeat
+inside a repeat is a compile error (§2.3), an instance plan can contain no repeat
+screen: the nesting is exactly two levels deep, and it is that compile error and
+not a convention which keeps it there.
 
 ### 11.2 Navigation
 
-Navigation is over the static plan filtered by live relevance:
+Navigation is over the static plan filtered by live relevance.
+
+A **position** is either a top-level screen index, or — while the enumerator is
+inside a repeat instance — the triple (repeat screen index, **instance id**,
+instance screen index). Every rule below is a function of the plan, the answer
+state and a position, and yields a position. No runtime keeps a cursor the others
+cannot reproduce, which is the same reason §6.2 gives for deciding finalisation
+here rather than in each UI.
 
 - A screen is **relevant** when at least one of its questions is currently
-  relevant (§5). Screens add no evaluation semantics of their own.
+  relevant (§5). Screens add no evaluation semantics of their own. A repeat
+  screen has no questions, so §11.3 decides it instead.
 - `next(from)` is the lowest-index relevant screen with index greater than
   `from`; `next(-1)` is therefore the first relevant screen.
 - `previous(from)` is the highest-index relevant screen with index less than
   `from`.
 - Both yield nothing when no such screen exists. `from` itself need not be
   relevant.
+- `enterInstance(repeat, instance)` is the only way into an instance: the
+  position becomes that instance's first relevant instance screen, or the repeat
+  screen if it has none. **`next` never enters an instance** — it lands on the
+  repeat screen and stops there, so `next` moves exactly one screen every time it
+  is called and `previous` stays its inverse.
 - Progress is the screen's 1-based position within the ordered list of
-  currently relevant screens, out of that list's length.
+  currently relevant screens, out of that list's length. A repeat screen counts
+  **once**, and **progress MUST NOT count instances**.
+
+  A twelve-screen form whose fourth screen is a household roster reads `4 of 12`
+  on that roster; it still reads `4 of 12` when the household turns out to have
+  six members, and again when a seventh is added. A denominator that moves while
+  the enumerator works is worse than no denominator — it is a promise about
+  remaining work that the form then withdraws — and for an enumerator-driven
+  roster the number cannot be known in advance by anybody, the respondent
+  included.
+
+  While inside an instance the form-level pair does not move at all: the
+  enumerator has not left the repeat screen. An instance carries its own two
+  pairs, and §11.3 specifies them.
 - Neither consults validity. Navigation is never gated on whether the answers on
   a screen are present or correct — see §6.2, which also defines the gate that
   *is* enforced, on finalisation.
 
+### 11.3 Repeats
+
+**One screen, and why it has to stay one.** §11.1's first sentence is
+load-bearing for everything here: the screen plan is a pure function of the IR,
+computed once at compile time. An instance count is not in the IR, so **an
+instance count MUST NOT enter the screen plan.** A repeat contributes exactly one
+screen whether it holds zero instances or thirty; adding or deleting an instance
+changes no index, changes the plan not at all, and is invisible to the function
+that builds it. Everything per-instance comes from the instance plan, which is
+itself a pure function of the IR.
+
+That is the constraint to check a change against rather than a consequence of
+one. Every rule below is downstream of it.
+
+**The repeat screen** shows the repeat's instances in their current order, a way
+into each, an add control where §2.3 permits adding, and a delete control on each
+instance where §2.3 permits deleting. It asks nothing itself. §2.3 decides what
+is permitted; this section says only where it surfaces.
+
+**Relevance.** A repeat screen has no questions of its own, so §11.2's rule
+cannot decide it. A repeat screen is relevant when **both** hold:
+
+1. the repeat's own `relevant` is true (§5, with null coerced to true as
+   everywhere), **and**
+2. it has something to offer — at least one instance, **or** an instance the
+   enumerator may add.
+
+Both halves of the second condition carry weight, and they pull in opposite
+directions. A `countExpr` repeat currently sized zero offers no instance and no
+add: it is skipped, exactly as a screen holding only a calculate is skipped
+(§11.1) and for the same reason — otherwise it is a blank screen inflating the
+pair in §11.2. An enumerator-driven repeat with no instances yet **MUST NOT** be
+skipped: its empty screen is the only door to the first instance, and skipping it
+would be §11.1's own defect one level in.
+
+An instance whose every screen is currently irrelevant is still listed. It exists
+as data, it has an identity, and its delete control is the only way to be rid of
+it.
+
+**Inside an instance.** `next` from an instance screen is the next relevant
+screen of the instance plan; from the last, it **leaves the instance**, and the
+position becomes the repeat screen. `previous` from an instance screen is the
+previous relevant one; from the first, it likewise leaves to the repeat screen.
+Neither ever moves to another instance.
+
+Leaving to the list rather than advancing into the next instance is what gives
+the "are we finished?" decision a place to happen, and for a roster whose length
+only the respondent knows, that decision is the feature. It also lets one rule
+serve both count modes: a `countExpr` roster of six and an enumerator-driven
+roster of six navigate identically, and differ only in which controls §2.3
+permits. A runtime MAY offer an explicit "next instance" control at the end of an
+instance — that is `enterInstance` on the following one, the same operation as
+choosing it from the list, and not a second meaning for `next`.
+
+**Progress inside an instance is specified here, not left to clients.** An
+instance reports two pairs, and an engine computes both:
+
+- **within the instance** — the 1-based position of the current instance screen
+  among the instance's currently relevant instance screens, out of that count. As
+  in §11.2 the position is 0 while the current screen is not itself relevant.
+- **across instances** — the 1-based position of the open instance in the
+  repeat's current order, out of the current instance count.
+
+They are specified rather than left to each client for the reason §6.2 gives
+about navigation and finalisation: two runtimes that each decide what "3 of 5"
+counts will decide differently, the difference will read as a UX detail, and no
+conformance vector reaches a client. The engine emits both pairs and the vectors
+assert them.
+
+The second pair moves as instances are added, and that is correct. It is the
+roster's own count, it changed because the enumerator added a member, and it is
+not a claim about how much of the form is left. §11.2's form-level pair is the
+one that must not move, and it does not: inside an instance the enumerator has
+not left the repeat screen.
+
+**Adding.** `addInstance` (§2.3) is invoked from the repeat screen. On success
+the new instance becomes the open one and the position becomes its first relevant
+instance screen — or the repeat screen, if it has none. The top-level position
+does not change, the plan does not change, and no index is renumbered. A refused
+add — the `maxInstances` ceiling, or a `countExpr`-controlled repeat — leaves the
+position exactly where it was.
+
+**Deleting.** After a successful `deleteInstance` (§2.3): if the deleted instance
+is the one the position is inside, the position becomes the repeat screen.
+Otherwise the position is **unchanged**, including its instance screen index.
+
+That follows from a position holding an instance **id** and never an ordinal.
+§2.3 already guarantees a delete never renumbers the survivors in storage; a
+position holding a list index would move the enumerator into a different person's
+answers on somebody else's delete, with every control on the screen still reading
+correctly and nothing at all to see. An id cannot do that — it either still
+exists or it does not.
+
+A refused delete — the `minInstances` floor, or a `countExpr`-controlled repeat —
+leaves the position exactly where it was.
+
+**An instance that ceases to exist.** One rule, whatever the cause: if the
+position's instance is no longer in the repeat's order, the position becomes the
+repeat screen. That covers a delete, and it covers a `countExpr` shrink
+discarding trailing instances (§2.3), which can happen while the enumerator is
+inside one of them.
+
+**Zero instances.** A relevant repeat with no instances shows its repeat screen,
+empty, with its add control. That is neither a dead end nor a blank screen with
+nothing to do: it is the only door to the first instance, and `minInstances: 0`
+is a legal roster.
+
 ## 12. Open questions for v0.2
 
 - **Nested repeats** — reference resolution, aggregate semantics across levels, and instance lifecycle when a parent instance is deleted
-- **The enumerator-driven roster — the fourth way an instance count is decided,
-  and the one no client offers.** Three ways are reachable today: `countExpr`
-  over an earlier answer ("how many live here?"), `countExpr` over a dataset
-  value carried on the sample row, and `minInstances` fixing the count at open.
-  The fourth is the common case for a household member roster — the enumerator
-  keeps adding until the respondent says stop — and it is what a household
-  listing cannot be collected without.
+- **The enumerator-driven roster, and screen flow across repeats — answered in
+  §11.3, 5 September 2026.** Both entries stood here for the same reason: §11.1
+  excluded a repeat from the screen plan, so the engine's instance semantics were
+  complete and unreachable, and a form with a roster asked none of its questions
+  on any client (`docs/known-defects.md` 14).
 
-  Being precise about where the gap is, because §2.3 already reads as though
-  there is none: **the instance semantics are specified and both engines
-  implement them.** §2.3 says that with `countExpr` absent the user controls the
-  count; `Runtime.addInstance` and `deleteInstance` exist in the Kotlin and
-  Python engines, refuse an add on a `countExpr`-controlled repeat, and are held
-  to it by `repeat-001`…`repeat-008`. `minInstances` and `maxInstances` are on
-  `RepeatNode` and in the schema.
+  A repeat is one screen holding the instance list; an instance is entered and
+  left; the plan stays a pure function of the IR and no instance count enters it.
+  The add control's missing label is `addLabel` and the list row's is
+  `summaryLabel`, both §2.3. What remains open below is nesting, and nothing
+  else about repeats.
 
-  **What is missing is a screen to put a roster on, and it is this document's
-  doing.** §11.1 excludes a repeat subtree from the screen plan entirely and
-  defers repeat screen flow to v0.2. A runtime that renders the plan therefore
-  never sees a repeat child, which is why the collection screen offers no add
-  control: not a widget nobody wrote, but a screen the spec does not yet let it
-  compute. **Answering this question means answering §11.1's deferral** —
-  whether an instance is a screen, a sub-sequence, or a list with a detail view,
-  and what `next` / `previous` / progress do across it.
-
-  One thing the spec separately owes v0.2 once that control exists:
-
-  - **The control has no label and the IR has no field to carry one.**
-    `RepeatNode` is `id`, `label`, `relevant`, `countExpr`, `minInstances`,
-    `maxInstances`, `children`. "Add another household member" is per-form and
-    per-language, so it is `{lang: string}` on the node, not a client string.
-
-  `minInstances` not bounding removal was listed here and never belonged here.
-  §2.3 already says "bounded by `minInstances` / `maxInstances`", and both
-  engines honoured that on the add and not on the delete — a defect against
-  v0.1, not a question for v0.2. Fixed, with `repeat-009` holding both engines
-  to the floor and `repeat-010` to the ceiling; break 74 in
-  `docs/known-breaks.md` is the evidence they catch it.
-- Screen flow across repeats — per-instance sub-screens vs one screen per repeat
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
 - Server-only expressions and where they are declared

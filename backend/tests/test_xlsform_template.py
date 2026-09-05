@@ -80,33 +80,25 @@ def roster():
     )
 
 
-def test_the_roster_example_is_refused_and_says_why(roster) -> None:
-    """Defect 14, from the outside.
+def test_the_roster_example_publishes_now_that_a_roster_has_a_screen(roster) -> None:
+    """Defect 14 closed, from the outside.
 
-    A repeat is excluded from the screen plan (Form IR §11.1), so a form with a
-    roster would deploy and ask none of it. The importer refuses rather than
-    warns — the same rule as the no-questions refusal — and the roster example
-    is the workbook that proves the refusal fires on the shape RCons will emit.
+    This test asserted the opposite until repeat screen flow landed: a repeat was
+    excluded from the screen plan (Form IR §11.1), so a form with a roster would
+    have deployed and asked none of it, and the importer refused rather than
+    warned. §11.3 gives a repeat a screen, the questions become reachable, and
+    the refusal stops firing on its own — it was written against reachability and
+    not against repeats, so nothing about it had to change.
+
+    Kept, inverted, rather than deleted: the workbook is the shape RCons will
+    emit, and "a roster imports clean" is the claim worth holding.
     """
     refusals = [d for d in roster.diagnostics if d.code == "questions_cannot_be_asked"]
-    assert len(refusals) == 1, [d.code for d in roster.diagnostics]
+    assert not refusals, [d.message for d in refusals]
+    assert roster.publishable
 
-    refusal = refusals[0]
-    assert refusal.severity == "error"
-    assert not roster.publishable
-    # `platform`, so the report opens with "nothing in your form is wrong".
-    assert refusal.blame == "platform"
-    # Every unaskable question named, not just a count.
-    for name in ("member_name", "member_age", "member_relation", "member_in_school"):
-        assert name in refusal.message, refusal.message
-    assert refusal.ref is not None, "the refusal must name the row it came from"
-
-    # Nothing else is wrong with it: the refusal is the only complaint.
-    others = [
-        d for d in roster.diagnostics
-        if d.severity in ("error", "warning") and d.code != "questions_cannot_be_asked"
-    ]
-    assert not others, [f"{d.severity} {d.code}" for d in others]
+    complaints = [d for d in roster.diagnostics if d.severity in ("error", "warning")]
+    assert not complaints, [f"{d.severity} {d.code}" for d in complaints]
 
 
 def test_a_calculate_is_not_counted_as_a_question_nobody_can_ask(imported) -> None:
@@ -123,19 +115,36 @@ def test_a_calculate_is_not_counted_as_a_question_nobody_can_ask(imported) -> No
     assert imported.publishable
 
 
-def test_the_template_compiles_and_its_roster_example_is_still_off_screen(roster) -> None:
-    """When item 3 lands this fails, and §5 of the guide is what to rewrite."""
+def test_every_roster_question_is_on_a_screen_of_the_instance_plan(roster) -> None:
+    """The measurement defect 14 was filed on, run again and come out the other way.
+
+    Before §11.3 this form produced 13 screens and **none** of the roster's four
+    questions was on any of them. The count that matters is not the screen count
+    — it is that no answerable question is missing from the plan.
+
+    Asserted through `askable_question_ids`, which reads both levels, because a
+    walk over the top-level screens alone would still report the roster missing
+    and a walk that forgot the instance plan is precisely the mistake this
+    guards.
+    """
     compiled = CompiledForm(roster.form)
+    plan = build_screen_plan(roster.form)
+
+    in_repeat = {f for f, c in compiled.fields.items() if c.repeat is not None}
+    assert in_repeat, "precondition: the roster example has a roster"
     assert "members" in compiled.repeats
 
-    on_screen = {q for screen in build_screen_plan(roster.form) for q in screen.question_ids}
-    in_repeat = {f for f, c in compiled.fields.items() if c.repeat is not None}
-
-    assert in_repeat, "precondition: the roster example has a roster"
-    assert not (in_repeat & on_screen), (
-        "a repeat's questions now reach a screen. That is good news, and it makes "
-        "docs/xlsform-template.md §5 and docs/known-defects.md 14 both wrong."
+    # One repeat screen in the plan, and the roster's questions on its instance
+    # plan rather than on any top-level screen.
+    repeat_screens = [s for s in plan.screens if s.repeat_id == "members"]
+    assert len(repeat_screens) == 1, [s.repeat_id for s in plan.screens]
+    top_level = {q for screen in plan.screens for q in screen.question_ids}
+    assert not (in_repeat & top_level), (
+        "a repeat's questions belong to its instance plan, not to a top-level screen"
     )
+
+    missing = in_repeat - plan.askable_question_ids()
+    assert not missing, f"roster questions still on no screen: {sorted(missing)}"
 
 
 def test_the_guide_exists_and_names_both_workbooks_it_documents() -> None:

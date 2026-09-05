@@ -298,20 +298,38 @@ child — so there is no control to press because there is no screen for it to b
 on. The engine's roster capability is unreachable from a handset, and it is the
 screen plan and not the widget that makes it so.
 
-Item 3 is therefore three things, and the first is the one with no budget yet:
+Item 3 was therefore three things, and **the first two are done — 5 September
+2026.**
 
-1. **Specify repeat screen flow.** §11.1 and §11.2 for v0.2: whether an
-   instance is a screen, a sub-sequence or a list with a detail view, and what
-   `next` / `previous` / progress do across it. A spec decision, and the real
-   cost of the item.
-2. Implement that plan in the screen planner on both engines, with vectors.
-3. Build the roster UI on it — the list, the add and remove affordance, and a
-   label for the add control, which `RepeatNode` has no field to carry
-   (`specs/form-ir-v0.1.md` §12).
+1. ~~**Specify repeat screen flow.**~~ **Form IR §11.3.** A repeat is one screen
+   holding the instance list; its children are partitioned by the same §11.1
+   rules into an instance plan rendered once per instance; an instance is
+   entered and left, and `next` from its last screen returns to the list rather
+   than advancing to the next instance, because that is where "have we got
+   everybody?" belongs. **No instance count enters the screen plan**, so the
+   pair a household of six reads is the one it read at five — a moving
+   denominator is a promise about remaining work that the form then withdraws,
+   and for an enumerator-driven roster nobody can know the number in advance.
+   A position holds an instance **id** and never an ordinal, so somebody else's
+   delete cannot slide the enumerator into a different member's answers.
+2. ~~Implement that plan on both engines, with vectors.~~ `screens-012`…
+   `screens-025`, both engines, and breaks 82–89 are the evidence they catch it.
+   Defect 14 is closed.
+3. **Build the roster UI on it** — the list, the add and remove affordances, and
+   `addLabel` / `summaryLabel`, which §2.3 now specifies and neither engine
+   parses yet. **This is what is left of item 3.**
+
+**Where RCons's shape decided it.** `section_progress` is keyed
+`(settlementCode, structureId, hhId, sectionName)`: a 95-section instrument they
+have run for years shows nobody a position across the whole questionnaire,
+because at that size no global denominator stays true. `femaleRoasterDone` and
+`maleRoasterDone` are completion flags — a roster is a unit of work that is
+*done*, with a boundary. And their roster is a section, which is one place you
+go and come back from. All three said the same thing: one screen with a list on
+it, and an instance you enter and leave.
 
 **Smaller than "Missing" implied, and larger than a button** — which is why the
-item is named for the screen flow and not for the roster. Still blocking: a
-household listing cannot be collected without it.
+item is named for the screen flow and not for the roster.
 
 ---
 
@@ -381,7 +399,7 @@ Named so their absence is a decision:
 | 0 | **Visual form builder** | RCons authors forms themselves; nothing starts without it |
 | 1 | Login and permissions | Everything below depends on it |
 | 2 | Sample assignment and supervisor isolation | The daily work of a survey firm |
-| 3 | Repeat screen flow | Spec, then planner, then UI, per Form IR §11.1. Blocks household listing |
+| 3 | Repeat screen flow | Spec (§11.3) and both engines **done 5 Sep 2026**; the roster UI is what is left. Blocks household listing |
 | 4 | Separate sample/form sync | Field usability |
 | 5 | Supervisor monitoring | Fieldwork needs oversight from day one |
 | 6 | Review and correction | Closes the quality loop |
