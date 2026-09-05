@@ -1,0 +1,103 @@
+{
+  "id": "screens-023",
+  "description": "A countExpr shrink that discards the instance the enumerator is inside drops the position back to the repeat screen — the same rule as a delete, reached by the other route",
+  "spec": "2.3, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr23",
+    "version": 1,
+    "title": {
+      "en": "scr23"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "n",
+        "dataType": "integer",
+        "label": {
+          "en": "N"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "countExpr": {
+          "op": "ref",
+          "path": "n"
+        }
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "set": {
+        "n": 3
+      }
+    },
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 2
+      },
+      "expect": {
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 2,
+            "instanceScreen": 0
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "n": 2
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "screens": {
+          "position": 1,
+          "instanceProgress": null
+        }
+      }
+    }
+  ]
+}

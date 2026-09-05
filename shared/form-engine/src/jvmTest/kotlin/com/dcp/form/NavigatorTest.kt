@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
  * [FormNavigator] — the screen cursor every client drives.
  *
  * The conformance vectors pin the pure functions underneath it ([nextScreen],
- * [blockingFields], [firstBlockingScreen]) on both engines. They cannot see
+ * [blockingFields], [firstBlockingPosition]) on both engines. They cannot see
  * this class: it is Kotlin-only, because the Python reference has no
  * interactive cursor. So a validity check added to [FormNavigator.next] — the
  * exact drift §6.2 exists to prevent, one level above where the vectors look —
@@ -146,11 +146,11 @@ class NavigatorTest {
 
         instance.set("has_job", FormValue.Bool(true))
         assertEquals(listOf("employer"), nav.finalizationBlockers)
-        assertEquals(1, firstBlockingScreen(nav.plan, instance))
+        assertEquals(Position(1), firstBlockingPosition(nav.plan, instance))
 
         instance.set("has_job", FormValue.Bool(false))
         assertTrue(nav.canFinalize, "a question never asked cannot block")
-        assertNull(firstBlockingScreen(nav.plan, instance))
+        assertNull(firstBlockingPosition(nav.plan, instance))
     }
 
     /**
@@ -199,5 +199,156 @@ class NavigatorTest {
         assertTrue(nav.next(), "the next screen is the second real question, not a calculation")
         assertEquals(2 to 2, nav.progress())
         assertEquals("b", instance.form.screens[nav.currentIndex].questionIds.single())
+    }
+
+    /**
+     * A roster: one question outside it, two inside, one after.
+     *
+     * The cursor's repeat behaviour is thin over vector-covered functions on
+     * purpose (§11.3 is specified as pure functions so the vectors reach it),
+     * but three decisions are this class's alone and no vector can see them:
+     * whether [enter] validates the instance it is given, whether [refresh]
+     * is applied at all, and whether [leave] exists as a distinct move.
+     */
+    private fun roster(): FormInstance = FormInstance(
+        CompiledForm(
+            FormIr.parse(
+                """
+                {
+                  "irVersion": "0.1", "formId": "roster", "version": 1,
+                  "title": {"en": "roster"}, "defaultLanguage": "en",
+                  "languages": ["en"],
+                  "children": [
+                    {"type": "question", "id": "hh", "dataType": "text",
+                     "label": {"en": "Household"}},
+                    {"type": "repeat", "id": "members", "label": {"en": "Members"},
+                     "minInstances": 0, "maxInstances": 5,
+                     "children": [
+                       {"type": "question", "id": "nm", "dataType": "text",
+                        "label": {"en": "Name"}},
+                       {"type": "question", "id": "ag", "dataType": "integer",
+                        "label": {"en": "Age"}}]},
+                    {"type": "question", "id": "tail", "dataType": "text",
+                     "label": {"en": "Anything else"}}
+                  ]
+                }
+                """
+            )
+        ),
+        today = "2026-08-28",
+    )
+
+    @Test
+    fun `next lands on the repeat screen and stops there`() {
+        val instance = roster()
+        instance.addInstance("members")
+        val nav = FormNavigator(instance)
+
+        assertEquals(Position(0), nav.position)
+        assertTrue(nav.next())
+        // On the roster, not inside a member: entering is an explicit act, so
+        // that next moves one screen every time it is called (§11.2).
+        assertEquals(Position(1), nav.position)
+        assertEquals(SCREEN_REPEAT, nav.currentScreen?.kind)
+        assertNull(nav.currentInstanceScreen)
+        assertTrue(nav.next())
+        assertEquals(Position(2), nav.position)
+    }
+
+    @Test
+    fun `entering an instance that does not exist is refused rather than guessed`() {
+        val instance = roster()
+        val nav = FormNavigator(instance)
+
+        // A stale id from a screen the enumerator left open, or a delete that
+        // arrived between render and tap. Guessing here would put them in
+        // somebody else's answers; the vectors cannot see this because
+        // enterInstance is only ever called with a live id in a vector.
+        assertFalse(nav.enter("members", "i99"))
+        assertEquals(Position(0), nav.position)
+
+        val added = instance.addInstance("members")
+        assertTrue(nav.enter("members", added))
+        assertEquals(Position(1, added, 0), nav.position)
+        assertEquals("nm", nav.currentInstanceScreen?.questionIds?.single())
+    }
+
+    @Test
+    fun `refresh drops a deleted instance and leaves a surviving one alone`() {
+        val instance = roster()
+        val first = instance.addInstance("members")
+        val second = instance.addInstance("members")
+        val nav = FormNavigator(instance)
+
+        assertTrue(nav.enter("members", second))
+        assertTrue(nav.next())
+        assertEquals(Position(1, second, 1), nav.position)
+
+        // Someone else's row goes: the cursor holds an id, so it does not move.
+        instance.deleteInstance("members", 0)
+        nav.refresh()
+        assertEquals(Position(1, second, 1), nav.position)
+        assertEquals(1, instance.instanceCount("members"))
+
+        // Its own row goes: back to the list, which is the only place left.
+        instance.deleteInstance("members", 0)
+        nav.refresh()
+        assertEquals(Position(1), nav.position)
+        assertNull(nav.instanceProgress())
+        assertEquals(first, first) // both ids were distinct; nothing survives
+    }
+
+    @Test
+    fun `leave returns to the roster without touching the top level position`() {
+        val instance = roster()
+        val added = instance.addInstance("members")
+        val nav = FormNavigator(instance)
+
+        assertTrue(nav.enter("members", added))
+        assertEquals(2 to 3, nav.progress())
+        nav.leave()
+        assertEquals(Position(1), nav.position)
+        // The form-level pair never moved: leaving an instance is not leaving
+        // the repeat screen (§11.3).
+        assertEquals(2 to 3, nav.progress())
+    }
+
+    @Test
+    fun `goToFirstBlocking lands inside the instance at fault, not merely on the roster`() {
+        val instance = FormInstance(
+            CompiledForm(
+                FormIr.parse(
+                    """
+                    {
+                      "irVersion": "0.1", "formId": "blk", "version": 1,
+                      "title": {"en": "blk"}, "defaultLanguage": "en",
+                      "languages": ["en"],
+                      "children": [
+                        {"type": "question", "id": "hh", "dataType": "text",
+                         "label": {"en": "Household"}},
+                        {"type": "repeat", "id": "members", "label": {"en": "Members"},
+                         "minInstances": 0, "maxInstances": 5,
+                         "children": [
+                           {"type": "question", "id": "nm", "dataType": "text",
+                            "label": {"en": "Name"}},
+                           {"type": "question", "id": "ag", "dataType": "integer",
+                            "label": {"en": "Age"}, "required": true}]}
+                      ]
+                    }
+                    """
+                )
+            ),
+            today = "2026-08-28",
+        )
+        instance.addInstance("members")
+        val second = instance.addInstance("members")
+        instance.set("members[0].ag", FormValue.Integer(40))
+        val nav = FormNavigator(instance)
+
+        assertFalse(nav.canFinalize)
+        assertTrue(nav.goToFirstBlocking())
+        // The second member's age screen — a refusal that named only the roster
+        // would be a dead end on a household of thirty (§6.2).
+        assertEquals(Position(1, second, 1), nav.position)
     }
 }

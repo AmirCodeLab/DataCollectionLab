@@ -1,0 +1,102 @@
+{
+  "id": "screens-020",
+  "description": "Add, half two: a refused add — the maxInstances ceiling — leaves the position exactly where it was, rather than bouncing the enumerator out of the instance they are filling in. screens-019 is the successful add",
+  "spec": "2.3, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr20",
+    "version": 1,
+    "title": {
+      "en": "scr20"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 1,
+        "maxInstances": 1
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 0
+      }
+    },
+    {
+      "navigate": "next",
+      "expect": {
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 1
+          }
+        }
+      }
+    },
+    {
+      "refuse": {
+        "addInstance": "members"
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 1
+          }
+        }
+      }
+    }
+  ]
+}

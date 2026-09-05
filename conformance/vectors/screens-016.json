@@ -1,0 +1,111 @@
+{
+  "id": "screens-016",
+  "description": "previous from the FIRST instance screen leaves the instance for the repeat screen, and never falls back into the previous instance. screens-015 is next",
+  "spec": "11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr16",
+    "version": 1,
+    "title": {
+      "en": "scr16"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 1,
+        "maxInstances": 3
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 1
+      },
+      "expect": {
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 1,
+            "instanceScreen": 0
+          }
+        }
+      }
+    },
+    {
+      "navigate": "previous",
+      "expect": {
+        "screens": {
+          "position": 1,
+          "previousFrom": [
+            {
+              "from": {
+                "screen": 1,
+                "instanceIndex": 0,
+                "instanceScreen": 0
+              },
+              "to": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "navigate": "previous",
+      "expect": {
+        "screens": {
+          "position": 0
+        }
+      }
+    }
+  ]
+}

@@ -354,6 +354,8 @@ What watches that layer, and all there is:
 | That the ordering guard above can still read an id at all — the minter and the assertion agreeing is what stops it going dark | the same two files, one test each | 78 |
 | That every question in an imported form can actually be put on a screen — a repeat's cannot, and the form used to publish anyway | `test_xlsform_template.py` (`backend`) | 79 |
 | That the "N of M" an enumerator reads counts only screens somebody can answer | `NavigatorTest` (`:shared:form-engine:jvmTest`) — the vectors pin the plan, this pins the displayed pair | 80 |
+| That the cursor re-reads its position after the instance list changes, and refuses an instance id that does not exist | `NavigatorTest` (`:shared:form-engine:jvmTest`) — §11.3's rules are pure functions the vectors reach; *calling* them from the cursor is not | 89 |
+| That two engines agree about which forms compile, for every §10.2 error except the sensitivity leak | `test_repeat_in_field_list.py` (`backend`) and `ScreensRepeatTest` (`:shared:form-engine:jvmTest`) — a matched pair, and nothing else. See below | — |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -384,6 +386,22 @@ line, where the vectors can see it: §6.2's gate lives in the shared navigator
 with the same three functions in the Python reference specifically so that the
 clients could not each decide it for themselves, which is what they had been
 doing.
+
+### The refusals no vector format can express
+
+`conformance/vectors` is a form plus an ordered list of steps, and **every step
+assumes a form that compiled**. There is no way to write "this document must be
+refused" in it. Two sets were built to cover that: `malformed` for §10.1, and
+`sensitivity` for exactly one §10.2 rule.
+
+**The rest of §10.2 is held by a test in each engine and nothing else** — the
+nested-repeat refusal, and now the repeat-inside-a-field-list refusal. That is a
+real exposure rather than a tidy division of labour: two engines that disagree
+about which forms compile is a form author meeting a refusal their builder told
+them was not there, which is the same failure the sensitivity set was built to
+prevent and is prevented here only by whoever edits one file remembering the
+other. The pairs are named in the table above so the second file is findable
+from the first.
 
 ### A spec sentence that names two operations needs two vectors
 
@@ -651,10 +669,14 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot
-3. **Repeat screen flow**, and the roster it unblocks. The engine already manages
-   instances; what is missing is a screen to put a roster on, because Form IR
-   §11.1 excludes repeats from the screen plan and defers their flow to v0.2. A
-   spec decision first, then the planner on both engines, then the UI
+3. **Repeat screen flow**, and the roster it unblocks. **Spec and engines done,
+   5 September 2026; the UI is what is left.** Form IR §11.3 decides it — a
+   repeat is one screen holding the instance list, an instance is entered and
+   left, and no instance count enters the screen plan, so the "N of M" a
+   household of six reads is the one it read at five. Both engines implement it
+   under `screens-012`…`screens-025`, and defect 14 is closed. Remaining: the
+   roster UI, and `addLabel` / `summaryLabel`, which §2.3 specifies and neither
+   engine parses yet
 4. **Separate sync for sample and form.** A 37,000-row sample over a village
    connection is a different proposition from a small form update, and the person
    holding the handset should decide which they are doing

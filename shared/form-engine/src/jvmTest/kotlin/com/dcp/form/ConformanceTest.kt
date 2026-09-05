@@ -9,6 +9,7 @@ package com.dcp.form
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -114,7 +115,41 @@ class RecordingDatasetSource(
     }
 }
 
-fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit)? = null): FormInstance {
+/**
+ * Vectors address instances positionally, as everywhere else in this format. A
+ * minted id (`i3`) never appears in one: it is an engine's private counter, and
+ * pinning it would make the format assert something §2.3 does not promise. The
+ * POSITION an engine holds is an id — that is §11.3's whole point — so the
+ * translation happens here, once, at the boundary.
+ */
+fun instanceIdAt(instance: FormInstance, repeatId: String, index: Int): String =
+    instance.instances.getValue(repeatId)[index]
+
+/** A vector's position spec as a [Position]: an int, an object, or null. */
+fun wantPosition(
+    instance: FormInstance,
+    plan: ScreenPlan,
+    spec: kotlinx.serialization.json.JsonElement?,
+): Position? {
+    if (spec == null || spec is JsonNull) return null
+    if (spec is JsonPrimitive) return Position(spec.content.toInt())
+    val obj = spec.jsonObject
+    val screen = plan[obj.getValue("screen").jsonPrimitive.content.toInt()]
+    val instanceIndex = obj["instanceIndex"] ?: return Position(screen.index)
+    val repeatId = requireNotNull(screen.repeatId) {
+        "position names screen ${screen.index} as a repeat screen; it is not"
+    }
+    return Position(
+        screen.index,
+        instanceIdAt(instance, repeatId, instanceIndex.jsonPrimitive.content.toInt()),
+        obj.getValue("instanceScreen").jsonPrimitive.content.toInt(),
+    )
+}
+
+fun runSteps(
+    vector: JsonObject,
+    check: ((FormInstance, JsonObject, Int, Position) -> Unit)? = null,
+): FormInstance {
     val compiled = CompiledForm(FormIr.parse(vector.getValue("form")))
 
     val ctx = vector["context"]?.jsonObject
@@ -123,10 +158,22 @@ fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit
 
     val instance = FormInstance(compiled, today = today, now = now, datasets = datasetsOf(vector))
 
+    val plan = compiled.screens
+    // The position a runtime holds (§11.2). It starts where a client opens the
+    // form: the first relevant screen.
+    var position = Position(nextScreen(plan, instance, -1) ?: 0)
+
     vector.getValue("steps").jsonArray.forEachIndexed { i, stepElement ->
         val step = stepElement.jsonObject
+        val where = "${vector.getValue("id").jsonPrimitive.content} step $i"
         step["addInstance"]?.jsonPrimitive?.content?.let { repeatId ->
-            instance.addInstance(repeatId)
+            // §11.3: on success the new instance becomes the open one and the
+            // position becomes its first relevant instance screen. That rule is
+            // `enterInstance` — the same function a client calls when the
+            // enumerator taps a row — so applying it here is the rule, not the
+            // harness's own idea of one.
+            val added = instance.addInstance(repeatId)
+            position = enterInstance(plan, instance, repeatId, added)
         }
         step["deleteInstance"]?.jsonObject?.let { deletion ->
             instance.deleteInstance(
@@ -135,13 +182,41 @@ fun runSteps(vector: JsonObject, check: ((FormInstance, JsonObject, Int) -> Unit
             )
         }
         step["refuse"]?.jsonObject?.let { op ->
-            refuse(instance, op, "${vector.getValue("id").jsonPrimitive.content} step $i")
+            refuse(instance, op, where)
         }
         step["set"]?.jsonObject?.let { answers ->
             instance.setMany(answers.mapValues { formValueFromJson(it.value) })
         }
+        step["goToScreen"]?.jsonPrimitive?.let { target ->
+            position = Position(target.content.toInt())
+        }
+        step["enterInstance"]?.jsonObject?.let { spec ->
+            val repeatId = spec.getValue("repeat").jsonPrimitive.content
+            position = enterInstance(
+                plan,
+                instance,
+                repeatId,
+                instanceIdAt(instance, repeatId, spec.getValue("index").jsonPrimitive.content.toInt()),
+            )
+        }
+        step["navigate"]?.jsonPrimitive?.content?.let { direction ->
+            val moved =
+                if (direction == "next") nextPosition(plan, instance, position)
+                else previousPosition(plan, instance, position)
+            assertTrue(
+                moved != null,
+                "$where: navigate $direction yielded nothing from $position. A " +
+                    "vector asserting that uses the next/previous probes, not a move",
+            )
+            position = moved!!
+        }
         step["expect"]?.jsonObject?.let { expect ->
-            check?.invoke(instance, expect, i)
+            // §11.3: an instance that ceased to exist drops the position back
+            // to its repeat screen. Applied on every read rather than only
+            // after a delete, because a countExpr shrink can discard it too and
+            // no step verb announces that.
+            position = resolvePosition(plan, instance, position)
+            check?.invoke(instance, expect, i, position)
         }
     }
     return instance
@@ -164,8 +239,8 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
     fun vector() {
         val vector = loadVector(file)
         val vectorId = vector.getValue("id").jsonPrimitive.content
-        runSteps(vector) { instance, expect, stepIndex ->
-            checkExpectations(instance, expect, vectorId, stepIndex)
+        runSteps(vector) { instance, expect, stepIndex, position ->
+            checkExpectations(instance, expect, vectorId, stepIndex, position)
         }
     }
 
@@ -194,6 +269,7 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
         expect: JsonObject,
         vectorId: String,
         stepIndex: Int,
+        position: Position,
     ) {
         val where = "$vectorId step $stepIndex"
 
@@ -389,9 +465,113 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
             }
             screens["firstBlocking"]?.let { want ->
                 assertEquals(
-                    indexOrNull(want),
-                    firstBlockingScreen(plan, instance),
+                    wantPosition(instance, plan, want),
+                    firstBlockingPosition(plan, instance),
                     "$where: screens.firstBlocking",
+                )
+            }
+
+            // --- repeats (§11.3) ------------------------------------------
+
+            screens["kinds"]?.jsonObject?.forEach { (idx, want) ->
+                assertEquals(
+                    want.jsonPrimitive.content,
+                    plan[idx.toInt()].kind,
+                    "$where: screens.kinds[$idx]",
+                )
+            }
+            screens["repeats"]?.jsonObject?.forEach { (idx, want) ->
+                assertEquals(
+                    idOrNull(want),
+                    plan[idx.toInt()].repeatId,
+                    "$where: screens.repeats[$idx]",
+                )
+            }
+            screens["instancePlan"]?.jsonObject?.forEach { (repeatId, want) ->
+                val inner = plan.instancePlans[repeatId]
+                assertTrue(
+                    inner != null,
+                    "$where: instancePlan[$repeatId] — the plan has no such repeat",
+                )
+                want.jsonObject["count"]?.let { count ->
+                    assertEquals(
+                        count.jsonPrimitive.content.toInt(),
+                        inner!!.size,
+                        "$where: instancePlan[$repeatId].count",
+                    )
+                }
+                want.jsonObject["questions"]?.jsonObject?.forEach { (idx, wantQ) ->
+                    assertEquals(
+                        wantQ.jsonArray.map { it.jsonPrimitive.content },
+                        inner!![idx.toInt()].questionIds,
+                        "$where: instancePlan[$repeatId].questions[$idx]",
+                    )
+                }
+            }
+            screens["instanceRelevant"]?.jsonObject?.forEach { (repeatId, byInstance) ->
+                byInstance.jsonObject.forEach { (instIdx, want) ->
+                    val id = instanceIdAt(instance, repeatId, instIdx.toInt())
+                    assertEquals(
+                        want.jsonArray.map { it.jsonPrimitive.content.toInt() },
+                        relevantInstanceScreens(plan, instance, repeatId, id),
+                        "$where: instanceRelevant[$repeatId][$instIdx]",
+                    )
+                }
+            }
+            screens["position"]?.let { want ->
+                assertEquals(
+                    wantPosition(instance, plan, want),
+                    position,
+                    "$where: screens.position",
+                )
+            }
+            screens["progress"]?.jsonArray?.let { want ->
+                val got = progress(plan, instance, position)
+                assertEquals(
+                    want.map { it.jsonPrimitive.content.toInt() },
+                    listOf(got.first, got.second),
+                    "$where: screens.progress — a repeat counts once, whatever it " +
+                        "holds (§11.2)",
+                )
+            }
+            screens["instanceProgress"]?.let { want ->
+                val got = instanceProgress(plan, instance, position)
+                if (want is JsonNull) {
+                    assertEquals(
+                        null,
+                        got,
+                        "$where: instanceProgress expected null (not inside an instance)",
+                    )
+                } else {
+                    assertTrue(got != null, "$where: instanceProgress expected a pair, got null")
+                    assertEquals(
+                        want.jsonObject.getValue("within").jsonArray
+                            .map { it.jsonPrimitive.content.toInt() },
+                        listOf(got!!.first.first, got.first.second),
+                        "$where: instanceProgress.within",
+                    )
+                    assertEquals(
+                        want.jsonObject.getValue("across").jsonArray
+                            .map { it.jsonPrimitive.content.toInt() },
+                        listOf(got.second.first, got.second.second),
+                        "$where: instanceProgress.across",
+                    )
+                }
+            }
+            screens["nextFrom"]?.jsonArray?.forEach { probe ->
+                val from = wantPosition(instance, plan, probe.jsonObject.getValue("from"))!!
+                assertEquals(
+                    wantPosition(instance, plan, probe.jsonObject["to"]),
+                    nextPosition(plan, instance, from),
+                    "$where: next from $from",
+                )
+            }
+            screens["previousFrom"]?.jsonArray?.forEach { probe ->
+                val from = wantPosition(instance, plan, probe.jsonObject.getValue("from"))!!
+                assertEquals(
+                    wantPosition(instance, plan, probe.jsonObject["to"]),
+                    previousPosition(plan, instance, from),
+                    "$where: previous from $from",
                 )
             }
         }

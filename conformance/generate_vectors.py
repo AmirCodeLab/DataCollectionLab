@@ -617,7 +617,8 @@ def group(gid: str, children: list[Node], **kw: Any) -> Node:
 vector(
     "screens-001",
     "One question per screen by default; a field-list group is one screen; "
-    "plain groups flatten into field-lists; repeats are excluded from the plan",
+    "plain groups flatten into field-lists; a repeat is one screen and its "
+    "questions are in its instance plan, not on the top-level screen",
     "11.1",
     form("scr1", [
         q("a", "text"),
@@ -634,10 +635,19 @@ vector(
     ]),
     [
         {"expect": {"screens": {
-            "count": 4,
-            "questions": {"0": ["a"], "1": ["b", "c"], "2": ["d"], "3": ["e"]},
-            "groups": {"0": None, "1": "fl", "2": None},
-            "sections": {"0": None, "1": None, "2": "plain", "3": "plain"},
+            "count": 5,
+            "questions": {"0": ["a"], "1": ["b", "c"], "2": ["d"], "3": [],
+                          "4": ["e"]},
+            "kinds": {"0": "questions", "2": "questions", "3": "repeat",
+                      "4": "questions"},
+            "repeats": {"0": None, "3": "kids"},
+            "groups": {"0": None, "1": "fl", "2": None, "3": None},
+            "sections": {"0": None, "1": None, "2": "plain", "3": "plain",
+                         "4": "plain"},
+            # The repeat's own question is on no top-level screen and every
+            # top-level screen is asserted above, so a planner that put it on
+            # one fails here rather than merely disagreeing about a count.
+            "instancePlan": {"kids": {"count": 1, "questions": {"0": ["kid_age"]}}},
         }}},
     ],
 )
@@ -861,24 +871,27 @@ vector(
 
 vector(
     "screens-008",
-    "A blocking field inside a repeat has no screen to navigate to and still "
-    "refuses finalisation",
-    "6.2",
+    "A blocking field inside a repeat resolves to the full position — the "
+    "repeat screen, the instance and the instance screen — because landing on "
+    "the roster and leaving the enumerator to find which member is at fault is "
+    "a refusal that leads nowhere. screens-006 is the other half, outside a "
+    "repeat",
+    "6.2, 11.3",
     form("scr8", [
         q("head", "text"),
         {"type": "repeat", "id": "kids", "label": {"en": "Kids"},
          "children": [q("kid_name", "text", required=True)]},
     ]),
     [
-        # firstBlocking is None and canFinalize is False at the same time:
-        # repeats are excluded from the screen plan (11.1), so a client must
-        # test canFinalize rather than reading None as "nothing wrong".
         {"addInstance": "kids",
          "expect": {"screens": {
-             "count": 1,
+             "count": 2,
              "canFinalize": False,
              "blocking": ["kids[0].kid_name"],
-             "firstBlocking": None,
+             # Not screen 1 alone: the instance and the instance screen are
+             # what make the refusal navigable.
+             "firstBlocking": {"screen": 1, "instanceIndex": 0,
+                               "instanceScreen": 0},
          }}},
         {"set": {"kids[0].kid_name": "Sara"},
          "expect": {"screens": {"canFinalize": True, "blocking": [],
@@ -886,6 +899,375 @@ vector(
     ],
 )
 
+
+# --------------------------------------------------------------------------
+# Repeat screen flow (spec 11.3) — a repeat is one screen holding an instance
+# list, and an instance is something the enumerator enters and leaves.
+#
+# Every conjunction in §11.3 is split across two vectors here rather than
+# asserted twice in one, per docs/project-conventions.md: prose reads symmetric
+# far more easily than code behaves symmetrically, and one half passing is not
+# evidence about the other. The pairs are 013/014 (relevance), 015/016 (leaving
+# forwards and backwards), 019/020 (add), 021/022 (delete) and 024 (the refused
+# delete that pairs with 020).
+# --------------------------------------------------------------------------
+
+
+def _roster(**kw: Any) -> Node:
+    """The household member roster shape, two questions to an instance."""
+    return repeat("members", [q("nm", "text"), q("ag", "integer")], **kw)
+
+
+vector(
+    "screens-012",
+    "A repeat is exactly one screen and its questions live in the instance "
+    "plan; adding instances changes no index and no count, because an instance "
+    "count never enters the plan",
+    "11.1, 11.3",
+    form("scr12", [q("hh", "text"), _roster(minInstances=1, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"expect": {"screens": {
+            "count": 3,
+            "kinds": {"0": "questions", "1": "repeat", "2": "questions"},
+            "repeats": {"1": "members"},
+            "questions": {"0": ["hh"], "1": [], "2": ["tail"]},
+            "instancePlan": {"members": {"count": 2,
+                                         "questions": {"0": ["nm"], "1": ["ag"]}}},
+        }}},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        # Three instances, and the plan is the same object it was.
+        {"expect": {"instanceCount": {"members": 3},
+                    "screens": {"count": 3,
+                                "kinds": {"1": "repeat"},
+                                "questions": {"2": ["tail"]}}}},
+    ],
+)
+
+vector(
+    "screens-013",
+    "Relevance, half one: an enumerator-driven repeat with ZERO instances is "
+    "relevant, because its empty screen is the only door to the first instance. "
+    "screens-014 is the other half",
+    "11.3",
+    form("scr13", [q("hh", "text"), _roster(minInstances=0, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"expect": {
+            "instanceCount": {"members": 0},
+            "screens": {"relevant": [0, 1, 2], "next": {"0": 1}},
+        }},
+    ],
+)
+
+vector(
+    "screens-014",
+    "Relevance, half two: a countExpr repeat currently sized zero offers no "
+    "instance and no add, so its screen is skipped — and comes back when the "
+    "count does. screens-013 is the other half",
+    "11.3",
+    form("scr14", [
+        q("n", "integer"),
+        repeat("members", [q("nm", "text")], countExpr=ref("n")),
+        q("tail", "text"),
+    ]),
+    [
+        {"set": {"n": 0},
+         "expect": {"instanceCount": {"members": 0},
+                    "screens": {"relevant": [0, 2], "next": {"0": 2},
+                                "previous": {"2": 0}}}},
+        {"set": {"n": 2},
+         "expect": {"instanceCount": {"members": 2},
+                    "screens": {"relevant": [0, 1, 2], "next": {"0": 1}}}},
+    ],
+)
+
+vector(
+    "screens-015",
+    "next from the LAST instance screen leaves the instance for the repeat "
+    "screen, and never advances to the next instance. screens-016 is previous",
+    "11.3",
+    form("scr15", [q("hh", "text"), _roster(minInstances=1, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"addInstance": "members"},
+        {"enterInstance": {"repeat": "members", "index": 0},
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 0}}}},
+        {"navigate": "next",
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 1}}}},
+        # Out, not on to instance 1 — which exists, which is what makes this
+        # assertion mean something.
+        {"navigate": "next",
+         "expect": {"instanceCount": {"members": 2},
+                    "screens": {"position": 1,
+                                "nextFrom": [{"from": {"screen": 1,
+                                                       "instanceIndex": 1,
+                                                       "instanceScreen": 1},
+                                              "to": 1}]}}},
+        # And from the repeat screen, next is the next TOP-LEVEL screen.
+        {"navigate": "next", "expect": {"screens": {"position": 2}}},
+    ],
+)
+
+vector(
+    "screens-016",
+    "previous from the FIRST instance screen leaves the instance for the "
+    "repeat screen, and never falls back into the previous instance. "
+    "screens-015 is next",
+    "11.3",
+    form("scr16", [q("hh", "text"), _roster(minInstances=1, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"addInstance": "members"},
+        {"enterInstance": {"repeat": "members", "index": 1},
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 1,
+                                             "instanceScreen": 0}}}},
+        {"navigate": "previous",
+         "expect": {"screens": {
+             "position": 1,
+             "previousFrom": [{"from": {"screen": 1, "instanceIndex": 0,
+                                        "instanceScreen": 0}, "to": 1}],
+         }}},
+        {"navigate": "previous", "expect": {"screens": {"position": 0}}},
+    ],
+)
+
+vector(
+    "screens-017",
+    "Progress does not count instances: the form-level pair is the same before "
+    "and after the roster grows, and does not move while the enumerator is "
+    "inside an instance. screens-018 is the pair that DOES move",
+    "11.2, 11.3",
+    form("scr17", [q("hh", "text"), _roster(minInstances=1, maxInstances=6),
+                   q("tail", "text")]),
+    [
+        {"goToScreen": 1,
+         "expect": {"instanceCount": {"members": 1},
+                    "screens": {"progress": [2, 3], "instanceProgress": None}}},
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"goToScreen": 1,
+         "expect": {"instanceCount": {"members": 3},
+                    "screens": {"progress": [2, 3]}}},
+        # Inside an instance the enumerator has not left the repeat screen, so
+        # the form-level pair does not move at all.
+        {"enterInstance": {"repeat": "members", "index": 2},
+         "expect": {"screens": {"progress": [2, 3]}}},
+        {"navigate": "next", "expect": {"screens": {"progress": [2, 3]}}},
+    ],
+)
+
+vector(
+    "screens-018",
+    "An instance reports two pairs of its own — where you are within it, and "
+    "which instance is open out of how many exist — and the second one is "
+    "allowed to move as instances are added. screens-017 is the pair that "
+    "must not",
+    "11.3",
+    form("scr18", [q("hh", "text"), _roster(minInstances=1, maxInstances=6),
+                   q("tail", "text")]),
+    [
+        {"addInstance": "members"},
+        {"enterInstance": {"repeat": "members", "index": 1},
+         "expect": {"screens": {
+             "instanceProgress": {"within": [1, 2], "across": [2, 2]},
+         }}},
+        {"navigate": "next",
+         "expect": {"screens": {
+             "instanceProgress": {"within": [2, 2], "across": [2, 2]},
+         }}},
+        {"addInstance": "members"},
+        # The add opened instance 2, so `across` is now 3 of 3 — the roster's
+        # own count, which changed because the enumerator changed it.
+        {"expect": {"screens": {
+            "instanceProgress": {"within": [1, 2], "across": [3, 3]},
+        }}},
+        # Out of the instance entirely: no instance pair at all.
+        {"navigate": "next"},
+        {"navigate": "next",
+         "expect": {"screens": {"position": 1, "instanceProgress": None}}},
+    ],
+)
+
+vector(
+    "screens-019",
+    "Add, half one: a successful add opens the new instance at its first "
+    "screen, and leaves the top-level position on the repeat screen. "
+    "screens-020 is the refused add",
+    "11.3",
+    form("scr19", [q("hh", "text"), _roster(minInstances=0, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"goToScreen": 1, "expect": {"instanceCount": {"members": 0}}},
+        {"addInstance": "members",
+         "expect": {"instanceCount": {"members": 1},
+                    "screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 0},
+                                "progress": [2, 3]}}},
+    ],
+)
+
+vector(
+    "screens-020",
+    "Add, half two: a refused add — the maxInstances ceiling — leaves the "
+    "position exactly where it was, rather than bouncing the enumerator out of "
+    "the instance they are filling in. screens-019 is the successful add",
+    "2.3, 11.3",
+    form("scr20", [q("hh", "text"), _roster(minInstances=1, maxInstances=1),
+                   q("tail", "text")]),
+    [
+        {"enterInstance": {"repeat": "members", "index": 0}},
+        {"navigate": "next",
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 1}}}},
+        {"refuse": {"addInstance": "members"},
+         "expect": {"instanceCount": {"members": 1},
+                    "screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 1}}}},
+    ],
+)
+
+vector(
+    "screens-021",
+    "Delete, half one: deleting the instance the enumerator is INSIDE drops "
+    "the position back to the repeat screen. screens-022 is deleting a "
+    "different one",
+    "11.3",
+    form("scr21", [q("hh", "text"), _roster(minInstances=0, maxInstances=5),
+                   q("tail", "text")]),
+    [
+        {"addInstance": "members"},
+        {"addInstance": "members"},
+        {"enterInstance": {"repeat": "members", "index": 1},
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 1,
+                                             "instanceScreen": 0}}}},
+        {"deleteInstance": {"repeat": "members", "index": 1},
+         "expect": {"instanceCount": {"members": 1},
+                    "screens": {"position": 1, "instanceProgress": None}}},
+    ],
+)
+
+vector(
+    "screens-022",
+    "Delete, half two: deleting a DIFFERENT instance moves nothing, because a "
+    "position holds an instance id and never an ordinal. Three instances and "
+    "the enumerator in the middle one, so the ordinal they entered on stays in "
+    "range after the delete and points at the NEXT person — the values are what "
+    "assert they are still looking at B",
+    "2.3, 11.3",
+    form("scr22", [q("hh", "text"), _roster(minInstances=0, maxInstances=5),
+                   q("tail", "text")]),
+    [
+        {"addInstance": "members"},
+        {"set": {"members[0].nm": "A"}},
+        {"addInstance": "members"},
+        {"set": {"members[1].nm": "B"}},
+        {"addInstance": "members"},
+        {"set": {"members[2].nm": "C"}},
+        {"enterInstance": {"repeat": "members", "index": 1}},
+        {"navigate": "next",
+         "expect": {"values": {"members[1].nm": "B"},
+                    "screens": {"position": {"screen": 1, "instanceIndex": 1,
+                                             "instanceScreen": 1}}}},
+        # THREE instances, and the enumerator is in the middle one, so that
+        # deleting the first leaves the ordinal they entered on IN RANGE and
+        # pointing at somebody else. An engine holding the ordinal now shows C's
+        # answers under B's heading, with every control reading correctly and
+        # nothing on screen to see. Two instances would not catch it: the
+        # ordinal would fall off the end and any clamp would land back on the
+        # right person by luck.
+        {"deleteInstance": {"repeat": "members", "index": 0},
+         "expect": {
+             "instanceCount": {"members": 2},
+             "values": {"members[0].nm": "B", "members[1].nm": "C"},
+             "screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                      "instanceScreen": 1},
+                         "instanceProgress": {"within": [2, 2],
+                                              "across": [1, 2]}},
+         }},
+    ],
+)
+
+vector(
+    "screens-023",
+    "A countExpr shrink that discards the instance the enumerator is inside "
+    "drops the position back to the repeat screen — the same rule as a delete, "
+    "reached by the other route",
+    "2.3, 11.3",
+    form("scr23", [
+        q("n", "integer"),
+        repeat("members", [q("nm", "text"), q("ag", "integer")],
+               countExpr=ref("n")),
+        q("tail", "text"),
+    ]),
+    [
+        {"set": {"n": 3}},
+        {"enterInstance": {"repeat": "members", "index": 2},
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 2,
+                                             "instanceScreen": 0}}}},
+        # Shrinking discards the TRAILING instance (§2.3) — the one open.
+        {"set": {"n": 2},
+         "expect": {"instanceCount": {"members": 2},
+                    "screens": {"position": 1, "instanceProgress": None}}},
+    ],
+)
+
+vector(
+    "screens-024",
+    "A refused delete — the minInstances floor — leaves the position exactly "
+    "where it was. The pair to screens-020's refused add: a refusal that moved "
+    "the enumerator would be a refusal with a side effect",
+    "2.3, 11.3",
+    form("scr24", [q("hh", "text"), _roster(minInstances=1, maxInstances=3),
+                   q("tail", "text")]),
+    [
+        {"enterInstance": {"repeat": "members", "index": 0}},
+        {"navigate": "next",
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 1}}}},
+        {"refuse": {"deleteInstance": {"repeat": "members", "index": 0}},
+         "expect": {"instanceCount": {"members": 1},
+                    "screens": {"position": {"screen": 1, "instanceIndex": 0,
+                                             "instanceScreen": 1}}}},
+    ],
+)
+
+vector(
+    "screens-025",
+    "Relevance inside an instance is per instance: an instance screen whose "
+    "only question is irrelevant is skipped for THAT instance and not for its "
+    "neighbour, and next steps over it",
+    "11.3",
+    form("scr25", [
+        q("hh", "text"),
+        repeat("members", [
+            q("nm", "text"),
+            q("age_check", "integer", relevant=op("eq", ref("nm"), lit("A"))),
+            q("note_q", "text"),
+        ], minInstances=0, maxInstances=5),
+        q("tail", "text"),
+    ]),
+    [
+        {"addInstance": "members"},
+        {"set": {"members[0].nm": "A"}},
+        {"addInstance": "members"},
+        {"set": {"members[1].nm": "B"}},
+        {"expect": {"screens": {
+            "instancePlan": {"members": {"count": 3}},
+            "instanceRelevant": {"members": {"0": [0, 1, 2], "1": [0, 2]}},
+        }}},
+        # Instance 1 skips screen 1 entirely; instance 0 does not.
+        {"enterInstance": {"repeat": "members", "index": 1}},
+        {"navigate": "next",
+         "expect": {"screens": {"position": {"screen": 1, "instanceIndex": 1,
+                                             "instanceScreen": 2},
+                                "instanceProgress": {"within": [2, 2],
+                                                     "across": [2, 2]}}}},
+    ],
+)
 
 # --------------------------------------------------------------------------
 # Media references and geopoints (spec 2.1) — the value shapes an `image`,
@@ -1987,13 +2369,14 @@ vector(
 def main() -> None:
     """Writes this script's vectors, and **never deletes one it did not write.**
 
-    It used to clear the directory first, and that silently destroys every
-    hand-written vector in it. Seven were written straight to JSON rather than
-    added here — `repeat-009`…`repeat-012` and `screens-009`…`screens-011` — and
-    one run would remove all of them. **Every suite would stay green**: the
-    runners glob the directory, so a vector that no longer exists is not a
-    failure, it is simply not run, and the only thing that moves is a count
-    nobody reads. `docs/known-breaks.md` 41 is the same shape one step out, and
+    It used to clear the directory first, and that silently destroyed every
+    hand-written vector in it. Seven went that way in one run —
+    `repeat-009`…`repeat-012` and `screens-009`…`screens-011`, all written
+    straight to JSON because that was easier than adding a builder, and none of
+    them mentioned in this file. **Every suite stayed green**: the runners glob
+    the directory, so a vector that no longer exists is not a failure, it is
+    simply not run, and the only thing that moved was a count nobody reads.
+    `docs/known-breaks.md` 41 is the same shape one step out, and
     `backend/tests/test_known_breaks_cite_live_vectors.py` is the guard for this
     one however it happens.
 

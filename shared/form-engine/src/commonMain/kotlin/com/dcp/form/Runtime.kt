@@ -68,13 +68,19 @@ class CompiledForm(val ir: FormIr) {
     val version: Int = ir.version
     val fields = LinkedHashMap<String, CompiledField>()
     val containers = LinkedHashMap<String, ContainerNode>()
+
+    /**
+     * A container's own ancestor chain, so a repeat screen's relevance can be
+     * evaluated without a field inside it to hang the walk on (§11.3).
+     */
+    val containerAncestors = LinkedHashMap<String, List<String>>()
     val repeats = LinkedHashMap<String, RepeatNode>()
     val warnings = mutableListOf<String>()
     val order = mutableListOf<String>()
     val topoOrder: List<String>
 
-    /** Static screen partition (spec 11.1). */
-    val screens: List<FormScreen> by lazy { buildScreenPlan(ir) }
+    /** Static screen partition (spec 11.1), both levels. */
+    val screens: ScreenPlan by lazy { buildScreenPlan(ir) }
 
     init {
         // Spec §10.1, before anything semantic — and here rather than in
@@ -129,13 +135,31 @@ class CompiledForm(val ir: FormIr) {
                         "nested repeats are not supported in IR v0.1 (repeat '${node.id}')"
                     )
                 }
+                // A field-list group says "these questions appear together on
+                // one screen" and a repeat says "this is a separate screen you
+                // enter and leave" (§11.3). Both cannot be true of the same
+                // subtree, so this refusal states what is already the case
+                // rather than choosing between two behaviours. The alternative —
+                // dropping the repeat's questions from the field-list screen —
+                // is the silent omission of defect 14, in a corner nobody looks
+                // in.
+                for (anc in ancestors) {
+                    if ((containers[anc] as? GroupNode)?.appearance == "field-list") {
+                        throw CompileException(
+                            "a repeat cannot appear inside a field-list group " +
+                                "(repeat '${node.id}' inside group '$anc')"
+                        )
+                    }
+                }
                 repeats[node.id] = node
                 containers[node.id] = node
+                containerAncestors[node.id] = ancestors
                 return@walk
             }
 
             if (node is ContainerNode) {
                 containers[node.id] = node
+                containerAncestors[node.id] = ancestors
                 return@walk
             }
 
@@ -492,6 +516,25 @@ class FormInstance(
     }
 
     fun instanceCount(repeatId: String): Int = instances[repeatId]?.size ?: 0
+
+    /**
+     * A group's or repeat's own relevance, with its ancestors' (spec 5).
+     *
+     * A repeat screen has no questions to read relevance off (§11.3), so this
+     * evaluates the node's own chain instead. Top-level context: a container
+     * outside a repeat cannot see an instance scope, and a repeat's own
+     * `relevant` is evaluated once for the repeat rather than once per instance.
+     */
+    fun containerRelevant(containerId: String): Boolean {
+        val ctx = context(null)
+        if (form.containers[containerId] == null) return true
+        val chain = (form.containerAncestors[containerId] ?: emptyList()) + containerId
+        for (cid in chain) {
+            val relevant = form.containers[cid]?.relevant ?: continue
+            if (!Evaluator.coerceBoolean(Evaluator.evaluate(relevant, ctx), nullIs = true)) return false
+        }
+        return true
+    }
 
     // -- answering ---------------------------------------------------------
 

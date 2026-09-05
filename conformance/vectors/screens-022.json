@@ -1,0 +1,144 @@
+{
+  "id": "screens-022",
+  "description": "Delete, half two: deleting a DIFFERENT instance moves nothing, because a position holds an instance id and never an ordinal. Three instances and the enumerator in the middle one, so the ordinal they entered on stays in range after the delete and points at the NEXT person — the values are what assert they are still looking at B",
+  "spec": "2.3, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr22",
+    "version": 1,
+    "title": {
+      "en": "scr22"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 0,
+        "maxInstances": 5
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].nm": "A"
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[1].nm": "B"
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[2].nm": "C"
+      }
+    },
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 1
+      }
+    },
+    {
+      "navigate": "next",
+      "expect": {
+        "values": {
+          "members[1].nm": "B"
+        },
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 1,
+            "instanceScreen": 1
+          }
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 0
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[0].nm": "B",
+          "members[1].nm": "C"
+        },
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 1
+          },
+          "instanceProgress": {
+            "within": [
+              2,
+              2
+            ],
+            "across": [
+              1,
+              2
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

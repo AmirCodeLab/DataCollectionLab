@@ -408,54 +408,67 @@ not for a country.** A form with more than about 10,000 submissions needs either
 the streaming rewrite or an export sliced by environment, status or date — and
 there is no date filter yet, which is the cheapest of the three to add.
 
-## 14. A repeat's questions reach a handset and are never asked
-
-| | |
-|---|---|
-| **Where** | `shared/form-engine/.../Screens.kt` and `backend/app/modules/form_engine/screens.py` — `is RepeatNode -> Unit // excluded from the screen plan (spec 11.1)` |
-| **Status** | Open. **The importer now refuses such a form**, so it cannot reach a device silently; the gap itself is Phase 3 item 3 |
-| **Why not fixed** | Form IR §11.1 defers repeat screen flow to v0.2 on purpose — whether an instance is a screen, a sub-sequence or a list with a detail view is undecided, and guessing it would be worse than the gap. It is item 3 of the current phase |
-
-**This is defect 7's shape one level up, and strictly worse.** Defect 7 was a
-widget that rendered and could not answer: visible, and an enumerator could
-report it. This one is a question that is never drawn at all. A form containing
-a repeat imports, compiles, publishes, deploys, reaches a handset — and asks
-none of the roster's questions. Nothing on any screen looks wrong, no control
-misbehaves, and nobody has anything to report. The answers are simply missing,
-with no trace of why.
-
-For the pilot customer that is the household member roster, which is most of a
-listing survey.
-
-Measured on the XLSForm template's own IR before the refusal was added: 13
-screens, and **none** of the roster's four questions on any of them — while the
-import report said, in those words, "This form can be published."
-
-**What was done about it, 4 September 2026.** The defect is not fixed; it is no
-longer silent. `import_workbook` refuses a form whose answerable questions are
-not all reachable from the screen plan — error `questions_cannot_be_asked`,
-`blame="platform"`, so the report leads with "nothing in your form is wrong" and
-the form is not publishable. The check is written against **reachability** and
-not against repeats, because the question worth asking is "can every question be
-asked" and the next reason it goes false will not be this one. `calculate`
-fields are excluded: they are computed, never asked.
-
-That is the same rule as the existing no-questions refusal — a form that
-collects nothing it claims to collect must not deploy — and break 79 is the
-evidence it fires.
-
-**To close this row:** repeat screen flow specified (Form IR §11.1 and §11.2 for
-v0.2), implemented in the screen planner on both engines with vectors, and the
-roster UI built on it. At that point the refusal above stops firing on its own,
-`test_xlsform_template.py` fails on the assertion that says the roster is still
-off-screen, and `docs/xlsform-template.md` §5 has to be rewritten.
-
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be
 permanent and moves into `docs/project-conventions.md` as a documented limitation. There is a
 third way, and it needs recording too: the defect was never real. Deleting the
 row silently would leave the next person free to re-derive the same wrong worry.
+
+### 14. A repeat's questions reached a handset and were never asked — **fixed 2026-09-05**
+
+| | |
+|---|---|
+| **Was** | `Screens.kt` and `screens.py` — `is RepeatNode -> Unit // excluded from the screen plan (spec 11.1)` |
+| **Closed by** | Form IR §11.3, then the screen planner on both engines with `screens-012`…`screens-025` |
+
+**The symptom.** A form containing a repeat imported, compiled, published,
+deployed, reached a handset — and asked none of the roster's questions. Nothing
+on any screen looked wrong, no control misbehaved, and nobody had anything to
+report. The answers were simply missing, with no trace of why. For the pilot
+customer that is the household member roster, which is most of a listing survey.
+
+Measured on the XLSForm template's own IR before the refusal was added: 13
+screens, and **none** of the roster's four questions on any of them — while the
+import report said, in those words, "This form can be published."
+
+**Why it stayed open as long as it did, which is the part worth keeping.** It
+was never a missing widget. §11.1 excluded a repeat subtree from the screen plan
+and deferred repeat flow to v0.2, so the collection screen offered no add
+control because there was no screen for one to be on. The engine's instance
+semantics had been complete and unreachable the whole time — `addInstance`,
+`deleteInstance`, both bounds, eight vectors. Reading the code moved the gap
+rather than closing it (`docs/phase3-pilot-scope.md` §5), and what was left was
+a **spec decision**: whether an instance is a screen, a sub-sequence or a list
+with a detail view. Guessing it would have been worse than the gap, and that is
+why this row said so rather than saying "small".
+
+**The interim, which behaved exactly as designed.** From 2026-09-04
+`import_workbook` refused such a form — `questions_cannot_be_asked`,
+`blame="platform"` — so the defect stopped being silent while it was still open.
+The check was written against **reachability** and not against repeats, which is
+what made it correct rather than merely effective: when §11.3 landed and a
+repeat's questions became reachable, the refusal stopped firing **on its own**,
+and not one line of its logic had to change. `test_xlsform_template.py` then
+failed on the assertion that said the roster was still off-screen — the failure
+this row predicted, arriving on schedule — and both it and
+`docs/xlsform-template.md` §5 now assert the opposite.
+
+**What replaced the exclusion.** A repeat is one screen holding the instance
+list; its children are partitioned by the same §11.1 rules into an instance plan
+rendered once per instance; an instance is entered and left; and no instance
+count enters the screen plan, so the "N of M" a household of six reads is the
+same one it read at five.
+
+**What this did not close.** §6.2's other reason for having nowhere to navigate
+to — a `calculate` carrying a failing hard constraint blocks finalisation and
+has no screen. That is its own row, filed before this one landed so that closing
+this could not close it by accident.
+
+**Still to build on it:** the roster UI — the list, the add and remove
+affordances, and `addLabel` / `summaryLabel`, which §2.3 now **specifies** and
+neither engine parses yet. The engine no longer stands in the way, which is what
+this row was about; the screen it needs exists and nothing is refused any more.
 
 ### 12. A Stata `str#` over 2,045 characters — **withdrawn, the premise was wrong**
 

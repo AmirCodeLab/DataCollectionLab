@@ -121,44 +121,61 @@ options.
 
 ---
 
-## 5. Rosters are refused today, and that is deliberate
+## 5. Rosters work
 
-A roster is `begin repeat` / `end repeat`, with the instance count from an
+A roster is `begin repeat` / `end repeat`. The instance count comes from an
 earlier answer:
 
 ```
 repeat_count:  ${hh_size}
 ```
 
-**The importer refuses a form containing one.** Not a warning — an error, and
-the form cannot be published:
+…or from a column on the sample row, or — as of 5 September 2026 — from the
+enumerator, who keeps adding members until the respondent says stop. All three
+import, publish and collect.
 
-```
-ERROR  survey row 6, column 'type'
-       4 question(s) in this form cannot be asked by any client yet, so they
-       would be silently skipped in the field: `member_name`, `member_age`,
-       `member_relation`, `member_in_school`. They are inside a repeat, and
-       this platform's form format excludes a repeat from the screen plan
-       until repeat screen flow is built (Form IR §11.1).
-```
+**What an enumerator sees.** The roster is one screen showing the members
+collected so far. Tapping a member opens their questions, one per screen as
+everywhere else; the last one leads back to the list rather than on to the next
+member, so "have we got everybody?" is a decision with a place to happen. The
+add control is on the list. `dcp-xlsform-roster-example.xlsx` is exactly this
+shape, and running the importer over it now reports **0 errors, 0 warnings**.
+The screen flow it will be rendered with is Form IR §11.3.
 
-**Why refusing rather than warning.** Until repeat screen flow is built, a form
-with a roster imports, compiles, publishes, deploys, reaches a handset — and
-asks none of the roster's questions. Nothing on any screen looks wrong, so
-nobody reports anything, and the answers are missing with no trace of why. For a
-household listing that is most of the survey. A form that collects nothing it
-claims to collect must not deploy, which is the same rule that refuses a form
-with no questions at all.
+**Two strings we still owe you**, and the one thing to tell us about them.
+Form IR §2.3 defines `addLabel` (what the add control says — "Add another
+household member") and `summaryLabel` (what one row of the list says —
+`${member_name}, age ${member_age}`). Both are per-form and per-language, so
+they belong in your workbook rather than in our client. **Neither is read from a
+workbook yet**; they land with the roster screen itself, and until then the add
+control uses the repeat's `label` and each row shows its position — 1, 2, 3.
 
-**The shape is still in the pack.** `dcp-xlsform-roster-example.xlsx` carries
-exactly the roster your tool should emit, and running the importer over it shows
-the refusal above. It is there so your tool emits the right thing now and needs
-no change when the refusal lifts.
+The thing to tell us: **is the name you would put in that row a field you would
+mark sensitive?** If it is, we have a decision to make before you meet it rather
+than after — a label interpolating a sensitive field is refused at publish
+(Form IR §7.1), which would leave you with a roster of numbers.
 
-**When it lifts:** repeat screen flow is item 3 of the current phase
-(`docs/phase3-pilot-scope.md` §5). The enumerator-driven roster — *keep adding
-members until the respondent says stop* — is the same item; use `repeat_count`
-until then.
+**What the count does.** A repeat is one screen in the progress indicator,
+whatever it holds. A household with six members reads `4 of 12` and still reads
+`4 of 12` when a seventh is added — the enumerator gets a separate `member 3 of
+6` while they are inside one. A denominator that moved as the roster grew would
+be a promise about remaining work that the form then withdrew, and for a roster
+whose length only the respondent knows it cannot be predicted by anybody.
+
+**One shape to avoid.** A `begin repeat` inside a `begin group` whose
+`appearance` is `field-list` is refused at import. `field-list` means "show
+these questions together on one screen" and a repeat means "this is a separate
+screen you enter and leave"; both cannot be true of the same questions, so the
+refusal is stating a contradiction rather than choosing a side. A repeat
+**beside** a field-list group, or inside a plain group, is fine.
+
+**Still not supported: a repeat inside a repeat.** That is a compile error and
+stays one until IR v0.2.
+
+> This section previously said rosters were refused, and that was true from
+> 4 September to 5 September 2026. If your tool was written against that
+> refusal, nothing has to change: the shape you were told to emit is the shape
+> that now works.
 
 ---
 

@@ -1,0 +1,84 @@
+{
+  "id": "screens-013",
+  "description": "Relevance, half one: an enumerator-driven repeat with ZERO instances is relevant, because its empty screen is the only door to the first instance. screens-014 is the other half",
+  "spec": "11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr13",
+    "version": 1,
+    "title": {
+      "en": "scr13"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 0,
+        "maxInstances": 3
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 0
+        },
+        "screens": {
+          "relevant": [
+            0,
+            1,
+            2
+          ],
+          "next": {
+            "0": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "id": "screens-024",
+  "description": "A refused delete — the minInstances floor — leaves the position exactly where it was. The pair to screens-020's refused add: a refusal that moved the enumerator would be a refusal with a side effect",
+  "spec": "2.3, 11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr24",
+    "version": 1,
+    "title": {
+      "en": "scr24"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 1,
+        "maxInstances": 3
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "enterInstance": {
+        "repeat": "members",
+        "index": 0
+      }
+    },
+    {
+      "navigate": "next",
+      "expect": {
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 1
+          }
+        }
+      }
+    },
+    {
+      "refuse": {
+        "deleteInstance": {
+          "repeat": "members",
+          "index": 0
+        }
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 1
+          }
+        }
+      }
+    }
+  ]
+}

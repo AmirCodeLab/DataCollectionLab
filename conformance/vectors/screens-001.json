@@ -1,6 +1,6 @@
 {
   "id": "screens-001",
-  "description": "One question per screen by default; a field-list group is one screen; plain groups flatten into field-lists; repeats are excluded from the plan",
+  "description": "One question per screen by default; a field-list group is one screen; plain groups flatten into field-lists; a repeat is one screen and its questions are in its instance plan, not on the top-level screen",
   "spec": "11.1",
   "form": {
     "irVersion": "0.1",
@@ -108,7 +108,7 @@
     {
       "expect": {
         "screens": {
-          "count": 4,
+          "count": 5,
           "questions": {
             "0": [
               "a"
@@ -120,20 +120,43 @@
             "2": [
               "d"
             ],
-            "3": [
+            "3": [],
+            "4": [
               "e"
             ]
+          },
+          "kinds": {
+            "0": "questions",
+            "2": "questions",
+            "3": "repeat",
+            "4": "questions"
+          },
+          "repeats": {
+            "0": null,
+            "3": "kids"
           },
           "groups": {
             "0": null,
             "1": "fl",
-            "2": null
+            "2": null,
+            "3": null
           },
           "sections": {
             "0": null,
             "1": null,
             "2": "plain",
-            "3": "plain"
+            "3": "plain",
+            "4": "plain"
+          },
+          "instancePlan": {
+            "kids": {
+              "count": 1,
+              "questions": {
+                "0": [
+                  "kid_age"
+                ]
+              }
+            }
           }
         }
       }

@@ -88,6 +88,9 @@ class CompiledForm:
         self.version: int = ir["version"]
         self.fields: dict[str, CompiledField] = {}
         self.containers: dict[str, dict[str, Any]] = {}
+        #: A container's own ancestor chain, so a repeat screen's relevance can
+        #: be evaluated without a field inside it to hang the walk on (§11.3).
+        self.container_ancestors: dict[str, list[str]] = {}
         self.repeats: dict[str, dict[str, Any]] = {}
         self.warnings: list[str] = []
         self.order: list[str] = []
@@ -123,12 +126,28 @@ class CompiledForm:
                     raise CompileError(
                         f"nested repeats are not supported in IR v0.1 (repeat {node_id!r})"
                     )
+                # A field-list group says "these questions appear together on
+                # one screen" and a repeat says "this is a separate screen you
+                # enter and leave" (§11.3). Both cannot be true of the same
+                # subtree, so this refusal states what is already the case
+                # rather than choosing between two behaviours. The alternative —
+                # dropping the repeat's questions from the field-list screen — is
+                # the silent omission of defect 14, in a corner nobody looks in.
+                for anc in ancestors:
+                    anc_node = self.containers.get(anc)
+                    if anc_node and anc_node.get("appearance") == "field-list":
+                        raise CompileError(
+                            f"a repeat cannot appear inside a field-list group "
+                            f"(repeat {node_id!r} inside group {anc!r})"
+                        )
                 self.repeats[node_id] = node
                 self.containers[node_id] = node
+                self.container_ancestors[node_id] = list(ancestors)
                 continue
 
             if node["type"] == "group":
                 self.containers[node_id] = node
+                self.container_ancestors[node_id] = list(ancestors)
                 continue
 
             deps: set[str] = set()
@@ -468,6 +487,27 @@ class FormInstance:
         self._assert_creation_order(repeat_id)
         self._destroy_instance(repeat_id, instance_id)
         self.recalculate()
+
+    def container_relevant(self, container_id: str) -> bool:
+        """A group's or repeat's own relevance, with its ancestors' (spec 5).
+
+        A repeat screen has no questions to read relevance off (§11.3), so this
+        evaluates the node's own chain instead. Top-level context: a container
+        outside a repeat cannot see an instance scope, and a repeat's own
+        `relevant` is evaluated once for the repeat and not once per instance.
+        """
+        ctx = self._context(None)
+        node = self.form.containers.get(container_id)
+        if node is None:
+            return True
+        chain = list(self.form.container_ancestors.get(container_id, [])) + [container_id]
+        for cid in chain:
+            container = self.form.containers.get(cid)
+            if container is None or container.get("relevant") is None:
+                continue
+            if not coerce_boolean(evaluate(container["relevant"], ctx), null_is=True):
+                return False
+        return True
 
     def instance_count(self, repeat_id: str) -> int:
         return len(self.instances.get(repeat_id, []))

@@ -1,0 +1,94 @@
+{
+  "id": "screens-019",
+  "description": "Add, half one: a successful add opens the new instance at its first screen, and leaves the top-level position on the repeat screen. screens-020 is the refused add",
+  "spec": "11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "scr19",
+    "version": 1,
+    "title": {
+      "en": "scr19"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "nm",
+            "dataType": "text",
+            "label": {
+              "en": "Nm"
+            }
+          },
+          {
+            "type": "question",
+            "id": "ag",
+            "dataType": "integer",
+            "label": {
+              "en": "Ag"
+            }
+          }
+        ],
+        "minInstances": 0,
+        "maxInstances": 3
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "goToScreen": 1,
+      "expect": {
+        "instanceCount": {
+          "members": 0
+        }
+      }
+    },
+    {
+      "addInstance": "members",
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "screens": {
+          "position": {
+            "screen": 1,
+            "instanceIndex": 0,
+            "instanceScreen": 0
+          },
+          "progress": [
+            2,
+            3
+          ]
+        }
+      }
+    }
+  ]
+}
