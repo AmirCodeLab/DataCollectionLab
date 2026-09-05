@@ -387,6 +387,89 @@ with the same three functions in the Python reference specifically so that the
 clients could not each decide it for themselves, which is what they had been
 doing.
 
+### A guard that enumerates what exists cannot see what stopped existing
+
+**The fourth blind spot, and the one that was found the hard way.** On
+2026-09-05 seven conformance vectors were destroyed in a single command —
+`repeat-009`…`repeat-012` and `screens-009`…`screens-011`, which was the whole
+of the previous day's output and the evidence behind breaks 74 to 81. **Every
+gate stayed green.** `conformance/generate_vectors.py` cleared the directory
+before writing and those seven were hand-written straight to JSON rather than
+added to it; `pytest tests/test_conformance.py` reported 96 passed, and every
+other check passed too.
+
+The reason is not that a check was missing. It is that **every check we have
+asks whether what exists is in order, and a deleted thing does not exist.**
+
+```
+check_ci_runs_every_suite.py    "is every suite on disk run by CI?"
+                                "was every vector on disk executed?"
+check_every_directory_is_gated  "is every directory holding source read by a gate?"
+test_conformance.py             "does every vector on disk pass on both engines?"
+```
+
+Read them together and the shape is obvious in hindsight: each one **starts by
+enumerating the present** and then asks a question about what it found. Break 41
+is the closest relative — a vector that existed and was not executed — and even
+that is a question about something present. None of them can ask *"is what used
+to be here still here"*, because none of them has any idea what used to be here.
+A vector that is deleted is not a failing vector. It is an absence, and absence
+is the raw material every one of these guards is built out of.
+
+**A count is not a guard.** `test_conformance.py` printed `96 passed` where it
+had printed `103`, and that number moved past three people and two CI-shaped
+runs without anyone reacting, because nothing anywhere held an expectation of
+it. A number that nothing compares against is decoration. If a count is the
+signal, something has to assert the count.
+
+**So the fix cannot come from inside.** A guard over a set can never notice the
+set shrinking; it needs an **external reference** — some other artifact that
+names what ought to exist and is maintained for its own reasons. Maintained for
+its own reasons is the load-bearing half. A list kept up to date *for the guard*
+decays exactly as the thing it is guarding does, which is why
+`check_ci_runs_every_suite.py` enumerates rather than holding a list in the first
+place.
+
+`docs/known-breaks.md` turned out to be that reference, already written and
+already maintained: every row names the vector that catches its break, because a
+row is worthless without one. So `backend/tests/test_known_breaks_cite_live_vectors.py`
+asserts that every vector named in a code span there is still on disk. It caught
+all seven, and it catches a single file deleted by hand. Break 82.
+
+**The sweep that followed, because one loss is a reason to look for others.**
+Every vector id cited anywhere — `docs/`, `specs/`, every Python and Kotlin
+source and test file, and every commit message on every branch — checked against
+every vector on disk and against what the generator produces. **105 distinct ids
+cited, one absent: `choice-999`, which is the hypothetical inside break 41's
+quoted error message and never named a file.** History agrees: 191 vector files
+have ever been added and 191 are on disk, with no deletion recorded on any
+reachable branch. Nothing else went the same way.
+
+Two things the sweep turned up that were not the thing it was looking for.
+`media-001` exists in **both** `conformance/vectors` and `conformance/crypto` —
+a media round trip and per-chunk media encryption, two claims wearing one name —
+so a bare citation of it names both files and the guard above is genuinely
+weaker for that one id. That is now stated in `KNOWN_COLLISIONS` and a *new*
+collision fails the build, so the next one is a decision rather than a hole. And
+86 vectors on disk are cited nowhere at all: not a problem, but it is the exact
+measure of how far the guard reaches — it protects what somebody wrote down as
+load-bearing, which is not the same as everything.
+
+**Where to apply this next.** The question to ask of any new guard is not "what
+does it check" but *"what would it say if the thing it checks were gone"*. If
+the answer is "nothing", find the artifact that already names what should be
+there:
+
+| Set | Would notice a deletion? | Reference that names it |
+|---|---|---|
+| `conformance/vectors` and the other four sets | **yes**, since break 82 | `docs/known-breaks.md` citations |
+| Test suites | **no** — a deleted suite is a suite that never existed | nothing yet; `check_ci_runs_every_suite.py` enumerates |
+| The rows of `docs/known-breaks.md` itself | **no** | nothing |
+| A `TEST_SOURCE_SETS` entry | **no** | nothing |
+
+The bottom three rows are honest gaps, not work items pretending to be done.
+Delete `NavigatorTest.kt` today and nothing in this repository says a word.
+
 ### The refusals no vector format can express
 
 `conformance/vectors` is a form plus an ordered list of steps, and **every step

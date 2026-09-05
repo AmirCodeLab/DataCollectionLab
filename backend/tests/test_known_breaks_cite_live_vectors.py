@@ -54,12 +54,57 @@ def _code_spans(text: str) -> list[str]:
     return [span for line in text.splitlines() for span in line.split("`")[1::2]]
 
 
+#: Ids that exist in more than one set, so a bare citation of them is ambiguous
+#: and this guard is weaker for exactly those. `media-001` is a media round-trip
+#: in `vectors` and per-chunk media encryption in `crypto` — two different
+#: claims wearing one name. Deleting either leaves the other on disk and this
+#: test green, which is the honest limit of reading citations that carry no set.
+#:
+#: Listed rather than tolerated silently: a new collision fails the test below,
+#: so the next one is a decision somebody makes rather than a hole that opens.
+KNOWN_COLLISIONS = {"media-001"}
+
+
+def _by_set() -> dict[str, set[str]]:
+    return {
+        name: {p.stem for p in directory.glob("*.json")}
+        for name, directory in VECTOR_SETS.items()
+        if directory.is_dir()
+    }
+
+
 def _on_disk() -> set[str]:
     found: set[str] = set()
-    for directory in VECTOR_SETS.values():
-        if directory.is_dir():
-            found.update(p.stem for p in directory.glob("*.json"))
+    for ids in _by_set().values():
+        found.update(ids)
     return found
+
+
+def test_no_new_vector_id_is_ambiguous_across_sets() -> None:
+    """A citation names an id and not a set, so a shared id weakens the guard.
+
+    This is not a rule against collisions — `media-001` is one and is fine. It
+    is a rule that a collision has to be noticed, because each one is an id the
+    test above cannot really check.
+    """
+    by_set = _by_set()
+    seen: dict[str, list[str]] = {}
+    for name, ids in by_set.items():
+        for vector_id in ids:
+            seen.setdefault(vector_id, []).append(name)
+
+    collisions = {k: sorted(v) for k, v in seen.items() if len(v) > 1}
+    unexpected = {k: v for k, v in collisions.items() if k not in KNOWN_COLLISIONS}
+    assert not unexpected, (
+        f"vector id(s) in more than one set: {unexpected}. A break row citing one "
+        "of these names both, so deleting either leaves this file's guard green. "
+        "Rename one, or add it to KNOWN_COLLISIONS having decided that is fine."
+    )
+    # And the other way: a listed collision that stopped colliding is a stale
+    # allowance, which would quietly re-strengthen nothing and mislead the next
+    # reader.
+    stale = KNOWN_COLLISIONS - set(collisions)
+    assert not stale, f"KNOWN_COLLISIONS names ids that no longer collide: {sorted(stale)}"
 
 
 def test_every_vector_named_in_known_breaks_still_exists() -> None:
