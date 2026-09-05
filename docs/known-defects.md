@@ -408,6 +408,73 @@ not for a country.** A form with more than about 10,000 submissions needs either
 the streaming rewrite or an export sliced by environment, status or date — and
 there is no date filter yet, which is the cheapest of the three to add.
 
+## 15. A calculate can block finalisation with no screen to send anyone to
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/form_engine/screens.py` and `shared/form-engine/.../Screens.kt` — `first_blocking_screen` / `firstBlockingScreen` return nothing for a field that is on no screen |
+| **Status** | Open. Reproduced against the Python reference, 5 September 2026. Named by §6.2 since repeat screen flow landed, and no closer to fixed for it |
+| **Why not fixed** | The fix is a decision about what a runtime shows when the blocking field is one nobody can answer, and it is not the same decision as repeat screen flow. Filing it separately so item 3 does not close it by accident |
+
+**What an enumerator sees: a Finalize button that refuses, and nothing to fix.**
+
+A `question` may carry both `calculate` and `constraint` (§2.1), and a computed
+total that must stay under a limit is a real quality check rather than a
+contrivance. Such a field is relevant, it is evaluated like any other
+(`runtime.py:657` evaluates a constraint for any field holding a value), and a
+failed hard constraint makes it **blocking** under §6.2. But §11.1 gives a
+calculate no screen — correctly, since there is nothing on it to answer — so
+there is no screen holding the blocking field and nothing to navigate to.
+
+Reproduced with a three-field form, `total = a + b` constrained to `<= 100`,
+`a = 80`, `b = 40`:
+
+```
+screens in the plan  : [(0, ('a',)), (1, ('b',))]
+total's value        : 120
+total's errors       : [{'kind': 'constraint', 'message': {...}, 'severity': 'error'}]
+blocking_fields      : ['total']
+can_finalize         : False
+first_blocking_screen: None
+```
+
+§6.2 already anticipates `firstBlockingScreen` being nothing while `canFinalize`
+is false, and requires a runtime to refuse and SHOULD name the field. **It used
+to attribute the case to repeats** — "a blocking field inside a repeat has no
+screen at all, because §11.1 excludes repeats from the plan" — which stopped
+being the reason when `8c0fade` made a calculate produce no screen. That change
+was right, and it moved the case from repeats to calculates without the sentence
+following it.
+
+Repeat screen flow (§11.3) then removed the repeat reason entirely, and §6.2's
+final bullet now names this one instead and points here. So the spec is accurate
+again and the defect is unchanged: **being named is not being fixed.** The
+sentence describes the dead end; nothing has been built to get an enumerator out
+of it.
+
+**The part that is worse than a missing sentence.** The constraint's own
+`constraintMessage` is attached to a field that is never drawn, so the one
+string written to explain the problem has nowhere to appear either. An
+enumerator gets a refusal, no location, and no message — a dead end in the
+field, at the end of an interview, which is the moment with the least patience
+for one.
+
+**Both engines, by construction.** `Screens.kt` excludes a calculate on the same
+line and `firstBlockingPosition` returns null on the same condition. Only the
+Python reference has been watched to do it; no vector covers the pair
+(`canFinalize: false`, `firstBlocking: null`) **on a calculate** at all, which is
+why nothing said so. `screens-008` covers it on a repeat field, and that case now
+resolves to a real position — which is exactly why this one is easy to mistake
+for covered.
+
+**What closing it needs to decide**, and the reason it is a decision rather than
+a patch: where a runtime sends somebody for a field that cannot be answered.
+Three candidates, none obviously right — the nearest screen holding a field the
+calculate *depends on* (§5.1 already has the graph, and it is where the wrong
+input actually is); a screen the plan does not otherwise have; or a refusal that
+names the field and its message without navigating. The third is what §6.2
+already requires and no client implements.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be
