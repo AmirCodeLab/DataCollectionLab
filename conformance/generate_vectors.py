@@ -1985,13 +1985,38 @@ vector(
 
 
 def main() -> None:
+    """Writes this script's vectors, and **never deletes one it did not write.**
+
+    It used to clear the directory first, and that silently destroys every
+    hand-written vector in it. Seven were written straight to JSON rather than
+    added here — `repeat-009`…`repeat-012` and `screens-009`…`screens-011` — and
+    one run would remove all of them. **Every suite would stay green**: the
+    runners glob the directory, so a vector that no longer exists is not a
+    failure, it is simply not run, and the only thing that moves is a count
+    nobody reads. `docs/known-breaks.md` 41 is the same shape one step out, and
+    `backend/tests/test_known_breaks_cite_live_vectors.py` is the guard for this
+    one however it happens.
+
+    So ownership is by id. Files this script produces are rewritten; anything
+    else is left alone and **printed**, because a vector on disk that nothing
+    here generates is either deliberate — fine, and now visible — or a leftover
+    from an id this script no longer emits, and both want a human to look.
+    """
     OUT.mkdir(parents=True, exist_ok=True)
-    for existing in OUT.glob("*.json"):
-        existing.unlink()
+
+    generated = {f"{v['id']}.json" for v in VECTORS}
     for v in VECTORS:
         path = OUT / f"{v['id']}.json"
         path.write_text(json.dumps(v, indent=2, ensure_ascii=False) + "\n")
+
+    others = sorted(p.name for p in OUT.glob("*.json") if p.name not in generated)
     print(f"wrote {len(VECTORS)} vectors to {OUT}")
+    if others:
+        print(
+            f"left alone, not generated here ({len(others)}): {', '.join(others)}\n"
+            "  If one of those is a leftover from an id this script no longer "
+            "emits, delete it deliberately — this script will not."
+        )
 
 
 if __name__ == "__main__":

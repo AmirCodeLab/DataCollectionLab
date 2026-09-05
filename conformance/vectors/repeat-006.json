@@ -1,6 +1,6 @@
 {
   "id": "repeat-006",
-  "description": "countExpr controls the instance count, and shrinking drops data (repeat-012 is what pins WHICH instance)",
+  "description": "countExpr controls the instance count and shrinking discards trailing data",
   "spec": "2.3",
   "form": {
     "irVersion": "0.1",
