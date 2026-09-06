@@ -222,8 +222,8 @@ export function SubmissionPage() {
           <>
             The server&apos;s fold of the log below, last computed{" "}
             {formatTimestamp(detail.state?.computedAt ?? null)}. Encrypted
-            answers are absent from it: the server cannot read them, so they have
-            no place in a queryable projection.
+            answers are absent from it: the server cannot read them, so they
+            have no place in a queryable projection.
           </>
         ) : (
           <>
@@ -333,7 +333,10 @@ function OpValue({
     return <span className="text-red-700">failed to authenticate</span>;
   }
   return (
-    <span className="rounded bg-emerald-100 px-1 text-emerald-900" title="Decrypted in this browser">
+    <span
+      className="rounded bg-emerald-100 px-1 text-emerald-900"
+      title="Decrypted in this browser"
+    >
       {formatValue(decrypted.value)}
     </span>
   );
@@ -341,10 +344,7 @@ function OpValue({
 
 function BackLink() {
   return (
-    <Link
-      to="/submissions"
-      className="text-sm text-blue-700 hover:underline"
-    >
+    <Link to="/submissions" className="text-sm text-blue-700 hover:underline">
       ← All submissions
     </Link>
   );

@@ -33,7 +33,11 @@ function serve(url: string): unknown {
   if (url.includes(`/submissions/${SUBMISSION_ID}/keys`)) return submissionKeys;
   if (url.includes(`/submissions/${SUBMISSION_ID}`)) return submissionDetail;
   if (url.includes("/keys")) {
-    return { projectId: submissionDetail.projectId, securityMode: "project_e2e", keys: projectKeys };
+    return {
+      projectId: submissionDetail.projectId,
+      securityMode: "project_e2e",
+      keys: projectKeys,
+    };
   }
   return undefined;
 }
@@ -45,7 +49,9 @@ async function loadTheKey(): Promise<void> {
     type: "application/json",
   });
   // jsdom's File has no working .text() in every version; the page calls it.
-  Object.defineProperty(file, "text", { value: () => Promise.resolve(PRIVATE_KEY_FILE) });
+  Object.defineProperty(file, "text", {
+    value: () => Promise.resolve(PRIVATE_KEY_FILE),
+  });
   fireEvent.change(input, { target: { files: [file] } });
 
   // Not "the click worked" — the actual plaintext, on screen. It appears in
@@ -67,15 +73,26 @@ describe("a private key loaded to decrypt a submission", () => {
     // Every value from the vector, not just the one we waited for. If this
     // drifts, the browser and the reference engines have stopped agreeing —
     // which is a release blocker, not a platform difference (docs/project-conventions.md rule 2).
-    for (const path of ["name", "age", "weight_kg", "notes", "symptoms", "location"]) {
+    for (const path of [
+      "name",
+      "age",
+      "weight_kg",
+      "notes",
+      "symptoms",
+      "location",
+    ]) {
       expect(
         screen.getAllByText(rendered(path)).length,
         `${path} did not decrypt to ${rendered(path)}`,
       ).toBeGreaterThan(0);
     }
     // RTL text, through the same path — the console is Arabic-first by rule 8.
-    expect(screen.getAllByText(rendered("members[i3].name")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/decrypted in this browser/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(rendered("members[i3].name")).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/decrypted in this browser/i).length,
+    ).toBeGreaterThan(0);
   });
 
   it("never reaches localStorage, sessionStorage, IndexedDB or a request", async () => {
@@ -86,9 +103,13 @@ describe("a private key loaded to decrypt a submission", () => {
     // Requests were definitely made — otherwise "nothing leaked" is vacuous.
     expect(escapes.requests.length).toBeGreaterThan(0);
 
-    const leaked = escapes.all().filter((entry) => entry.includes(PRIVATE_KEY_HEX));
+    const leaked = escapes
+      .all()
+      .filter((entry) => entry.includes(PRIVATE_KEY_HEX));
     expect(leaked, "the private key left the tab").toEqual([]);
-    expect(escapes.indexedDb, "the page opened an IndexedDB database").toEqual([]);
+    expect(escapes.indexedDb, "the page opened an IndexedDB database").toEqual(
+      [],
+    );
 
     // Also nothing under any other encoding this codebase uses for bytes: the
     // file itself, and the scalar with its separators stripped.

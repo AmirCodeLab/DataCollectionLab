@@ -21,6 +21,17 @@ import { vi } from "vitest";
 
 import { routeTree } from "@/app/router";
 
+/** A stubbed answer with a status the test chose. */
+class Reply {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {}
+}
+
+export const reply = (status: number, body: unknown): Reply =>
+  new Reply(status, body);
+
 /** Everything that left the page, from every channel that could carry a key. */
 export interface Escapes {
   /** Values written to localStorage / sessionStorage, as `key=value`. */
@@ -39,7 +50,8 @@ export interface Escapes {
  *
  * `handle` serves the API. It gets the request and returns the JSON body; the
  * default 404s, so a route a test forgot to stub fails loudly rather than
- * hanging.
+ * hanging. To answer with a status of its own — a 409 on a stale draft save,
+ * a 422 with a list of violations — return `reply(status, body)`.
  */
 export function watchForEscapes(
   handle: (url: string, init?: RequestInit) => unknown,
@@ -80,6 +92,14 @@ export function watchForEscapes(
     const body = typeof init?.body === "string" ? init.body : "";
     requests.push(`${init?.method ?? "GET"} ${url} ${body}`);
     const payload = handle(url, init);
+    if (payload instanceof Reply) {
+      return Promise.resolve(
+        new Response(JSON.stringify(payload.body), {
+          status: payload.status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
     return Promise.resolve(
       new Response(JSON.stringify(payload ?? { detail: "not stubbed" }), {
         status: payload === undefined ? 404 : 200,

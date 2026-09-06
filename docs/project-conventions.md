@@ -850,7 +850,15 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    are binding: it produces Form IR and holds no form logic; **preview runs the
    same engine the handset runs**; the relevance editor is visual **with** a code
    escape hatch. Publishing goes through the **same** path an import does, not a
-   second route into `form_version`. Scope doc §2 for why each
+   second route into `form_version`. Scope doc §2 for why each. **Status,
+   7 September 2026:** steps 1 and 3–6 of the scope doc's build order are
+   done — the editor is `/forms/{id}` in the console, over `form_draft`,
+   `POST /forms/compile` and `POST /forms/expressions`, holding no form logic
+   (every screen number, diagnostic and parsed expression on that page is
+   the server's answer, and `docs/known-breaks.md` 122–132 are the guards).
+   Step 2 (reachability and liveness in `check_publishable`) is still open
+   and is the gap under the publish gate the scope doc's §0 describes; step 7
+   (preview, trace, test mode) is not started
 1. **Login and permissions.** Everything below depends on it. A user belongs to
    the organization, not to a project; a role is a set of permissions plus a
    scope, never a hard-coded branch, and every console screen checks a permission

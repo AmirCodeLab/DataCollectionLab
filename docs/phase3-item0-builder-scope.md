@@ -273,6 +273,10 @@ visual path never produces or consumes a string.
 The IR has no surface syntax for expressions. §4.1 is JSON. The code field needs
 a grammar, a parser and a pretty-printer, and neither exists.
 
+> Two of the three did, it turned out: the XLSForm importer's XPath parser is
+> the parser, and step 5 added the printer and the appendix around it (Form IR
+> Appendix A). The recommendation below stands as written and is what shipped.
+
 **Recommendation:** one implementation, server-side, behind an endpoint
 (`POST /forms/expressions` → AST, or an error with an offset and the reason).
 Reasons:
@@ -754,15 +758,24 @@ Not the form model, not compilation, not publishing. §2.2 was right about that.
 ## Order I would build in
 
 1. `wasmJs()` spike — decide the preview host before designing around it.
+   **Done**: O-3 closed for option (a), `docs/wasm-spike.md`.
 2. Reachability + liveness into `check_publishable`, both engines, matched pair,
-   known-breaks row. **Before any editor.**
+   known-breaks row. **Before any editor.** **Not done** — §10.3 has the
+   definition; neither engine implements it. The editor was built without it
+   (below), which is the order this list warned against, and the "never shown"
+   badge in §3's table has no server field behind it until this lands.
 3. `addLabel` / `summaryLabel` on both engines with vectors — shared with
-   item 3.
+   item 3. **Done 2026-09-06.**
 4. `screens` on `CompileResponse`; collectable types over the API;
-   `form_draft`.
-5. Expression grammar spec + server parser/printer.
-6. The editor, tree, and plan view.
-7. Preview, then the trace, then test mode.
+   `form_draft`. **Done** (PR #27).
+5. Expression grammar spec + server parser/printer. **Done** (PRs #28, #29):
+   Form IR Appendix A, `POST /forms/expressions`. §2's "neither exists" above
+   was wrong about the parser — the importer's XPath parser was it.
+6. The editor, tree, and plan view. **Done 2026-09-07** (PR #30): `/forms`
+   and `/forms/{id}` in the console, plus `POST /forms` and three fields on
+   `FormSummary` so a draft has a form row to belong to and a version to
+   start from.
+7. Preview, then the trace, then test mode. **Not started.**
 
 Steps 2 and 3 are the ones most likely to be pushed behind the editor and are
 the two that get more expensive for it — 2 because forms will already have been

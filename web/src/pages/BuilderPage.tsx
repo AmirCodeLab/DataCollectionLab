@@ -189,7 +189,7 @@ function SaveStatus() {
         ? "text-slate-500"
         : "text-amber-700";
   return (
-    <span className={`text-xs ${tone}`} role="status">
+    <span className={`text-xs ${tone}`} role="status" aria-label="save status">
       {label[save.status]}
       {save.message !== null && <span className="ms-2">— {save.message}</span>}
       {save.status === "conflict" && (
@@ -224,7 +224,13 @@ function useAutoSave(formId: string) {
       const sent = current.ir;
       inFlight.current = true;
       current.saveStarted();
-      saveDraft(formId, { ir: sent, expectedRevision: current.revision })
+      // Omitted, not null, for a draft that does not exist yet: the schema
+      // reads an absent revision as "I am starting this draft".
+      const request =
+        current.revision === null
+          ? { ir: sent }
+          : { ir: sent, expectedRevision: current.revision };
+      saveDraft(formId, request)
         .then((doc) => {
           useBuilder.getState().saveSucceeded(sent, doc.revision);
         })
