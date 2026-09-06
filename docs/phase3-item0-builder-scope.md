@@ -14,6 +14,28 @@
 
 ---
 
+> **VERIFICATION, ADDED AFTER THE FACT.** The recovered text landed unchecked,
+> deliberately — verbatim first, so that nothing was quietly edited to match a
+> later run. It was then verified on 6 September 2026 and **everything
+> reproduced**:
+>
+> - §0.2's six probes reproduce exactly, line for line, including `askable`,
+>   `live` and the empty `warnings`. Re-runnable:
+>   `./backend/.venv/bin/python scripts/probe_publishable_empty_containers.py`.
+> - §0.1's three line references are exact: `service.py:85` is
+>   `def check_publishable`, `service.py:363` is the `if import_record is not
+>   None:` guard, and `importer.py:1876` is the reachability block. The four
+>   checks §0.1 names are the only four: compile, form-has-no-questions,
+>   forbidden RE2 patterns, sensitivity propagation. No reachability check.
+> - §0.3's warning count is right — `runtime.py:349` and `:354`, two warnings,
+>   and the same two on the Kotlin side. Now known defect 17.
+>
+> Nothing needed correcting, so nothing was corrected. The original probe
+> script was lost with the analysis; the one in `scripts/` was rewritten from
+> the recorded output and matches it.
+
+---
+
 ## 0. The mistake that passes every test
 
 Your guess is right in shape. It is not right about where the hole is, and the
