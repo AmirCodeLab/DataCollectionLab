@@ -325,11 +325,40 @@ is per-form and per-language, so it belongs on the node and not in a client.
 label evaluated **in the instance's scope**, so a bare reference among its
 arguments resolves to that instance (§4.2), and every §7.1 rule applies to it
 unchanged — null is the empty string, values are bidi-isolated, arguments are
-dependencies, and a slot with no argument is a compile error. Where
-`summaryLabel` is absent, an instance created from a `rowSource` shows its
-source row's label — `labelColumn` for a dataset row, `label` for an inline
-item — and an instance with neither shows its 1-based position in the current
-order.
+dependencies, and a slot with no argument is a compile error.
+
+**What a row shows, in order.** A runtime takes the first of these that
+produces a label:
+
+1. `summaryLabel`, rendered in the instance's scope — **unless it has at least
+   one argument and every argument evaluates to `null`**, in which case it
+   produces nothing and the next rule applies.
+2. The source row's label, for an instance created from a `rowSource`:
+   `labelColumn` for a dataset row, `label` for an inline item.
+3. The instance's **1-based position in the current order**.
+
+Rule 1's exception is what an *added* instance needs, and it is the whole
+reason the chain is written as a chain. An enumerator who adds a household
+member has, for the moment between pressing add and typing anything, an
+instance that has answered nothing: it has no source row, so rule 2 cannot
+help it, and a `summaryLabel` of `"{0} — {1}"` over its empty answers renders
+`" — "`. A list of rows reading `" — "` is worse than no label at all, because
+two of them are indistinguishable and telling rows apart is the only thing the
+list is for. A position number always distinguishes them.
+
+**Every argument null, not an empty rendering.** The test is on the arguments
+and not on the string, because the string is the author's and the arguments are
+the instance's. `" — "` is what one template happens to produce from nothing;
+another produces `""` and a third produces `"()"`, and a runtime that tried to
+recognise emptiness would be guessing at punctuation in languages it does not
+read. "This instance has answered none of the things its label is made of" is
+the same question in every language and both engines can answer it identically.
+A `summaryLabel` with **no** arguments is a constant, is the author's deliberate
+choice, and falls through to nothing — the chain does not begin.
+
+The label is derived, so it follows the answers: the row that showed `3` shows
+`Ali` as soon as a name is entered, on the same recalculation that any other
+dependent value moves on.
 
 Instances carry **stable ids** internally. Positional addressing (`members[0]`) resolves against the current ordered list at evaluation time. Deleting an instance removes it from the order and destroys its values; it never renumbers the surviving instances in storage, so an operation referring to a surviving instance stays valid after a concurrent delete elsewhere.
 
@@ -1279,9 +1308,21 @@ alternative — dropping the repeat's questions from the field-list screen — i
 the silent-omission defect §11.1 exists to close, reappearing in a corner nobody
 would look in.
 
-A **sensitivity leak** is a field that is not `sensitive` but whose `calculate`,
-`relevant`, `constraint`, `required`, `readOnly` or `default` reads a field that
-is. The derived value discloses its input, so publishing it would defeat
+A **sensitivity leak** is any expression that reads a `sensitive` field from
+somewhere that does not itself carry the same protection. Two shapes:
+
+- **A field** that is not `sensitive` and whose `calculate`, `relevant`,
+  `constraint`, `required`, `readOnly`, `default`, `labelArgs` or
+  `constraintMessageArgs` reads a field that is. The fix is to mark the reading
+  field `sensitive` too, never to unmark the source.
+- **A repeat's own expressions** — `countExpr` and `summaryLabelArgs` — reading
+  a sensitive field. There is nothing to mark here: a repeat is a scope, not a
+  field, and carries no `sensitive` flag. The fix is to stop reading it.
+
+`labelArgs` and `constraintMessageArgs` were always checked — an interpolation
+argument is a dependency (§7.1), so it was in the graph — but this paragraph
+did not say so, and a definition that omits half of what it defines is how
+`summaryLabelArgs` came to sit outside the check for as long as it did. The derived value discloses its input, so publishing it would defeat
 `field_level` encryption (Encryption Envelope §5.2). The fix is to mark the
 reading field sensitive too, never to unmark the source. This is checked over
 the same dependency graph §5.1 builds, so it is exact rather than heuristic, and
