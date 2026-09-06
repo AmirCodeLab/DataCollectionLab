@@ -493,8 +493,10 @@ Named so their absence is a decision:
   collects on paper and keys the forms in afterwards, and desktop entry is what
   they want for it — this is the next phase, and the defect rows say so
   (`docs/known-defects.md` 1 and 2).
-- `Person Id`, `Structure Map`, and the `Custom` selection types. Understood
-  later; ignored for now by agreement.
+- `Structure Map` and the `Custom` selection types. Understood later; ignored
+  for now by agreement. **`Person Id` left this list on 6 September 2026** — it
+  is not a type and there is nothing to defer: a prefilled question, expressed
+  by `bind` or by `calculate` / `default` (§13 question 4).
 - Entity relationships and longitudinal linking. RCons generates the next
   survey's sample by exporting from this one, so the platform does not need to
   carry the link.

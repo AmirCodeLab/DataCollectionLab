@@ -154,7 +154,7 @@ in DCP that is visit status, not a column.
 | Single Selection | 1,461 | ✅ `select_one` |
 | Edit Text | 425 | ✅ `text` / `integer` / `decimal` |
 | Custom Multiple Selection | 88 | ❓ Need to see what "custom" means |
-| **Person Id** | 73 | ❓ Appears to reference a roster member. Probably a select from the roster |
+| **Person Id** | 73 | ✅ Not a type. A **prefilled question** — `bind` from the sample, or `calculate` / `default` from an earlier answer |
 | Multiple Selection | 65 | ✅ `select_multiple` |
 | Input Field | 5 | ❓ |
 | Custom Single Selection | 3 | ❓ |
@@ -164,9 +164,15 @@ in DCP that is visit status, not a column.
 | **Structure Map** | 1 | ❌ Map widget — `samples_polygon`, `samples_structure_points` |
 | Note | 1 | ✅ `note` |
 
-**Person Id (73 questions) is the one to understand first.** If it means "pick a
-member from the roster", that is cross-repeat referencing, and it is a genuine
-feature gap rather than a widget.
+**Person Id — answered 6 September 2026, and it is not a type at all.** It is a
+question that arrives already filled, from one of two places: the sample, or an
+answer given in another section or group. Both already express in Form IR — the
+first is `rowSource`'s `bind`, the second is `calculate` or `default` — so all
+73 of them need **no new surface**, in the IR or in the builder.
+
+This was the entry on this list most likely to change the phase's scope. The
+reading it invited was "pick a member from the roster", which would have been
+cross-repeat referencing and a genuine feature gap. It is not that.
 
 The `Custom` prefixes need a look at the section code to see what behaviour they
 carry.
@@ -222,7 +228,7 @@ In dependency order. Items 1–3 block everything else.
 | 5 | **Separate sync of sample and form** | RCons's app has separate tabs, updated on instruction. DCP pulls everything together |
 | 6 | **Supervisor monitoring** | Progress against target, per enumerator |
 | 7 | **Review and correction** | Flagged submissions to a queue; rejections back to the enumerator's device |
-| 8 | Person Id, and the Custom types | §5 — after understanding what they do |
+| 8 | ~~Person Id~~, the Custom types | Person Id answered 6 September 2026 — a prefilled question, nothing to build (§5). The `Custom` prefixes still need the section code |
 | 9 | Desktop data entry (dates, media) | Paper-based entry is not happening yet but is wanted. Two known defects block it |
 
 Items 1–7 are roughly two months. Item 3 is the one with genuine uncertainty,
@@ -248,7 +254,10 @@ whose cost is unknown, and it is cheap to find out.
 
 ## 10. Open questions for RCons
 
-1. What does **Person Id** do? Does it reference a member of the roster?
+1. ~~**What does Person Id do? Does it reference a member of the roster?**~~
+   **Answered, 6 September 2026: no.** It is a prefilled question — filled from
+   the sample, or from an answer in another section or group — and both already
+   express in the IR. §5.
 2. What makes **Custom Single/Multiple Selection** custom?
 3. **Structure Map** — is drawing a structure polygon on a map required, or was
    it used once?

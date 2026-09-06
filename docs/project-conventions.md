@@ -871,7 +871,7 @@ predated both item 0 and the item 3 correction, and survived them by looking
 like a fact. Scope doc §11.
 
 **Not in this phase**, named so the absence is a decision: desktop data entry
-(the phase after this one — see `docs/known-defects.md` 1 and 2), the `Person
-Id` / `Structure Map` / `Custom` selection types, entity relationships and
+(the phase after this one — see `docs/known-defects.md` 1 and 2), the
+`Structure Map` / `Custom` selection types, entity relationships and
 longitudinal linking, nested repeats (IR v0.2), the workflow engine beyond
 review, and text/audio audits. Reasons are in `docs/phase3-pilot-scope.md` §9.
