@@ -841,8 +841,11 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    repeat is one screen holding the instance list, an instance is entered and
    left, and no instance count enters the screen plan, so the "N of M" a
    household of six reads is the one it read at five. Both engines implement it
-   under `screens-012`…`screens-025`, and defect 14 is closed. Remaining: the
-   roster UI, `addLabel` / `summaryLabel`, and §2.3's `rowSource` — a roster's
+   under `screens-012`…`screens-025`, and defect 14 is closed. `addLabel` /
+   `summaryLabel` landed on both engines 6 September 2026 —
+   `repeat-013`…`repeat-015`, `sensitivity-006`/`007`, breaks 99–104, and known
+   defect 19 closed in the same commit. Remaining: the roster UI and §2.3's
+   `rowSource` — a roster's
    rows also come **preloaded from the sample** or from a **fixed list in the
    form**, and all four sources render as the same one screen. The inline half
    is buildable now; the dataset half waits on `_metadata.case_key` (item 2) and
