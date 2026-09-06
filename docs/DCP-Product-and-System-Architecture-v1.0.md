@@ -475,14 +475,28 @@ AI never silently changes production forms or data. Every AI-generated artifact 
 | Maps | MapLibre GL + self-hosted or MapTiler tiles | No licensing trap |
 | Realtime | WebSockets / SSE | Live submission feed, sync health |
 
-### 18.4 Web forms runtime — OPEN
+### 18.4 Web forms runtime — DECIDED, 6 September 2026
 
-Browser-based, self-administered collection (CAWI) is in scope and was missing from the v1.0 draft. Two options:
+Browser-based, self-administered collection (CAWI) is in scope and was missing from the v1.0 draft. Two options were carried:
 
 - **(a)** Compose Multiplatform for Web — literal code reuse, larger bundles, weaker accessibility
 - **(b)** Compile the **engine only** to Wasm, render with React — better web UX, one source of truth for logic
 
-**Recommendation: (b).** Resolve in Phase 0 alongside the IR.
+**Decided: (b).** Web forms run **the Kotlin engine compiled to Wasm**, with React rendering. Not a second implementation of form behaviour, in any language, for any surface.
+
+**The evidence is a spike, not a preference** (`docs/wasm-spike.md`, one day, 6 September 2026):
+
+| | |
+|---|---|
+| Builds, with kotlinx-serialization | Yes — after one line, and that line was breaking iOS too |
+| Bundle over the wire | **~128 KB brotli** (441 KB raw `.wasm`, 7.6 KB JS glue) |
+| Module instantiate | **14.7 ms** |
+| Parse + compile + fully recalculate, 1,000 questions | **8.0 ms**, per call, re-parsing every time |
+| Conformance | All 113 vector forms compile on Wasm with screen plans built; `wasmJsNodeTest` runs in CI |
+
+**Why this closes it rather than leaves it leaning.** The decision was being made sideways: item 0's browser preview needs the engine the handset runs (`docs/phase3-pilot-scope.md` §2.1), and shipping the engine to a browser for preview is the same shipping this decision is about. A decision that arrives as a side effect of another piece of work is one nobody can find later, so it is written here, where somebody looking for it will look.
+
+**What follows from it.** One implementation of form behaviour, everywhere — the claim `conformance/` exists to defend, now extending to the web surface rather than acquiring a third engine to compare. Option (a) is closed: Compose Web's bundle and accessibility costs were never the reason to prefer it, and literal UI reuse is not worth a second rendering model in the console.
 
 ---
 
@@ -691,13 +705,13 @@ The critical expertise is form engineering, offline synchronisation, data modell
 | # | Decision | Answer | Decided |
 |---|---|---|---|
 | O-1 | **First market** | **Survey and research agencies**, with **RCons as the pilot customer**. Decided by which existing relationship signed first, not by market size. Self-hosting, data residency and SSO move back; assignment, supervision and review move forward. §2.3 | 4 Sep 2026 |
+| O-3 | **Web forms runtime** | **Engine-to-Wasm + React.** The Kotlin engine compiled to Wasm, not a second implementation. Decided on a spike rather than a preference: ~128 KB brotli, 14.7 ms to instantiate, 8.0 ms to parse-compile-recalculate 1,000 questions, and all 113 vector forms compiling on the target with a CI job that runs them. §18.4, `docs/wasm-spike.md` | 6 Sep 2026 |
 
 ### Open — must be answered before Phase 1
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | O-2 | **Server-side evaluation** | JVM engine sidecar vs Python port | JVM sidecar |
-| O-3 | **Web forms runtime** | Compose Web vs engine-to-Wasm + React | Engine-to-Wasm + React |
 | O-4 | **Pricing model** | Per-seat vs per-submission vs flat tiers | Per-seat — attacks the competitor's weakness directly; but it dictates whether metering and quotas are core |
 | O-5 | **Open-core** | Fully proprietary vs open-source engine only | Open-source the form engine only: drives adoption and standards credibility, keeps the moat in the server |
 | O-6 | **Extensibility** | No plugins vs constrained custom widgets | Constrained widget SDK by V1.5 — without it, every edge case becomes a feature request |
