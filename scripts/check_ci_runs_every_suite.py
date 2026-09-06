@@ -499,7 +499,7 @@ def check_npm_scripts(commands: list[CiCommand], report: Report) -> None:
 #: asking Gradle, and that is deliberate: a stale result file is exactly the
 #: symptom being guarded against, and comparing a stale file's ids against the
 #: files on disk is what makes the staleness visible.
-VECTOR_SETS: dict[str, tuple[str, str, str]] = {
+VECTOR_SETS: dict[str, tuple[str, str | tuple[str, ...], str]] = {
     "vectors": (
         "evaluation",
         (

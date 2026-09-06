@@ -286,7 +286,7 @@ jobs:
       # and comparing stale ids against the files on disk is what makes the
       # staleness visible.
       - name: Run the conformance suites so their results exist
-        run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
+        run: ./gradlew :shared:form-engine:jvmTest :shared:form-engine:wasmJsNodeTest :shared:form-engine:testAndroidHostTest :shared:core:jvmTest
 
       - name: Every suite is run by CI, and every vector was executed
         run: python scripts/check_ci_runs_every_suite.py --strict
