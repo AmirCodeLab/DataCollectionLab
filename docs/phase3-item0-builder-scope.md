@@ -301,6 +301,56 @@ That warning exists in the engine (`runtime.py:352`) and comes back on
 `POST /forms/compile`. The builder renders it; it does not compute it. Same for
 every other warning — which brings up the rule in §5.
 
+### The reference picker
+
+Three decisions, made before any picker is written, because each is the kind a
+picker makes silently otherwise. They apply to **both** renderings — the visual
+editor's reference and value controls and the code field's completion — since
+a rule that held in one and not the other would make the two renderings
+disagree about the same AST.
+
+**1. A number is shown with every digit.** The code field shows a number as
+Appendix A.4 renders it, and the visual editor's value control shows the same
+text: `0.30000000000000004`, not `0.3`; `800.0`, not `800`. This is
+deliberately *not* what `str()` shows in a label (§4.3.1) — that rendering is
+for reading, this one is for saving back, and a control that showed a rounded
+value and saved it would change the form's behaviour with nothing to say so.
+A.4 says why at length.
+
+**2. Sensitive fields are shown, with a badge.** The editor does not decide
+what an author may write; `check_publishable` does (§10.2, the sensitivity
+leak), it already works, over the dependency graph, in every security mode. So
+the picker offers every `sensitive` field, in both renderings, marked at the
+point of choosing — the author learns at pick time rather than at publish time,
+and a field that legitimately reads a sensitive one (because it is sensitive
+itself) is as easy to write as any other. The badge is the whole feature. There
+is no refusal and no second warning; a duplicate of the publish check, written
+in TypeScript, would be form logic in the builder (§2.1) and would drift.
+
+**3. Everything is shown, grouped, and nothing is scoped.** §4.2 puts every
+field in the form within reach of every expression — outer fields by name, an
+instance's fields by position, all instances through an aggregate — so there is
+no such thing as a field that is out of scope, and a picker that hid one would
+be inventing a rule the engine does not have. Scoping would be ergonomics
+dressed as a rule. Instead, the list is grouped by where the author is:
+
+- **From inside a repeat:** this instance's fields first, unprefixed — `name`,
+  which §4.2 resolves from the current instance outward — and the rest of the
+  form after, in document order, grouped by container.
+- **From outside a repeat:** an instance's field is shown as what it is,
+  `members[0].name`, with the index made visually explicit — "first instance",
+  not a bare `[0]`. That form is easy to type and easy to misread, and a picker
+  that renders it plainly is the cheapest guard against an author reading it as
+  "any member".
+- **The aggregate forms belong in the picker too.** `members[].income` — "every
+  instance" — is what an author outside a repeat actually wants, and it is
+  offered alongside the positional form. §4.2 makes it valid only as an
+  aggregate's argument; inserting it anywhere else is the compile error §4.2
+  already defines, reported by compile rather than refused by the picker.
+
+What the picker never does is resolve, narrow or reorder by what it guesses the
+author means. It renders §4.2; it does not reinterpret it.
+
 ---
 
 ## 3. The screen model

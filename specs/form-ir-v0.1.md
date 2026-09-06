@@ -1644,3 +1644,125 @@ is a legal roster.
 - Whether a residual predicate should be expressible as a store-side operation
   (`in`, prefix match) rather than only as equality — §3.2 extracts equality and
   nothing else, so `$row.population > 1000` is a full scan by construction
+
+---
+
+## Appendix A — Expression surface syntax (non-normative)
+
+**This appendix is not normative and defines nothing about what a form means.**
+§4 is the definition: an expression is a typed AST, and "expressions are a typed
+AST, never XPath" is a locked decision. This appendix describes a *surface* —
+what a builder's code field shows an author and reads back — for exactly one
+document, so that an author who needs something the visual editor cannot express
+has somewhere to type it.
+
+**It is not a conformance surface, and that is worth saying plainly**, because
+"a new grammar" reads like a `conformance/functions` obligation and is not one.
+Both engines consume AST. Neither parses text, and neither ever will — the IR
+that reaches a handset has no strings in it. There is nothing here for a vector
+to compare between two implementations, because only one implementation exists
+by construction: `app/modules/forms/expression_text.py`, server-side, behind
+`POST /forms/expressions`.
+
+What replaces a vector is a **round trip**: `parse(render(node)) == node` for
+every expression node, asserted over every expression in the conformance corpus
+rather than over examples chosen by hand.
+
+### A.1 It is XLSForm's XPath, extended
+
+The syntax is the one the importer already reads, because a second parser is a
+second thing that decides what an expression means. It is extended only where
+§4.3 has a function XLSForm cannot spell.
+
+| | |
+|---|---|
+| Reference | `${field_name}`; a bare name **only** inside a choice filter, where it is a column of the candidate row (§3.2) |
+| Literals | `12`, `1.5`, `'text'`, `"text"`, `true()`, `false()`, `null()` |
+| Comparison | `=` (or `==`), `!=`, `<`, `<=`, `>`, `>=` |
+| Boolean | `and`, `or`, `not(x)` |
+| Arithmetic | `+`, `-`, `*`, `div`, `mod`, `idiv`, unary `-` |
+| Conditional | `if(test, then, else)` |
+| Membership | `selected(list, value)` |
+| Functions | every §4.3 function, under its **IR name** — `dec`, `str`, `len` — and under its XPath name where XLSForm has one: `number`, `string`, `string-length` |
+
+**Precedence, loosest first:** `or`, `and`, comparison, then `+ - div mod idiv`
+together, then `*`, then unary `-`, then primaries. `div` sitting with `+` rather
+than with `*` is XPath's ladder and not a mistake: `${a} + ${b} div 2` is
+`(${a} + ${b}) div 2`.
+
+### A.2 What has no surface, and says so
+
+Two nodes are reachable in the IR and cannot be written as text. The renderer
+refuses them by name rather than inventing a spelling, and a code field reports
+that the expression must be edited as IR.
+
+- **`in`** — XLSForm has no such operator, so an author cannot have typed one.
+  `selected` covers the same ground for the cases a builder produces.
+- **The `null` function** — `null()` is the surface for the null *literal*, and
+  giving one surface two ASTs would make the round trip pick the wrong one half
+  the time.
+
+A string containing both `'` and `"` also has no surface form: the tokenizer has
+no escape sequence, so there is nothing to read back.
+
+### A.3 Errors carry an offset
+
+A failure names the character it is about, so a code field can put a caret under
+it. `null` where the failure is about the whole expression rather than a point
+in it — an empty expression has no offending character.
+
+The importer does not use offsets and is right not to: it reports against a
+spreadsheet cell, and `survey!H27` is the location its author is looking at. A
+code field's author is looking at the expression itself, where "somewhere in
+this string" is not a location.
+
+### A.4 A number is written as exactly itself, and this is not `str()`
+
+A number literal is rendered as the shortest digits that read back as
+**exactly the same value**, and never fewer. `0.30000000000000004` is written
+with all seventeen digits. `800.0` is written `800.0`, with the `.0` that makes
+it a decimal rather than an integer. The digits are positional, because the
+grammar has no exponent: `1e-07` is `0.0000001`, and `1e16` is
+`10000000000000000.0`.
+
+**This is not §4.3.1's `str()`, and the two must not be confused.** They are
+two renderings for two purposes. `str()` is for a human reading a label: it
+drops the `.0` from an integer-valued decimal so that `str(dec("800"))` is
+`"800"` and can match a text column, and §7.1 interpolates with it for the same
+reason. The code field is canonical text an author edits and **saves back**, and
+it has one job: the value that goes out is the value that comes in. If the
+editor showed `0.3` where the AST held `0.30000000000000004` and saved `0.3`,
+then `${x} = 0.3` against an answer computed as `0.1 + 0.2` has gone from true
+to false, and nothing said so. A rendering that is allowed to lose a digit is
+not a rendering of the expression; it is a different expression that looks like
+it.
+
+**The integer/decimal spelling is kept here and is harmless to lose
+elsewhere.** Both engines compare `800` and `800.0` equal under §4.7, and §4.3's
+integer-typed arguments accept a whole-valued decimal, so nothing at runtime
+can tell the two apart — deliberately, because an answer must not depend on how
+a number was arrived at. A browser's JSON reads `800.0` and writes `800`, and
+that is why the harmlessness matters: a draft that passes through the console
+keeps every value and may lose that one spelling. The printer keeps it anyway.
+Its job is exactness, not a judgement about what is safe to drop, and the
+round-trip test compares with a type-aware equality for the same reason —
+`{"value": 800.0} == {"value": 800}` is true in Python, so `==` could not see
+the difference (break 119).
+
+**A negative number has no literal of its own.** The tokenizer reads a sign as
+unary `-`, so `-5` reads back as `neg` over the positive literal — which is
+what the importer has always produced for `-5` in a spreadsheet cell. An IR
+node `{"op": "lit", "value": -5}` therefore round-trips to
+`{"op": "neg", "args": [{"op": "lit", "value": 5}]}`: the one node whose round
+trip keeps the value and not the shape. §4.4 evaluates the two identically, and
+a builder that produces AST directly writes a negative number the same way, so
+that one number has one AST whichever rendering wrote it.
+
+Values JSON cannot carry — infinities, NaN — have no surface form, and the
+renderer says so rather than writing `inf`.
+
+`tests/test_expression_text.py` pins each of these, and runs the rule as a
+property over generated numbers — random bit patterns, both ends of the
+64-bit integer range, the float mantissa boundary, the subnormals — because a
+list of cases somebody thought of is what the printer had when it looked
+correct. Breaks 118 and 119.

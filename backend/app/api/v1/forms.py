@@ -21,6 +21,8 @@ from app.modules.form_engine.expression import CompileError
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
 from app.modules.form_engine.screens import FormScreen, build_screen_plan
 from app.modules.forms import service
+from app.modules.forms.expression_text import RenderError, render
+from app.modules.forms.expression_text import parse as parse_expression
 from app.modules.forms.models import FormDraft
 from app.modules.forms.schemas import (
     CompileRequest,
@@ -28,6 +30,8 @@ from app.modules.forms.schemas import (
     DraftDocument,
     EvaluateRequest,
     EvaluateResponse,
+    ExpressionRequest,
+    ExpressionResponse,
     FieldSnapshot,
     FormListResponse,
     FormVersionDocument,
@@ -46,6 +50,7 @@ from app.modules.forms.schemas import (
 )
 from app.modules.forms.xlsform import datatypes
 from app.modules.forms.xlsform.datatypes import SpecsUnavailable
+from app.modules.forms.xlsform.expressions import ExpressionError
 from app.modules.forms.xlsform.importer import CoverageHole, ImportFailed, import_workbook
 from app.modules.forms.xlsform.report import render_markdown
 
@@ -125,6 +130,57 @@ def _draft(draft: FormDraft) -> DraftDocument:
         updated_at=draft.updated_at,
         updated_by=draft.updated_by,
     )
+
+
+@router.post(
+    "/expressions",
+    response_model=ExpressionResponse,
+    response_model_by_alias=True,
+)
+async def expressions(request: ExpressionRequest) -> ExpressionResponse:
+    """Surface text to a §4.1 AST, or an AST back to text (Appendix A).
+
+    One implementation, server-side, and that is the decision rather than a
+    convenience. §2.1 of the builder scope says no form logic lives in the
+    builder, and a parser in the console is form logic in the builder — a
+    second thing that decides what an expression means, in a second language,
+    which is the shape this repository keeps paying for.
+
+    **This is not a conformance surface.** Both engines consume AST and neither
+    parses text, so there is nothing here for a vector to compare between two
+    implementations: only one exists by construction. What replaces a vector is
+    a round trip — `parse(render(node)) == node` over every expression in the
+    corpus, in `tests/test_expression_text.py`.
+
+    A bad expression is a 200 carrying `error` and `offset`, not a 422. The
+    code field asks on every pause in typing, and most of what it sends is
+    half-written by definition; an error status for "the author has not
+    finished the sentence" would make the normal case look like a failure.
+    """
+    if request.expression is not None:
+        try:
+            return ExpressionResponse(
+                expression=request.expression, text=render(request.expression)
+            )
+        except RenderError as exc:
+            return ExpressionResponse(expression=request.expression, error=str(exc))
+
+    if request.text is None:
+        return ExpressionResponse(error="send either `text` or `expression`")
+
+    try:
+        node = parse_expression(
+            request.text, self_path=request.self_path, row_scope=request.row_scope
+        )
+    except ExpressionError as exc:
+        return ExpressionResponse(error=str(exc), offset=exc.offset)
+    # Rendered back as well, so the field can show the canonical form of what
+    # it just read — the same string the next load would produce.
+    try:
+        text = render(node)
+    except RenderError:
+        text = None
+    return ExpressionResponse(expression=node, text=text)
 
 
 @router.get("/palette", response_model=PaletteResponse, response_model_by_alias=True)
