@@ -572,6 +572,58 @@ after all three had run, and stage 2 printed stage 3's answer — the two losses
 are independent and each hides the other. It is in the script's comments because
 the same mistake would make a fix look complete when only one half of it was.
 
+## 17. The spec promises five compile warnings and both engines emit two
+
+| | |
+|---|---|
+| **Where** | `specs/form-ir-v0.1.md` §10.3; `shared/form-engine/.../Runtime.kt` `lint()`; `backend/app/modules/form_engine/runtime.py` `_lint` |
+| **Status** | Open. Read from both engines 6 September 2026 |
+| **Why not fixed** | Two of the three missing warnings need a definition before they can be written, and until this commit the third did too. `unreachable relevance (statically false)` had no definition of *statically false* anywhere in the specification; §10.3 now has one, and the container case it separates out is a §10.2 error rather than a warning. `repeat with no bound` and `unused calculate` are still one line of prose each with no rule under them. Implementing any of the three ahead of its definition is how the two engines come to disagree |
+| **Blocks** | Phase 3 item 0. A visual builder's whole value over a spreadsheet is telling an author what is wrong while they are still looking at it, and the warnings are most of what there is to tell them |
+
+**What an author sees: a form that publishes clean and is not clean.** §10.3
+says a runtime warns on five things. Both engines warn on two — missing
+translation, and a decimal field with an equality constraint — and they are the
+same two, line for line:
+
+```
+Runtime.kt:381   "${f.fieldId}: missing translation for ..."
+Runtime.kt:384   "${f.fieldId}: direct equality comparison on a decimal field"
+runtime.py:349   f"{f.field_id}: missing translation for ..."
+runtime.py:354   f"{f.field_id}: direct equality comparison on a decimal field"
+```
+
+Three named warnings have no implementation on either engine:
+
+| §10.3 promises | Emitted |
+|---|---|
+| missing translation | both engines |
+| decimal equality comparison | both engines |
+| unreachable relevance (statically false) | **neither** |
+| repeat with no bound | **neither** |
+| unused calculate | **neither** |
+
+**The conformance suite cannot see this, and that is the part worth recording.**
+Rule 2 — every vector passes identically on both engines — is the strongest
+guarantee in this repository, and it is a comparison. Two engines that are
+identically incomplete pass it. There is no vector to fail here in any case:
+none of the 113 files in `conformance/vectors` asserts a compile warning at all
+(`screens-006.json` mentions `"severity": "warning"`, which is a soft
+constraint, not this). So the promise has stood unimplemented for as long as it
+has existed and nothing in the repository was ever in a position to notice.
+
+This is the same failure as a guard that does not run (break 24), arriving from
+the other side. There, a suite existed and CI did not execute it. Here, a
+specified behaviour exists and no engine implements it — and in both cases the
+repository reads as better defended than it is, because an absent warning is
+indistinguishable from a clean form.
+
+**Fixing it is three separate pieces of work, not one.** Each missing warning
+needs a definition in the specification before an engine can carry it, one
+vector shape per warning in `conformance/vectors`, then both engines. The
+alternative — writing whichever engine is nearer to hand and letting the other
+follow — produces exactly the divergence §10 was written to prevent.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be
