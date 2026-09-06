@@ -1708,8 +1708,11 @@ no escape sequence, so there is nothing to read back.
 ### A.3 Errors carry an offset
 
 A failure names the character it is about, so a code field can put a caret under
-it. `null` where the failure is about the whole expression rather than a point
-in it — an empty expression has no offending character.
+it: the trailing token, the unknown character, the opening quote or brace that
+was never closed, the name of the function that does not exist or took the wrong
+number of arguments, or the end of the text where it stopped too soon. `null`
+only where the failure is about the whole expression rather than a point in it,
+and the empty expression is the one case.
 
 The importer does not use offsets and is right not to: it reports against a
 spreadsheet cell, and `survey!H27` is the location its author is looking at. A
@@ -1766,3 +1769,114 @@ property over generated numbers — random bit patterns, both ends of the
 64-bit integer range, the float mantissa boundary, the subnormals — because a
 list of cases somebody thought of is what the printer had when it looked
 correct. Breaks 118 and 119.
+
+### A.5 The grammar
+
+The parser is `app/modules/forms/xlsform/expressions.py`, recursive descent
+over a small ladder, and this is that ladder written down. Where this text and
+the parser disagree, the parser is what the code field does and this text is
+the bug — the point of writing it is that behaviour with no spec is how the two
+engines came to diverge on casts (§4.3.1, break 44), and a parser that is the
+only definition of its own grammar is that shape again.
+
+```
+expression     := or
+or             := and ( "or" and )*                    one n-ary `or` node
+and            := comparison ( "and" comparison )*     one n-ary `and` node
+comparison     := additive ( cmp additive )?           at most one; a chain is an error
+cmp            := "=" | "==" | "!=" | "<" | "<=" | ">" | ">="
+additive       := multiplicative ( ( "+" | "-" | "div" | "mod" | "idiv" ) multiplicative )*
+multiplicative := unary ( "*" unary )*
+unary          := "-" unary | primary
+primary        := number | string | reference | "." | "(" expression ")" | call | name
+call           := name "(" ( expression ( "," expression )* )? ")"
+```
+
+#### Tokens
+
+- **Whitespace** between tokens is ignored and never significant. Leading and
+  trailing whitespace is stripped before an offset is counted (A.3). A word
+  operator needs whitespace where a name or number follows it, as in any
+  grammar: `${a} andnot(${b})` is one name.
+- **Reference**: `${` *path* `}`. The path is everything up to the closing
+  brace, with surrounding whitespace trimmed, and the parser does not look
+  inside it — §4.2 resolves it at compile time. Every §4.2 form is written as
+  it is in the IR: `${members[0].name}`, `${members[].income}`,
+  `${_metadata.start_time}`. The one path that is *not* written this way is a
+  candidate row's column, which is a bare name inside a choice filter (below)
+  and has no other spelling: `$row.code` as text is an unexpected character.
+- **`.`** on its own is the current question, and only where there is one — a
+  constraint, where the caller supplies the path. Anywhere else it is an
+  error. It is a different token from the `.` inside `1.5`.
+- **String**: opened by a straight `'` or `"`, or a curly `‘` `’` `“` `”`, and
+  closed by the next character of the same kind — `'` by `'`, `"` by `"`, a
+  curly single by either curly single, a curly double likewise. There is no
+  escape sequence, so a string may contain any other kind of quote and cannot
+  contain its own. The curly forms are read because Excel writes them (seven in
+  one real form); canonical text is straight, single unless the value holds a
+  single, and a value holding both straight kinds has no surface form (A.2).
+- **Number**: digits with an optional fraction, or a fraction alone: `12`,
+  `1.5`, `.5`. No sign — `-5` is unary minus over `5` (A.4) — no exponent, no
+  separators. A `.` decides integer from decimal. Canonical text is A.4's.
+- **Name**: a letter or `_`, then letters, digits, `_`, `.` or `-`. The hyphen
+  is there because XPath spells functions `count-selected` and
+  `string-length`, and it has a consequence: in a choice filter, `code-1` is
+  the column named `code-1`, and subtraction needs the spaces. A name followed
+  by `(` is a call. A bare name anywhere else is an error — XLSForm writes a
+  reference as `${name}`, and a bare name is the mistake worth reporting rather
+  than the reference worth inventing — except inside a choice filter, the one
+  place XLSForm gives it a meaning, where it is a column of the candidate row
+  and the IR spells it `$row.` *name* (§3.2).
+- **Operators**: `+ - * = == != < <= > >= ( ) ,`. `=` and `==` are the same
+  comparison; canonical text is `=`. Anything else — `/`, `!` alone, `{`, `$`
+  outside `${` — is an unexpected character, with its offset.
+
+Keywords and function names are **case-insensitive**: `AND`, `Div`, `ROUND(`,
+`TRUE()` all read. Canonical text is lower case.
+
+#### Precedence and associativity
+
+Loosest first: `or`, `and`, comparison, then `+ - div mod idiv` together, then
+`*`, then unary `-`, then primaries. `div` beside `+` rather than beside `*` is
+XPath's ladder, which the importer implements and real forms rely on:
+`${a} + ${b} div 2` is `(${a} + ${b}) div 2`, and `1 + 2 * 3 div 4` is
+`(1 + (2 * 3)) div 4`.
+
+`+ - div mod idiv` and `*` are left-associative. Comparison is **not**
+associative: `${a} = ${b} = ${c}` is an error at the second `=`, not a chain,
+because there is no reading of it that an author meant. `and` and `or` chains
+are **one n-ary node** (§4.1), not a nest, because §4.4's null rules are
+defined over the whole operand list; parentheses make a nest, and a nest is a
+different expression. Unary `-` repeats: `--5` is `neg(neg(5))`.
+
+Canonical text parenthesises only where the tree requires it, so the text an
+author typed is not what they see on the next open: `((${a}))` is saved as the
+reference and shown as `${a}`. That is §2's rule 3 in the builder scope —
+leaving the code field re-parses, and the AST is what is saved.
+
+#### Calls, and what the parser does not check
+
+`not`, `selected` and `if` are operators in the IR, not functions, and the
+parser checks their arity — one, two and three — because there is nothing
+downstream that would. `true()`, `false()` and `null()` are the literals. Every
+other name is looked up: XPath's spellings map onto §4.3's names (`number` is
+`dec`, `string-length` is `len`, `count-selected` is `count_selected`), and
+§4.3's own names are accepted as they are, so the printer's output reads back.
+A name that is neither is an error naming the function.
+
+The parser checks nothing else. A §4.3 function's arity — `substr(${a}, 1, 2,
+3)` parses — its argument types, and whether a reference resolves are all
+**compile's** to refuse (§10.2), over the whole document, where the answer
+exists. The code field's parse answers "is this text an expression"; compile
+answers "is it this form's expression". A builder that checked the second in
+the first would be form logic in the console, which §2.1 of the scope forbids.
+
+`idiv` has no XPath spelling and exists only in the builder's surface; the
+importer keeps refusing it, as it refuses `is_null()`, because an XLSForm
+author who wrote one has written something XLSForm does not have.
+
+`tests/test_expression_text.py` holds one test per claim above — a parse and a
+canonical text for each, and an offset for each refusal — beside a property
+that an author's text (redundant parentheses, arbitrary whitespace, `==`, mixed
+case, curly quotes) reads as the same tree the printer's text does. Breaks 120
+and 121.
