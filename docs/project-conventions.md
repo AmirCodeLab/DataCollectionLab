@@ -801,7 +801,12 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    rows also come **preloaded from the sample** or from a **fixed list in the
    form**, and all four sources render as the same one screen. The inline half
    is buildable now; the dataset half waits on `_metadata.case_key` (item 2) and
-   on `docs/known-defects.md` 16
+   on `docs/known-defects.md` 16. **A rowSource filter cannot read an answer**,
+   and since 6 September that rests on the work rather than on a judgement: the
+   rows come from the case the enumerator selected from their assigned sample,
+   so there is no typed-id shape to design re-resolution for. Still open, and
+   asked rather than assumed: what an enumerator *reads* to tell one roster row
+   from another — scope doc §5.1 and §13 question 7
 4. **Separate sync for sample and form.** A 37,000-row sample over a village
    connection is a different proposition from a small form update, and the person
    holding the handset should decide which they are doing
