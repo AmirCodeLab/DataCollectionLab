@@ -91,6 +91,12 @@ CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
 TEST_SOURCE_SETS: dict[str, str | None] = {
     "test": "{project}:test",
     "jvmTest": "{project}:jvmTest",
+    # wasmJs runs on a Linux runner through Node, so unlike iosTest there is no
+    # excuse for not executing it. Registered with the Node task and not the
+    # browser one: `wasmJsBrowserTest` wants Karma and a headless Chrome, and a
+    # suite that needs a browser to prove an engine is a suite that will be
+    # skipped the first time the browser is awkward.
+    "wasmJsTest": "{project}:wasmJsNodeTest",
     # commonTest compiles into every target's test binary. jvmTest is the one a
     # Linux runner can execute, so that is what CI is required to run.
     "commonTest": "{project}:jvmTest",

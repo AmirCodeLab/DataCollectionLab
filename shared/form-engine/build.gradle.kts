@@ -19,6 +19,19 @@ plugins {
 kotlin {
     jvm()
 
+    /*
+     * SPIKE (2026-09-06). Browser preview for the visual form builder needs the
+     * engine the handset runs, not an approximation — scope doc §2.1. This is
+     * the target that would make that possible; whether it is kept depends on
+     * what the spike found, which is written up in docs/wasm-spike.md.
+     */
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        browser()
+        nodejs()
+        binaries.executable()
+    }
+
     listOf(iosArm64(), iosSimulatorArm64()).forEach { it.binaries.framework { baseName = "FormEngine" } }
 
     android {
