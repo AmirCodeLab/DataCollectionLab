@@ -33,6 +33,8 @@ conformance corpus rather than over examples chosen by hand.
 
 from __future__ import annotations
 
+import math
+from decimal import Decimal
 from typing import Any
 
 from app.modules.forms.xlsform.expressions import ExpressionError, translate
@@ -95,7 +97,14 @@ def _render(node: Any, parent_precedence: int) -> str:
     args = node.get("args") or []
 
     if op == "lit":
-        return _literal(node.get("value"))
+        value = node.get("value")
+        if isinstance(value, int | float) and _is_negative_number(value):
+            # `-5` is the negation of `5`: the surface has no negative literal,
+            # and the parser reads the sign as `neg` (A.4). Rendering through
+            # the `neg` path gives it the parentheses a unary needs.
+            positive = {"op": "lit", "value": -value}
+            return _render({"op": "neg", "args": [positive]}, parent_precedence)
+        return _literal(value)
     if op == "ref":
         path = str(node.get("path", ""))
         # `$row.col` is a candidate row's column (§3.2), and it is spelled as a
@@ -150,8 +159,7 @@ def _render(node: Any, parent_precedence: int) -> str:
         # An expression carrying it round-trips through the AST and not through
         # text, which the code field reports rather than mangles.
         raise RenderError(
-            "`in` has no surface syntax. Edit this expression as IR, or use "
-            "selected()."
+            "`in` has no surface syntax. Edit this expression as IR, or use selected()."
         )
     if op == "call":
         name = str(node.get("fn", ""))
@@ -176,7 +184,7 @@ def _literal(value: Any) -> str:
     if value is None:
         return "null()"
     if isinstance(value, int | float):
-        return str(value)
+        return _number(value)
     text = str(value)
     # Single quotes, and a value containing one goes in double. Neither is
     # escaped, because the tokenizer has no escape sequence to read back — a
@@ -186,9 +194,43 @@ def _literal(value: Any) -> str:
     if '"' not in text:
         return f'"{text}"'
     raise RenderError(
-        "a string containing both quote characters has no surface form; "
-        "edit this expression as IR"
+        "a string containing both quote characters has no surface form; edit this expression as IR"
     )
+
+
+def _is_negative_number(value: int | float) -> bool:
+    if isinstance(value, bool):
+        return False
+    return value < 0 or (isinstance(value, float) and math.copysign(1.0, value) < 0)
+
+
+def _number(value: int | float) -> str:
+    """A number as the digits that read back as exactly this value (A.4).
+
+    **This is not §4.3.1's `str()`**, and the difference is the point. `str()`
+    is what a human reads in a label, and it drops the `.0` from an
+    integer-valued decimal so `str(dec("800"))` can match a text column. This
+    is what an author edits and saves back, so it has one job: the value that
+    goes out is the value that comes in. `800.0` stays a decimal, and
+    `0.30000000000000004` is written with all seventeen digits — a code field
+    that showed `0.3` and saved `0.3` would have changed the form's behaviour
+    without saying so.
+
+    The digits are the shortest that round-trip (Python's `repr`), spelled
+    positionally: the grammar has no exponent, so `1e-07` is `0.0000001`.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        # JSON cannot carry these, so no form does; and the grammar has no
+        # spelling to read back.
+        raise RenderError(f"{value!r} is not a number a form can hold; it has no surface form")
+    if isinstance(value, int):
+        return str(value)
+    text = repr(value)
+    if "e" in text or "E" in text:
+        text = format(Decimal(text), "f")
+    if "." not in text:
+        text += ".0"
+    return text
 
 
 def parse(source: str, *, self_path: str | None = None, row_scope: bool = False) -> dict[str, Any]:

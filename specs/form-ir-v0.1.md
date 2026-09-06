@@ -1715,3 +1715,54 @@ The importer does not use offsets and is right not to: it reports against a
 spreadsheet cell, and `survey!H27` is the location its author is looking at. A
 code field's author is looking at the expression itself, where "somewhere in
 this string" is not a location.
+
+### A.4 A number is written as exactly itself, and this is not `str()`
+
+A number literal is rendered as the shortest digits that read back as
+**exactly the same value**, and never fewer. `0.30000000000000004` is written
+with all seventeen digits. `800.0` is written `800.0`, with the `.0` that makes
+it a decimal rather than an integer. The digits are positional, because the
+grammar has no exponent: `1e-07` is `0.0000001`, and `1e16` is
+`10000000000000000.0`.
+
+**This is not §4.3.1's `str()`, and the two must not be confused.** They are
+two renderings for two purposes. `str()` is for a human reading a label: it
+drops the `.0` from an integer-valued decimal so that `str(dec("800"))` is
+`"800"` and can match a text column, and §7.1 interpolates with it for the same
+reason. The code field is canonical text an author edits and **saves back**, and
+it has one job: the value that goes out is the value that comes in. If the
+editor showed `0.3` where the AST held `0.30000000000000004` and saved `0.3`,
+then `${x} = 0.3` against an answer computed as `0.1 + 0.2` has gone from true
+to false, and nothing said so. A rendering that is allowed to lose a digit is
+not a rendering of the expression; it is a different expression that looks like
+it.
+
+**The integer/decimal spelling is kept here and is harmless to lose
+elsewhere.** Both engines compare `800` and `800.0` equal under §4.7, and §4.3's
+integer-typed arguments accept a whole-valued decimal, so nothing at runtime
+can tell the two apart — deliberately, because an answer must not depend on how
+a number was arrived at. A browser's JSON reads `800.0` and writes `800`, and
+that is why the harmlessness matters: a draft that passes through the console
+keeps every value and may lose that one spelling. The printer keeps it anyway.
+Its job is exactness, not a judgement about what is safe to drop, and the
+round-trip test compares with a type-aware equality for the same reason —
+`{"value": 800.0} == {"value": 800}` is true in Python, so `==` could not see
+the difference (break 119).
+
+**A negative number has no literal of its own.** The tokenizer reads a sign as
+unary `-`, so `-5` reads back as `neg` over the positive literal — which is
+what the importer has always produced for `-5` in a spreadsheet cell. An IR
+node `{"op": "lit", "value": -5}` therefore round-trips to
+`{"op": "neg", "args": [{"op": "lit", "value": 5}]}`: the one node whose round
+trip keeps the value and not the shape. §4.4 evaluates the two identically, and
+a builder that produces AST directly writes a negative number the same way, so
+that one number has one AST whichever rendering wrote it.
+
+Values JSON cannot carry — infinities, NaN — have no surface form, and the
+renderer says so rather than writing `inf`.
+
+`tests/test_expression_text.py` pins each of these, and runs the rule as a
+property over generated numbers — random bit patterns, both ends of the
+64-bit integer range, the float mantissa boundary, the subnormals — because a
+list of cases somebody thought of is what the printer had when it looked
+correct. Breaks 118 and 119.
