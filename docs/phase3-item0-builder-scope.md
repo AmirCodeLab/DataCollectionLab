@@ -21,7 +21,7 @@
 >
 > - §0.2's six probes reproduce exactly, line for line, including `askable`,
 >   `live` and the empty `warnings`. Re-runnable:
->   `./backend/.venv/bin/python scripts/probe_publishable_empty_containers.py`.
+>   `python scripts/probe_publishable_empty_containers.py`.
 > - §0.1's three line references are exact: `service.py:85` is
 >   `def check_publishable`, `service.py:363` is the `if import_record is not
 >   None:` guard, and `importer.py:1876` is the reachability block. The four
