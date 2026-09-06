@@ -80,12 +80,55 @@ def _corpus() -> list[dict[str, Any]]:
     return deep
 
 
-CORPUS = _corpus()
+def _generated() -> list[dict[str, Any]]:
+    """Every operator against every other, nested both ways.
+
+    The corpus is real forms, and real forms do not contain `${a} - (${b} -
+    ${c})` or `(${a} + ${b}) div 2`. Two breaks proved it: printing `div` at
+    multiplicative precedence, and rendering a right operand at its parent's
+    level instead of one tighter, both passed the whole corpus. Neither is
+    exotic — they are the two mistakes a precedence table invites — and a
+    property test that cannot see them is testing the forms rather than the
+    ladder.
+
+    So this is a cross product rather than a selection, for the same reason
+    `conformance/functions` is (break 46): the shapes nobody wrote down are
+    exactly the ones a hand-picked list is missing.
+    """
+    from app.modules.forms.expression_text import _BINARY
+
+    ref_a = {"op": "ref", "path": "a"}
+    ref_b = {"op": "ref", "path": "b"}
+    ref_c = {"op": "ref", "path": "c"}
+
+    out: list[dict[str, Any]] = []
+    for outer in _BINARY:
+        for inner in _BINARY:
+            # Left-nested and right-nested. The right-nested case is the one
+            # that needs the parentheses a left-associative parser would
+            # otherwise drop.
+            out.append({"op": outer, "args": [{"op": inner, "args": [ref_a, ref_b]}, ref_c]})
+            out.append({"op": outer, "args": [ref_a, {"op": inner, "args": [ref_b, ref_c]}]})
+        # Unary under a binary, and a binary under a unary.
+        out.append({"op": outer, "args": [{"op": "neg", "args": [ref_a]}, ref_b]})
+        out.append({"op": "neg", "args": [{"op": outer, "args": [ref_a, ref_b]}]})
+        out.append({"op": "not", "args": [{"op": outer, "args": [ref_a, ref_b]}]})
+        # A call's arguments are always parenthesised by the call itself, so a
+        # binary inside one must survive without extra parens.
+        out.append({"op": "call", "fn": "round", "args": [{"op": outer, "args": [ref_a, ref_b]}]})
+    return out
+
+
+CORPUS = _corpus() + _generated()
 
 
 def test_the_corpus_has_expressions_to_check() -> None:
     """A property test over an empty corpus passes and proves nothing."""
     assert len(CORPUS) > 200, f"only {len(CORPUS)} expressions found"
+    # The generated half must actually be there: a cross product that silently
+    # produced nothing would leave this test passing on the corpus alone,
+    # which is the state two breaks already walked through.
+    assert len(_generated()) > 300, "the generated ladder is missing"
 
 
 @pytest.mark.parametrize("node", CORPUS, ids=lambda n: n.get("op", "?"))

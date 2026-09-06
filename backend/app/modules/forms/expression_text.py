@@ -60,6 +60,15 @@ _BINARY = {
     "mul": (5, "*"),
 }
 
+#: `and` and `or` are n-ary in the IR and the parser flattens chains into one
+#: node (§4.1). Everything else here is strictly binary.
+_NARY = frozenset({"and", "or"})
+
+#: Operators the parser reads left-associatively, so the left operand may stay
+#: at its own precedence. Comparisons are absent deliberately: they are not
+#: associative, and `${a} = ${b} = ${c}` is a parse error rather than a chain.
+_LEFT_ASSOCIATIVE = frozenset({"add", "sub", "mul", "div", "mod", "idiv"})
+
 _UNARY_PRECEDENCE = 6
 _PRIMARY_PRECEDENCE = 7
 
@@ -96,12 +105,31 @@ def _render(node: Any, parent_precedence: int) -> str:
 
     if op in _BINARY:
         precedence, symbol = _BINARY[op]
+
+        if op in _NARY:
+            # §4.1: `and` and `or` take two or more arguments and the parser
+            # flattens a chain into one node, because §4.4's null rules are
+            # defined over the whole operand list. So a *nested* `or` is a
+            # different node from a flat one, and rendering it without
+            # parentheses would come back flattened — a different expression
+            # that happens to look the same.
+            if len(args) < 2:
+                raise RenderError(f"{op} takes two or more arguments, got {len(args)}")
+            rendered = f" {symbol} ".join(_render(a, precedence + 1) for a in args)
+            return f"({rendered})" if precedence < parent_precedence else rendered
+
         if len(args) != 2:
             raise RenderError(f"{op} takes two arguments, got {len(args)}")
-        left = _render(args[0], precedence)
-        # The right operand is rendered one level tighter, so a right-nested
-        # tree of the same operator keeps its shape: `a - (b - c)` must not
-        # print as `a - b - c`, which parses back left-associated.
+
+        # The left operand keeps its own level only where the parser is
+        # left-associative. A comparison is not associative at all — `a = b = c`
+        # is a parse error, not a chain — so both sides go one level tighter and
+        # a nested comparison gets the parentheses it needs.
+        left_precedence = precedence if op in _LEFT_ASSOCIATIVE else precedence + 1
+        left = _render(args[0], left_precedence)
+        # The right operand is always one level tighter, so a right-nested tree
+        # of the same operator keeps its shape: `a - (b - c)` must not print as
+        # `a - b - c`, which parses back left-associated.
         right = _render(args[1], precedence + 1)
         text = f"{left} {symbol} {right}"
         return f"({text})" if precedence < parent_precedence else text
