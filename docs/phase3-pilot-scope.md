@@ -414,16 +414,28 @@ to that instance and the row reads `4471 — Fatima`. Both halves are specified;
    so no expression yields "this instance's place in the roster" and a form
    author cannot write `coalesce(pid, concat("N", index()))`. A generated
    identifier is not a design we rejected; it is not currently expressible by
-   any means. That is a one-function change to §4.3 **if** the answer to §13
-   question 7 needs it — and a function on the surface is a conformance matter
-   (`functions/`, every value shape, both engines), not a client detail.
+   any means. That is a one-function change to §4.3 — and a function on the
+   surface is a conformance matter (`functions/`, every value shape, both
+   engines), not a client detail.
 
-**Why the answer matters beyond the label.** §13 question 4 asks what `Person
-Id` does, and there are 73 of them. If it means "pick a member from the roster",
-then whatever the enumerator reads on that list is the **referent** of those 73
-questions — and a member with no identifier is one nobody can pick. The two
-questions should be asked together, because a "just the name" answer to one and
-a "picks by PID" answer to the other cannot both be acted on.
+   **Question 7 was answered on 6 September 2026 and did not reach this.**
+   RCons said a row's label is a specific column of the sample, which is
+   `labelColumn` and which an added row does not have either. So the sampled
+   case is fully specified and the added case is exactly as open as it was —
+   the question that would close it is what an *added* member's row should
+   read, and that has not been asked yet.
+
+**Why the answer mattered beyond the label — and no longer does.** This
+section used to say that if `Person Id` meant "pick a member from the roster",
+whatever the enumerator reads on that list would be the **referent** of 73
+questions, and a member with no identifier would be one nobody can pick. That
+was the larger half of the stake, and §13 question 4 removed it on 6 September
+2026: `Person Id` is a prefilled question, not a picker, so an added member
+without an identifier strands nothing.
+
+What is left is the smaller and still real half. An added row reads an empty
+label beside sampled rows that read `4471 — Fatima`, which is a legibility
+problem on the screen rather than a referential one in the data.
 
 **What not to do meanwhile:** invent a serial in a client. Two clients would
 generate different ones, both would pass every vector, and the enumerator on one
@@ -532,6 +544,14 @@ appear nowhere in `shared/form-engine/src` or
   worse than the ones the importer produces.
 - **Item 3** needs them for the same screen. They are already on its remaining
   list (§5, and `docs/project-conventions.md`, current phase, item 3).
+
+**No specification decision is owed before it.** Step 3 was briefly at risk of
+gaining one: `summaryLabel` interpolates question values onto the repeat screen
+(§7.1), and if a roster row's name were `sensitive` that would display it.
+RCons answered on 6 September 2026 that it is not — the enumerator is meant to
+read the name — so step 3 is implementation and vectors, nothing else. The
+general gap that question exposed, labels sitting outside §10.2's sensitivity
+leak definition, is known defect 19 and is not step 3's to carry.
 
 It is written here, and in `docs/phase3-item0-builder-scope.md` §5, so that
 neither item plans around it separately. **The failure this prevents is not
