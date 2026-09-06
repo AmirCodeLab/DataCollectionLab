@@ -231,8 +231,23 @@ In dependency order. Items 1–3 block everything else.
 | 8 | ~~Person Id~~, the Custom types | Person Id answered 6 September 2026 — a prefilled question, nothing to build (§5). The `Custom` prefixes still need the section code |
 | 9 | Desktop data entry (dates, media) | Paper-based entry is not happening yet but is wanted. Two known defects block it |
 
-Items 1–7 are roughly two months. Item 3 is the one with genuine uncertainty,
-which is why it should be prototyped first.
+~~Items 1–7 are roughly two months. Item 3 is the one with genuine
+uncertainty, which is why it should be prototyped first.~~ **Both halves of
+that sentence are wrong, and it is left visible rather than deleted because it
+is the kind of sentence that gets quoted.**
+
+**There is no timeline.** The pilot happens when the platform is ready, not on
+a date. "Roughly two months" predated both item 0 and the item 3 correction and
+survived them by looking like a fact; the scope document retracted it in §11 and
+`docs/project-conventions.md` retracted it again, and this copy was missed by
+both. That is the whole argument for not writing a number down: this one
+outlived two corrections in the documents that were actually maintained.
+
+**Item 3 is not the uncertainty and does not need a prototype.** The skip-to →
+relevance compiler was closed on 6 September 2026 — not deferred, not held in
+reserve, not needed. RCons's questionnaire carries its skip logic as Urdu prose
+in a codes column, and a person converts it in their head before any tool sees
+it, so a converter would be handed prose. Scope document §12.
 
 ---
 
