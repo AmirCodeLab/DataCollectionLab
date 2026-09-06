@@ -499,7 +499,7 @@ Named so their absence is a decision:
 | 0 | **Visual form builder** | RCons authors forms themselves; nothing starts without it |
 | 1 | Login and permissions | Everything below depends on it |
 | 2 | Sample assignment and supervisor isolation | The daily work of a survey firm |
-| 3 | Repeat screen flow | Spec (§11.3) and both engines **done 5 Sep 2026**; the roster UI is what is left. Blocks household listing |
+| 3 | Repeat screen flow | Spec (§11.3) and the screen planner on both engines **done 5 Sep 2026**; the roster UI and the shared work below are what is left. Blocks household listing |
 | 4 | Separate sample/form sync | Field usability |
 | 5 | Supervisor monitoring | Fieldwork needs oversight from day one |
 | 6 | Review and correction | Closes the quality loop |
@@ -516,6 +516,35 @@ RCons authoring their own forms is the thing every other item assumes.
 Item 3 was also re-costed — see §5. It was in this table as "small" while it was
 understood as a widget; it is a v0.2 spec decision on repeat screen flow, then
 the screen planner on both engines, then the UI.
+
+### Shared work, owned by neither item
+
+**`addLabel` and `summaryLabel` on both engines, with vectors. Scheduled once,
+before either item that needs it.**
+
+§2.3 and §11.3 specify both and neither engine implements either — the strings
+appear nowhere in `shared/form-engine/src` or
+`backend/app/modules/form_engine/`. Two items need them and neither owns them:
+
+- **Item 0** cannot offer a roster editor without them. A repeat whose add
+  control has no text and whose rows cannot be told apart is a roster an
+  enumerator cannot read, so a builder that omits them ships forms that are
+  worse than the ones the importer produces.
+- **Item 3** needs them for the same screen. They are already on its remaining
+  list (§5, and `docs/project-conventions.md`, current phase, item 3).
+
+It is written here, and in `docs/phase3-item0-builder-scope.md` §5, so that
+neither item plans around it separately. **The failure this prevents is not
+that it gets forgotten — it is that it gets done twice**, or done once inside
+whichever item reaches it first and then re-litigated by the other, which is
+how a shared engine change acquires an owner who was not choosing to be one.
+
+It sits at step 3 of item 0's build order, after the reachability and liveness
+work and before any editor, because it is engine work with vectors and both
+engines must land it together. The row above says "the screen planner on both
+engines" for the same reason: §11.3 is not finished on either engine until
+this lands, and the earlier wording — "both engines done" — was the kind of
+sentence that gets planned against.
 
 ---
 
