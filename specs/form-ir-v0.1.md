@@ -228,6 +228,13 @@ nothing at all to see. Refusing it is the same decision this section already
 makes about nested repeats — a half-defined version is worse than a refusal that
 says so.
 
+**Confirmed against the work, 6 September 2026, and no longer a judgement
+call.** The shape this refuses does not exist in the fieldwork it was written
+about: a roster's rows come from the **case the enumerator selected** from their
+assigned sample, and that selection is an assignment rather than an answer. So
+the filter reads `_metadata.case_key` and a typed household id was never the
+alternative. `docs/phase3-pilot-scope.md` §13, question 6.
+
 **Seeding.** For each row an instance is created, and `bind` writes the named
 column's value into the named question of that instance. A seeded value is an
 ordinary answer from that moment: it behaves as if it had arrived as the
@@ -274,12 +281,21 @@ rows than `maxInstances` instantiates all of them and permits no add —
 truncating would drop a sampled household member with nothing in an error state.
 
 **The row's key.** Every instance created from a `rowSource` records the key of
-the row that made it — §3.1's key, exactly — addressable as
-`members[.]._rowKey` and `null` for an enumerator-added instance (`_` is
-reserved runtime metadata, §2.4). It is what an export joins back to the sample
-on, and it is what lets a supervisor see which sampled members were never
-interviewed. An instance id is internal and per submission; `_rowKey` is the
-identity the sample already had.
+the row that made it — §3.1's key, exactly — reported per instance as `_rowKey`,
+and `null` for an enumerator-added instance (`_` is reserved runtime metadata,
+§2.4). It is what an export joins back to the sample on, and it is what lets a
+supervisor see which sampled members were never interviewed. An instance id is
+internal and per submission; `_rowKey` is the identity the sample already had.
+
+**It is not yet an expression reference.** An earlier draft of this section
+wrote it as `members[.]._rowKey`, which §4.2 does not grant and no engine
+resolves: the engines record and report the key, and nothing evaluates a path to
+it. Making it referenceable is a §4.2 row plus resolution in both engines — a
+small change, and deliberately not made yet, because what a row *displays* is
+still open (`docs/phase3-pilot-scope.md` §5.1) and the answer may put the key in
+a bound question instead, where an expression already reaches it. A form that
+needs the key in an expression today binds it to a question: `bind` puts it in
+the instance, and every §4.2 rule applies to it unchanged.
 
 #### What is live
 
@@ -1166,7 +1182,10 @@ Automatically captured, addressable under `_metadata`:
 
 `_metadata.case_key` is the case this submission was opened against — the sample
 row it came from (`docs/phase3-pilot-scope.md` §4.3) — and `null` for a
-submission opened without one. A `rowSource` filter is answer-independent by
+submission opened without one. It is the case behind the **enumerator's
+selection from their assigned sample**, which is what RCons confirmed on 6
+September 2026 the roster filter actually keys on, and so it comes from item 2's
+`assignment` → `case_record` rather than from anything the form collects. A `rowSource` filter is answer-independent by
 §2.3, so this is what a roster preloaded from the sample keys on. **It does not
 exist yet**: cases arrive with Phase 3 item 2, which is one of the two reasons
 §2.3 refuses `kind: "dataset"` for now.

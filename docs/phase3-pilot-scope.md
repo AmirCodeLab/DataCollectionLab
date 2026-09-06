@@ -352,6 +352,66 @@ item is named for the screen flow and not for the roster.
 
 ---
 
+### 5.1 What an enumerator reads to tell one row from another
+
+Their questionnaire's first roster question is `PID`, marked *already filled*.
+So a roster row's identity is **visible to the enumerator**, not internal
+bookkeeping — which is worth checking against what we built, because our
+`_rowKey` is internal and an instance id is `i1`, `i2`.
+
+**Decided: a row does not need a displayed identifier separate from
+`summaryLabel`.** A second string beside it would be two ways to label one row,
+and the first thing anyone would ask is which of them wins. `summaryLabel` is
+the row's displayed identity, and what a row shows is a question about its
+*content*, not about how many label slots the IR has.
+
+**For a sampled row, that already covers it, with nothing new.** "Already
+filled" is not a widget — it is a bound, read-only question:
+
+```json
+{ "type": "question", "id": "pid", "dataType": "text",
+  "label": { "en": "PID" }, "readOnly": true }
+```
+
+with `"bind": { "pid": "member_id" }` on the `rowSource`. The sample's key lands
+in `pid`, the enumerator sees it filled and cannot change it, and it appears as
+the first question of the member's screen exactly as it does in their
+questionnaire. The list row then reads `summaryLabel` — a §7.1 interpolated
+label evaluated in the instance's scope, so `pid` among its arguments resolves
+to that instance and the row reads `4471 — Fatima`. Both halves are specified;
+`summaryLabel` is on the roster-UI list above and neither engine parses it yet.
+
+**Two things it does not cover, and only the second is a gap in the design.**
+
+1. **An added member has no PID.** `bind` does not apply to an instance the
+   enumerator added — `rows-006` asserts exactly that — so `pid` is null, §7.1
+   renders null as the empty string, and the row reads `— Ali` while every
+   sampled row above it reads `4471 — Fatima`. In their system that identifier
+   is *generated* for a new member. Whether it must be here is the question, and
+   it is theirs to answer rather than ours to assume.
+2. **Nothing can generate one.** There is no `index()` or `position()` in §4.3,
+   so no expression yields "this instance's place in the roster" and a form
+   author cannot write `coalesce(pid, concat("N", index()))`. A generated
+   identifier is not a design we rejected; it is not currently expressible by
+   any means. That is a one-function change to §4.3 **if** the answer to §13
+   question 7 needs it — and a function on the surface is a conformance matter
+   (`functions/`, every value shape, both engines), not a client detail.
+
+**Why the answer matters beyond the label.** §13 question 4 asks what `Person
+Id` does, and there are 73 of them. If it means "pick a member from the roster",
+then whatever the enumerator reads on that list is the **referent** of those 73
+questions — and a member with no identifier is one nobody can pick. The two
+questions should be asked together, because a "just the name" answer to one and
+a "picks by PID" answer to the other cannot both be acted on.
+
+**What not to do meanwhile:** invent a serial in a client. Two clients would
+generate different ones, both would pass every vector, and the enumerator on one
+would read a number the other does not show — the exact shape §3.2 refuses when
+it forbids a client to pre-narrow a choice list, and the reason screen flow and
+progress are specified in the engine rather than left to each UI.
+
+---
+
 ## 6. Item 4 — separate sync for sample and form
 
 RCons's app has separate tabs: enumerators update the sample and the
@@ -517,12 +577,30 @@ that can emit structured skip logic can emit `relevant`.
    cross-repeat referencing and a real feature gap.
 5. How many enumerators, questions and days in the next fieldwork? It sizes the
    pilot.
-6. **Does any survey have an enumerator type a household id and the roster fill
-   from it?** Form IR §2.3 refuses a preloaded roster whose filter reads an
-   answer, because resolving it early selects on nulls and resolving it late
-   leaves the previous household's members in the list after a correction —
-   with every control reading correctly and nothing to see. If that shape is in
-   their fieldwork, the re-resolution design is needed **before** the pilot
-   rather than after it, and this is the question that decides which.
-7. What does CERP not get from SurveyCTO? The most valuable competitive
+6. ~~**Does any survey have an enumerator type a household id and the roster
+   fill from it?**~~ **Answered, 6 September 2026: no, and the shape does not
+   exist in their workflow.** The roster filter comes from the **case the
+   enumerator selected**. A supervisor assigns the sample, the enumerator picks
+   from their assigned list, and that selection *is* the case — so the filter
+   reads an assignment, never a typed answer.
+
+   That closes it in the strongest way available: Form IR §2.3's refusal of an
+   answer-referencing `rowSource` filter now rests on **how the work is
+   actually done**, not on a judgement about which resolution timing is least
+   bad. There is no re-resolution design to schedule, before the pilot or
+   after, because nothing needs re-resolving — a case is chosen once and does
+   not change under the enumerator's hand.
+
+   It also settles what `_metadata.case_key` has to carry (§8): the case behind
+   the enumerator's selection, which is item 2's `assignment` → `case_record`
+   and not a value the form collects.
+7. **What does an enumerator read to tell one roster row from another — a PID,
+   a serial, or the name?** Their questionnaire's first roster question is
+   `PID`, marked *already filled*, so a row's identity is **visible** rather
+   than internal. Most of that is already expressible and one part is not — see
+   §5.1, which sets out exactly what is covered and what the answer decides.
+   Worth pairing with question 4: if `Person Id` picks a member from the
+   roster, then whatever the enumerator reads here is the referent of 73
+   questions, and an added member that has none cannot be picked.
+8. What does CERP not get from SurveyCTO? The most valuable competitive
    information available, and it comes from the customer rather than from us.
