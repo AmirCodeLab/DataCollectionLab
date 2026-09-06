@@ -51,6 +51,11 @@ val generateVectorTests = tasks.register("generateVectorTests") {
                 appendLine()
                 appendLine("import kotlin.test.Test")
                 appendLine()
+                appendLine("/** What this file was generated from, for [VectorCoverageTest]. */")
+                appendLine("val GENERATED_VECTOR_IDS: List<String> = listOf(")
+                names.forEach { appendLine("    \"$it\",") }
+                appendLine(")")
+                appendLine()
                 appendLine("class GeneratedVectorTests {")
                 appendLine("    private val runner = VectorRunner()")
                 names.forEach { appendLine("    @Test fun `$it`() = runner.runVector(\"$it\")") }
