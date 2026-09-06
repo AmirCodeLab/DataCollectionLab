@@ -69,9 +69,30 @@ one that ships to the handset is then not the one the author was looking at.
 **Preview runs the same engine the handset runs.** Not a preview renderer, not
 an approximation — the engine. A form cannot behave one way in preview and
 another in the field, and the only way to guarantee that is to have one
-implementation of the behaviour. The engine already compiles to Wasm for exactly
-this reason (`shared/form-engine` is dependency-free of UI and Android framework
-code, which is what makes it possible).
+implementation of the behaviour.
+
+**The engine does not compile to Wasm today.** An earlier version of this
+paragraph said it already did, "for exactly this reason". That was false: no
+Gradle file in this repository declares a `wasmJs` target, and
+`shared/form-engine` has one test source set, `jvmTest`. What is true is the
+property the false sentence was reaching for — the module is dependency-free of
+UI and Android framework code, which is what would make a browser build
+possible. Nothing has shown that it works.
+
+The distinction matters because this was load-bearing for a decision. Preview
+in the browser is the only unknown in item 0; everything else is a UI over
+machinery that exists (§2.2). A sentence asserting the unknown was already
+solved would have removed the one thing worth checking first, which is why item
+0 opens with a Wasm spike rather than an editor. If the spike fails, preview
+and test mode change shape, and it is cheaper to learn that in a day than after
+an editor has been built on top of it.
+
+A passing spike is also not the same as a supported target. A `wasmJs` target
+that no CI job executes is a guarantee covering a build nobody runs — the
+pattern this repository has now recorded several times — so the spike's cost
+includes a test task and a vector run on that target, or it does not count as
+done. `conformance/README.md` claimed four platforms on the same false basis
+and now says JVM; known defect 18 holds what is missing.
 
 **The relevance and constraint editor is visual with a code escape hatch, and
 both are required.** RCons's own rules settle this. `q1>5 && q1<20` and

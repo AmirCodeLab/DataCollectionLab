@@ -624,6 +624,56 @@ vector shape per warning in `conformance/vectors`, then both engines. The
 alternative — writing whichever engine is nearer to hand and letting the other
 follow — produces exactly the divergence §10 was written to prevent.
 
+## 18. The Kotlin engine is verified on one platform of the four it ships to
+
+| | |
+|---|---|
+| **Where** | `shared/form-engine/build.gradle.kts` (targets), `shared/form-engine/src/` (source sets), `.github/workflows/ci.yml` (the Kotlin job), `conformance/README.md` |
+| **Status** | Open. Read from the build files and the workflow 6 September 2026 |
+| **Why not fixed** | Three platforms, three different costs, and none of them is a source set. iOS needs a macOS runner — the CI guard **refuses** an `iosTest` source set today for exactly that reason (break 24(h)), so adding one without a runner makes the build worse, not better. Android needs an instrumented runner or Robolectric. Wasm needs a target that does not exist and has never been compiled. Doing any of them badly produces the thing this row is about: a target with no test task |
+| **Blocks** | Phase 3 item 0's browser preview, which is the whole premise that a form cannot behave one way in preview and another in the field (§2.1). Nothing today verifies that the engine behaves the same anywhere except the JVM |
+
+**What a reviewer sees: a guarantee that reads as four platforms wide and is
+one.** `conformance/README.md` opened by saying every vector must pass
+identically on the Python reference implementation and on the Kotlin engine "on
+JVM, Android, iOS and Wasm". The correcting commit made that line say JVM. The
+gap it was covering is this row.
+
+```
+targets declared     jvm(), iosArm64(), iosSimulatorArm64(), android { }
+test source sets     src/jvmTest          — the only one
+CI runs              ./gradlew :shared:form-engine:jvmTest
+wasmJs anywhere      no Gradle file in the repository contains it
+```
+
+All 113 vectors, and every one of the nine Kotlin conformance test files, run
+on the JVM. Android and iOS compile and are never exercised. Wasm does not
+compile because there is nothing to compile.
+
+**Rule 2 is narrower than it sounds, and this is where.** "Every vector passes
+identically on both engines" is true and is worth what it costs — but *both
+engines* is Python and Kotlin-on-JVM. It is not a statement about the handset,
+which runs the Android target, or about the browser, which runs a target that
+does not exist. The rule was never wrong; the README's summary of it was, and a
+summary is what people read.
+
+**The honest position is that portability here is a design property, not a
+tested one.** `shared/form-engine` is dependency-free of UI and Android
+framework code, deliberately, and its build file says so in a comment that ends
+"Don't". That is a real constraint and it is enforced by review. It is not
+evidence that the engine produces the same answers under Kotlin/Native or under
+a Wasm compiler, and those are the toolchains where a difference would actually
+be plausible — integer width, string comparison, date arithmetic.
+
+**Closing it, in the order that pays.** Android first: an existing target, a
+runner that already exists in CI, and the platform every submission is actually
+collected on. Wasm second, as part of item 0's spike, because it is the one
+that unblocks something. iOS last, since it needs a runner the project does not
+have. Each step is a test source set **and** a CI job that runs it in the same
+commit — `scripts/check_ci_runs_every_suite.py` will refuse the half of it that
+is a source set with no job, which is the correct behaviour and should not be
+worked around.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be

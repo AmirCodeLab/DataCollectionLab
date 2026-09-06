@@ -3,7 +3,15 @@
 Language-neutral test cases that **every** Form IR engine must pass identically:
 
 - the Python reference implementation (`backend/app/modules/form_engine`)
-- the Kotlin engine (`shared/form-engine`) on JVM, Android, iOS and Wasm
+- the Kotlin engine (`shared/form-engine`), **on the JVM**
+
+This line named four platforms — JVM, Android, iOS and Wasm — until
+6 September 2026. Every Kotlin conformance test is in `src/jvmTest`, which is
+the only test source set the module has, and CI runs
+`:shared:form-engine:jvmTest` and nothing else. Android and iOS are declared
+as build targets and execute no vector; Wasm is not a declared target at all.
+The engine is written to be portable to all four and is verified on one. See
+known defect 18 — the gap is real and is not closed by this correction.
 
 A vector is a JSON file with a form IR and an ordered list of steps.
 
