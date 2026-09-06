@@ -69,8 +69,19 @@ signed first, not by market size. Self-hosting, data residency and SSO move
 back; assignment, supervision and review move forward, which is what Phase 3 is.
 `docs/DCP-Product-and-System-Architecture-v1.0.md` §2.3.
 
+**O-3 is closed.** Web forms runtime: **the Kotlin engine compiled to Wasm**,
+rendered by React — decided 6 September 2026 on a spike and not a preference.
+~128 KB brotli, 14.7 ms to instantiate, 8.0 ms to parse, compile and fully
+recalculate a 1,000-question form, and all 113 vector forms compiling on the
+target with a CI job that runs them. `docs/wasm-spike.md`, and
+`docs/DCP-Product-and-System-Architecture-v1.0.md` §18.4.
+
+It is written down because it was being decided sideways: item 0's browser
+preview needs the engine the handset runs, and shipping the engine to a browser
+for preview is the same shipping this decision is about. **One implementation
+of form behaviour, everywhere** — not a second one for the web.
+
 - **O-2** Server-side form evaluation: JVM engine sidecar vs Python port
-- **O-3** Web forms runtime: Compose Web vs engine-to-Wasm + React
 - **O-4** Pricing model (affects whether metering is core)
 - **O-5** Open-core: open-source the engine only?
 - **O-6** Extensibility: constrained custom widget SDK
