@@ -674,14 +674,16 @@ commit — `scripts/check_ci_runs_every_suite.py` will refuse the half of it tha
 is a source set with no job, which is the correct behaviour and should not be
 worked around.
 
-## 19. A roster row's label will sit outside the sensitivity check
+## Closed
+
+### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
 
 | | |
 |---|---|
 | **Where** | `specs/form-ir-v0.1.md` §10.2 (the prose definition); `backend/app/modules/crypto/envelope.py` `check_sensitivity_propagation`; `shared/form-engine/.../Sensitivity.kt` |
-| **Status** | Open and **latent**. Read from both engines 6 September 2026 |
-| **Why not fixed** | It cannot leak yet: `summaryLabel` is specified in §2.3 and §11.3 and parsed by neither engine, so there is nothing to hold a reference. Fixing it before the field exists would mean writing a check over a shape no vector can construct. It is scheduled instead — pilot scope §10, inside step 3, which is what makes `summaryLabel` real |
-| **Blocks** | Nothing today. It is a precondition on step 3 rather than a blocker of it |
+| **Status** | **Closed 6 September 2026**, in the commit that made `summaryLabel` real — not one commit later |
+| **What fixed it** | The walk, not the symptom. Both engines collect a repeat's own expressions per key and `checkSensitivityPropagation` walks them, so `countExpr` is covered by the same change rather than waiting for its own defect row |
+| **Evidence** | `sensitivity-006` and `sensitivity-007` on both engines, and breaks 102–104 watched to fail — 102 is this defect exactly, and it fails the publish gate and not only the check |
 
 **What a reviewer would see, the day after step 3 ships: a name marked
 `sensitive` printed on the roster screen, with a clean publish behind it.**
@@ -718,7 +720,25 @@ state backwards on first reading. The list should say what is actually checked.
    which the leak is reachable, and the window would be invisible: a form that
    publishes clean is exactly what this check exists to make impossible.
 
-## Closed
+
+**Why it closed here rather than in a commit of its own.** The window it would
+have opened is the reason. Between a release that parses `summaryLabel` and a
+release that checks it, a form interpolating a sensitive name onto the repeat
+screen would publish clean — and a form that publishes clean is precisely what
+this check exists to make impossible, so the gap would not have looked like
+anything. Break 102 is that state, reproduced deliberately: it fails
+`test_the_publish_gate_agrees_with_the_vector`, which is the assertion that the
+server refuses the form rather than merely reporting on it.
+
+**What stayed narrow.** The first reading of this defect was that §10.2 omits
+labels and therefore a sensitive name leaks through any label. That was wrong
+and the row said so before it was fixed: `labelArgs` and
+`constraintMessageArgs` have been dependencies since §7.1 and were always
+checked. Only `summaryLabelArgs` was outside, and only because a repeat is not
+a field. §10.2's prose now describes both shapes, which is the other half of
+the fix and the half that would have let the next person state it backwards
+again.
+
 
 A defect leaves this file when it is fixed, or when it is decided to be
 permanent and moves into `docs/project-conventions.md` as a documented limitation. There is a

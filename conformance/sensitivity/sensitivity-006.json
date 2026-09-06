@@ -1,0 +1,55 @@
+{
+  "id": "sensitivity-006",
+  "type": "sensitivity",
+  "description": "A repeat's summaryLabelArgs reading a sensitive field is a leak. There is nothing to mark sensitive — a repeat is a scope and not a field — so the violation names the expression, and the fix is to stop reading it. This is the shape that sat outside the check entirely until the walk was fixed (known defect 19)",
+  "spec": "form-ir 10.2, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_summary",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "summaryLabel": {
+          "en": "{0}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "hiv_status"
+          }
+        ],
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "hiv_status",
+            "dataType": "text",
+            "label": {
+              "en": "hiv_status"
+            },
+            "sensitive": true
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [
+    "repeat 'members' summaryLabelArgs reads sensitive field 'hiv_status'"
+  ]
+}

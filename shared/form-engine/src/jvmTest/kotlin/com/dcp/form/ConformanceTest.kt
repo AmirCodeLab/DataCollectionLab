@@ -337,6 +337,32 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
             }
         }
 
+        // §2.3's label chain, asserted as a whole list in instance order for the
+        // same reason `rowKeys` is: what it is evidence about is which row got
+        // which label, and a per-index assertion would pass for an engine that
+        // produced the right labels against the wrong rows.
+        expect["summaryLabels"]?.jsonObject?.forEach { (repeatId, want) ->
+            want.jsonObject.forEach { (language, wantLabels) ->
+                val expected = wantLabels.jsonArray.map { it.jsonPrimitive.content }
+                val got = instance.instances.getValue(repeatId).map { instanceId ->
+                    instance.summaryLabel(repeatId, instanceId, language)
+                }
+                assertEquals(expected, got, "$where: summaryLabels[$repeatId][$language]")
+            }
+        }
+
+        expect["addLabels"]?.jsonObject?.forEach { (repeatId, want) ->
+            want.jsonObject.forEach { (language, wantText) ->
+                val expected =
+                    if (wantText is JsonNull) null else wantText.jsonPrimitive.content
+                assertEquals(
+                    expected,
+                    instance.renderedAddLabel(repeatId, language),
+                    "$where: addLabels[$repeatId][$language]",
+                )
+            }
+        }
+
         expect["renderedMessages"]?.jsonObject?.forEach { (path, want) ->
             want.jsonObject.forEach { (language, wantText) ->
                 assertEquals(

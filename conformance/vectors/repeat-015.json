@@ -1,0 +1,62 @@
+{
+  "id": "repeat-015",
+  "description": "A summaryLabel with NO arguments is a constant and the author's deliberate choice: it does not fall through to the position even though every instance shows the same string (§2.3). The chain only begins where there is something to have answered. An absent addLabel is null rather than an invented default",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "constlabel",
+    "version": 1,
+    "title": {
+      "en": "constlabel"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "visits",
+        "label": {
+          "en": "Visits"
+        },
+        "summaryLabel": {
+          "en": "Visit"
+        },
+        "minInstances": 2,
+        "children": [
+          {
+            "type": "question",
+            "id": "note",
+            "dataType": "text",
+            "label": {
+              "en": "note"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "visits": 2
+        },
+        "summaryLabels": {
+          "visits": {
+            "en": [
+              "Visit",
+              "Visit"
+            ]
+          }
+        },
+        "addLabels": {
+          "visits": {
+            "en": null
+          }
+        }
+      }
+    }
+  ]
+}

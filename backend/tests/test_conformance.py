@@ -185,6 +185,31 @@ def _check(
                 f"  got      {got_text!r}"
             )
 
+    # §2.3's label chain, asserted as a whole list in instance order for the
+    # same reason `rowKeys` is: what it is evidence about is which row got
+    # which label, and a per-index assertion would pass for an engine that
+    # produced the right labels against the wrong rows.
+    for repeat_id, want_by_language in expect.get("summaryLabels", {}).items():
+        for language, want_labels in want_by_language.items():
+            got_labels = [
+                instance.summary_label(repeat_id, iid, language)
+                for iid in instance.instances[repeat_id]
+            ]
+            assert got_labels == want_labels, (
+                f"{where}: summaryLabels[{repeat_id}][{language}]\n"
+                f"  expected {want_labels!r}\n"
+                f"  got      {got_labels!r}"
+            )
+
+    for repeat_id, want_by_language in expect.get("addLabels", {}).items():
+        for language, want_text in want_by_language.items():
+            got_text = instance.rendered_add_label(repeat_id, language)
+            assert got_text == want_text, (
+                f"{where}: addLabels[{repeat_id}][{language}]\n"
+                f"  expected {want_text!r}\n"
+                f"  got      {got_text!r}"
+            )
+
     for path, want_by_language in expect.get("renderedMessages", {}).items():
         for language, want_text in want_by_language.items():
             got_text = instance.rendered_constraint_message(path, language)

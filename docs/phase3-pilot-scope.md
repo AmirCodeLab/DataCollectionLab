@@ -355,9 +355,13 @@ Item 3 was therefore three things, and **the first two are done — 5 September
 2. ~~Implement that plan on both engines, with vectors.~~ `screens-012`…
    `screens-025`, both engines, and breaks 82–89 are the evidence they catch it.
    Defect 14 is closed.
-3. **Build the roster UI on it** — the list, the add and remove affordances, and
-   `addLabel` / `summaryLabel`, which §2.3 now specifies and neither engine
-   parses yet. **This is what is left of item 3.**
+3. ~~`addLabel` / `summaryLabel` on both engines, with vectors.~~ Done
+   6 September 2026 — `repeat-013`…`repeat-015` and `sensitivity-006`/`007`,
+   both engines, breaks 99–104. §2.3's label chain, and known defect 19 closed
+   in the same commit.
+4. **Build the roster UI on it** — the list, and the add and remove
+   affordances. **This is what is left of item 3**, and it is the only part of
+   it that is UI.
 
 **Where RCons's shape decided it.** `section_progress` is keyed
 `(settlementCode, structureId, hhId, sectionName)`: a 95-section instrument they
@@ -400,7 +404,8 @@ the first question of the member's screen exactly as it does in their
 questionnaire. The list row then reads `summaryLabel` — a §7.1 interpolated
 label evaluated in the instance's scope, so `pid` among its arguments resolves
 to that instance and the row reads `4471 — Fatima`. Both halves are specified;
-`summaryLabel` is on the roster-UI list above and neither engine parses it yet.
+`summaryLabel` landed on both engines on 6 September 2026, so this half is
+built; what is left of the list above is the UI.
 
 **Two things it does not cover, and only the second is a gap in the design.**
 
@@ -536,9 +541,10 @@ the screen planner on both engines, then the UI.
 **`addLabel` and `summaryLabel` on both engines, with vectors. Scheduled once,
 before either item that needs it.**
 
-§2.3 and §11.3 specify both and neither engine implements either — the strings
-appear nowhere in `shared/form-engine/src` or
-`backend/app/modules/form_engine/`. Two items need them and neither owns them:
+~~§2.3 and §11.3 specify both and neither engine implements either.~~ **Done
+6 September 2026**, on both engines, with `repeat-013`…`repeat-015`,
+`sensitivity-006`/`007` and breaks 99–104. It was scheduled here because two
+items needed it and neither owned it:
 
 - **Item 0** cannot offer a roster editor without them. A repeat whose add
   control has no text and whose rows cannot be told apart is a roster an
@@ -553,14 +559,16 @@ gaining one: `summaryLabel` interpolates question values onto the repeat screen
 RCons answered on 6 September 2026 that it is not — the enumerator is meant to
 read the name — so no specification decision blocks the start of it.
 
-**One thing step 3 must close rather than inherit.**
-`check_sensitivity_propagation` walks *fields*, and `summaryLabelArgs` sits on a
+**The one thing step 3 had to close rather than inherit — and did.**
+`check_sensitivity_propagation` walked *fields*, and `summaryLabelArgs` sits on a
 **repeat**, which is not one. A question's label is already covered — both
 engines collect `labelArgs` and `constraintMessageArgs` into a field's
 dependencies, and `label-005` pins that edge — so this is a structural gap
 rather than an oversight in the same place. It costs nothing today because
 nothing parses `summaryLabel`; it becomes a live leak on the first day
-something does. Known defect 19, and it belongs inside step 3.
+something does. Known defect 19, closed in step 3's own commit rather than after it, because
+the window between a release that parses `summaryLabel` and one that checks it
+is a leak behind a clean publish.
 
 It is written here, and in `docs/phase3-item0-builder-scope.md` §5, so that
 neither item plans around it separately. **The failure this prevents is not

@@ -1,0 +1,73 @@
+{
+  "id": "sensitivity-007",
+  "type": "sensitivity",
+  "description": "A countExpr reading a sensitive field is the same leak by a different route: the number of instances is structure anyone can count, and it is derived from the value that field_level encryption exists to protect. Reported per expression, countExpr before summaryLabelArgs, and after every field violation",
+  "spec": "form-ir 10.2, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_count",
+    "version": 1,
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh_income",
+        "dataType": "integer",
+        "label": {
+          "en": "hh_income"
+        },
+        "sensitive": true
+      },
+      {
+        "type": "question",
+        "id": "plain",
+        "dataType": "integer",
+        "label": {
+          "en": "plain"
+        },
+        "calculate": {
+          "op": "ref",
+          "path": "hh_income"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "earners",
+        "label": {
+          "en": "Earners"
+        },
+        "countExpr": {
+          "op": "ref",
+          "path": "hh_income"
+        },
+        "summaryLabel": {
+          "en": "{0}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "hh_income"
+          }
+        ],
+        "children": [
+          {
+            "type": "question",
+            "id": "who",
+            "dataType": "text",
+            "label": {
+              "en": "who"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'plain' is not sensitive but depends on sensitive field 'hh_income'",
+    "repeat 'earners' countExpr reads sensitive field 'hh_income'",
+    "repeat 'earners' summaryLabelArgs reads sensitive field 'hh_income'"
+  ]
+}

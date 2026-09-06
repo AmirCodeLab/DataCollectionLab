@@ -45,6 +45,8 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 | `expect.formValid` | Expected whole-form validity |
 | `expect.instanceCount` | Expected number of instances per repeat |
 | `expect.rowKeys` | The source row each instance came from, in instance order — null for one the enumerator added (§2.3) |
+| `expect.summaryLabels` | What each row of the instance list says, in instance order, per language (§2.3) |
+| `expect.addLabels` | The text on a repeat's add control, per language — null where the form does not name it (§2.3) |
 | `expect.choices` | Expected option values, in order (§3.2) |
 | `expect.labels` | Expected option labels, per language |
 | `expect.selector` | The selector **the source was asked for** (§3.2) |

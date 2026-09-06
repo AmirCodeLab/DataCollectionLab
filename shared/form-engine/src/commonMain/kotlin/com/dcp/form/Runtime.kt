@@ -75,6 +75,18 @@ class CompiledForm(val ir: FormIr) {
      */
     val containerAncestors = LinkedHashMap<String, List<String>>()
     val repeats = LinkedHashMap<String, RepeatNode>()
+
+    /**
+     * A repeat's own expressions and the fields they read, kept per key.
+     *
+     * [checkSensitivityPropagation] walks fields, and a repeat is not one — no
+     * [CompiledField], no `dependsOn`, and no `sensitive` flag to set. Until
+     * this existed there was no path by which that check could see
+     * `summaryLabelArgs` at all (known defect 19). Per key rather than merged,
+     * because the violation has to name which expression carries the read: the
+     * fix is never "mark the repeat", it is "stop reading it".
+     */
+    val containerExprDeps = LinkedHashMap<String, Map<String, Set<String>>>()
     val warnings = mutableListOf<String>()
     val order = mutableListOf<String>()
     val topoOrder: List<String>
@@ -218,6 +230,18 @@ class CompiledForm(val ir: FormIr) {
                 repeats[node.id] = node
                 containers[node.id] = node
                 containerAncestors[node.id] = ancestors
+                val repeatDeps = LinkedHashMap<String, Set<String>>()
+                node.countExpr?.let { expr ->
+                    val found = mutableSetOf<String>()
+                    collectRefs(expr, found)
+                    if (found.isNotEmpty()) repeatDeps["countExpr"] = found
+                }
+                node.summaryLabelArgs?.let { args ->
+                    val found = mutableSetOf<String>()
+                    args.forEach { collectRefs(it, found) }
+                    if (found.isNotEmpty()) repeatDeps["summaryLabelArgs"] = found
+                }
+                if (repeatDeps.isNotEmpty()) containerExprDeps[node.id] = repeatDeps
                 return@walk
             }
 
@@ -320,6 +344,36 @@ class CompiledForm(val ir: FormIr) {
                                 "candidate row (§7.1)."
                         )
                     }
+                }
+            }
+        }
+
+        // `summaryLabel` is §7.1 on a repeat rather than on a field, and §2.3
+        // says every §7.1 rule applies to it unchanged. These two are the ones
+        // that are compile errors, so they belong here and not in the renderer.
+        for ((repeatId, node) in repeats) {
+            val args = node.summaryLabelArgs
+            if (args.isNullOrEmpty()) continue
+            node.summaryLabel?.forEach { (language, template) ->
+                val missing = Interpolation.slotIndices(template)
+                    .filter { it >= args.size }
+                    .minOrNull()
+                if (missing != null) {
+                    throw CompileException(
+                        "$repeatId: summaryLabel[$language] uses slot {$missing} " +
+                            "and summaryLabelArgs has ${args.size} argument(s)"
+                    )
+                }
+            }
+            // `${'$'}row.` is a column of a choice list's candidate row (§3.2).
+            // A summary label reads the instance, and an instance is answers.
+            for (expr in args) {
+                val row = refPaths(expr).firstOrNull { it.startsWith(ROW_REF_PREFIX) }
+                if (row != null) {
+                    throw CompileException(
+                        "$repeatId: summaryLabelArgs reads '$row'. A label has " +
+                            "no candidate row (§7.1)."
+                    )
                 }
             }
         }
@@ -468,6 +522,16 @@ class FormInstance(
         form.repeats.keys.associateWithTo(LinkedHashMap()) { mutableMapOf() }
 
     /**
+     * The source row's own label, beside its key.
+     *
+     * §2.3's chain needs it: a row with no `summaryLabel` shows what its source
+     * row said. An added instance has no entry here at all, which is exactly
+     * the case the chain falls through for.
+     */
+    private val rowLabelsOf: Map<String, MutableMap<String, Map<String, String>>> =
+        form.repeats.keys.associateWithTo(LinkedHashMap()) { mutableMapOf() }
+
+    /**
      * Which repeats have had their rowSource resolved. §2.3: resolved ONCE, the
      * first time the repeat is relevant, and never re-resolved.
      */
@@ -549,6 +613,7 @@ class FormInstance(
 
     private fun destroyInstance(repeatId: String, instanceId: String) {
         rowKeysOf.getValue(repeatId).remove(instanceId)
+        rowLabelsOf.getValue(repeatId).remove(instanceId)
         for (fid in fieldsOf(repeatId)) {
             val path = "$repeatId[$instanceId].$fid"
             values.remove(path)
@@ -650,6 +715,7 @@ class FormInstance(
         rowsResolved.add(repeatId)
         for (item in source.items) {
             val instanceId = createInstance(repeatId, rowKey = item.value)
+            item.label?.let { rowLabelsOf.getValue(repeatId)[instanceId] = it }
             // A seeded value is an ordinary answer from this moment: it behaves
             // as if it had arrived as the question's `default`, and a later set
             // overwrites it and it stays overwritten.
@@ -751,6 +817,72 @@ class FormInstance(
      */
     fun renderedConstraintMessage(fieldId: String, language: String): String? =
         render(fieldId, language) { it.constraintMessage to it.constraintMessageArgs }
+
+    /**
+     * The text on the add control, or null if the form does not name it.
+     *
+     * No arguments and no interpolation: "Add another household member" is
+     * per-form and per-language and says nothing about any instance, which is
+     * why it is a plain map and why it lives on the node rather than in a
+     * client (§2.3). A client with null here supplies its own wording.
+     */
+    fun renderedAddLabel(repeatId: String, language: String): String? {
+        val node = form.repeats[repeatId]
+            ?: throw CompileException("unknown repeat: $repeatId")
+        return node.addLabel?.get(language)
+    }
+
+    /**
+     * What one row of the instance list says (§2.3).
+     *
+     * The chain, first thing that produces a label:
+     *
+     *  1. `summaryLabel`, rendered in this instance's scope — unless it has
+     *     arguments and every one of them is null.
+     *  2. The source row's own label, for an instance a `rowSource` created.
+     *  3. The instance's 1-based position in the current order.
+     *
+     * Rule 1's exception is what an added instance needs. Between pressing add
+     * and typing anything it has answered nothing, so a template of
+     * `"{0} — {1}"` renders `" — "` — and two rows reading `" — "` cannot be
+     * told apart, which is the one thing the list exists to do.
+     *
+     * The test is on the arguments, not on the rendered string: emptiness in a
+     * string is punctuation, and recognising it would mean guessing at
+     * languages the engine does not read. "This instance has answered none of
+     * the things its label is made of" is the same question everywhere.
+     */
+    fun summaryLabel(repeatId: String, instanceId: String, language: String): String {
+        val ordered = instances[repeatId]
+            ?: throw CompileException("unknown repeat: $repeatId")
+        val position = ordered.indexOf(instanceId)
+        if (position < 0) {
+            throw CompileException("repeat $repeatId has no instance '$instanceId'")
+        }
+        val node = form.repeats.getValue(repeatId)
+
+        val template = node.summaryLabel?.get(language)
+        if (template != null) {
+            val args = node.summaryLabelArgs
+            val ctx = context(repeatId to instanceId)
+            // A constant summary label — a template with no arguments — is the
+            // author's deliberate choice and does not fall through. The chain
+            // only begins where there is something to have answered.
+            val values = args?.map { Evaluator.evaluate(it, ctx) }
+            if (values == null || values.isEmpty() || values.any { !it.isNull }) {
+                val rendered = values?.map { value ->
+                    val text = Functions.call("str", listOf(value), ctx)
+                    (text as? FormValue.Text)?.value ?: ""
+                }
+                return if (rendered == null) template
+                else Interpolation.render(template, rendered)
+            }
+        }
+
+        rowLabelsOf[repeatId]?.get(instanceId)?.get(language)?.let { return it }
+
+        return (position + 1).toString()
+    }
 
     private fun render(
         fieldId: String,

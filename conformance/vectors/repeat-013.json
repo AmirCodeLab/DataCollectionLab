@@ -1,0 +1,145 @@
+{
+  "id": "repeat-013",
+  "description": "A summaryLabel whose arguments are ALL null produces nothing and the row falls through to its position (§2.3). An added instance has answered nothing, so it reads its 1-based position until a name is typed — two rows reading ' — ' could not be told apart, which is the only thing the list is for",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "sumlabel",
+    "version": 1,
+    "title": {
+      "en": "sumlabel"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "addLabel": {
+          "en": "Add another household member"
+        },
+        "summaryLabel": {
+          "en": "{0} — {1}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "pid"
+          },
+          {
+            "op": "ref",
+            "path": "name"
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "m1",
+              "label": {
+                "en": "Row one"
+              }
+            },
+            {
+              "value": "m2",
+              "label": {
+                "en": "Row two"
+              }
+            }
+          ],
+          "bind": {
+            "pid": "value"
+          },
+          "allowAdd": true,
+          "allowDelete": true
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "pid",
+            "dataType": "text",
+            "label": {
+              "en": "pid"
+            }
+          },
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "name"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "expect": {
+        "summaryLabels": {
+          "members": {
+            "en": [
+              "⁨m1⁩ — ",
+              "⁨m2⁩ — "
+            ]
+          }
+        },
+        "addLabels": {
+          "members": {
+            "en": "Add another household member"
+          }
+        }
+      }
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "members": 3
+        },
+        "rowKeys": {
+          "members": [
+            "m1",
+            "m2",
+            null
+          ]
+        },
+        "summaryLabels": {
+          "members": {
+            "en": [
+              "⁨m1⁩ — ",
+              "⁨m2⁩ — ",
+              "3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "set": {
+        "members[2].name": "Ali"
+      }
+    },
+    {
+      "expect": {
+        "summaryLabels": {
+          "members": {
+            "en": [
+              "⁨m1⁩ — ",
+              "⁨m2⁩ — ",
+              " — ⁨Ali⁩"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
