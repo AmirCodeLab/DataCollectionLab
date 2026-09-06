@@ -3,15 +3,26 @@
 Language-neutral test cases that **every** Form IR engine must pass identically:
 
 - the Python reference implementation (`backend/app/modules/form_engine`)
-- the Kotlin engine (`shared/form-engine`), **on the JVM**
+- the Kotlin engine (`shared/form-engine`), on the **JVM**, **wasmJs** and
+  **Android** — the same vectors, executed three times
 
-This line named four platforms — JVM, Android, iOS and Wasm — until
-6 September 2026. Every Kotlin conformance test is in `src/jvmTest`, which is
-the only test source set the module has, and CI runs
-`:shared:form-engine:jvmTest` and nothing else. Android and iOS are declared
-as build targets and execute no vector; Wasm is not a declared target at all.
-The engine is written to be portable to all four and is verified on one. See
-known defect 18 — the gap is real and is not closed by this correction.
+This line named four platforms until 6 September 2026 and was true of one. The
+runner lived in `src/jvmTest` and read files with `java.io`, so the corpus could
+not leave the JVM; Android and iOS executed nothing and Wasm was not a target.
+It now lives in `commonTest` with a per-target reader, and each target's count
+is read from **that target's own JUnit XML** by
+`scripts/check_ci_runs_every_suite.py`:
+
+```
+conformance/vectors on jvmTest              116 vectors
+conformance/vectors on wasmJsNodeTest       116 vectors
+conformance/vectors on testAndroidHostTest  116 vectors
+```
+
+**iOS still executes nothing**, and that is deliberate rather than overlooked:
+it needs a macOS runner the project does not have, and the same guard refuses
+an `iosTest` source set without one (break 24(h)). Known defect 18 holds what
+is left.
 
 A vector is a JSON file with a form IR and an ordered list of steps.
 

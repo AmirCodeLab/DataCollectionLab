@@ -187,6 +187,12 @@ jobs:
       - name: wasmJsNodeTest
         run: ./gradlew :shared:form-engine:wasmJsNodeTest
 
+      # The engine's Android target, running the same corpus on a host JVM.
+      # Android is the platform every submission is actually collected on and
+      # it executed nothing until 6 September 2026 (known defect 18).
+      - name: androidHostTest
+        run: ./gradlew :shared:form-engine:testAndroidHostTest
+
       # The collection screen, driven through a real composition on the JVM
       # target — the same skiko-backed implementation the desktop client uses.
       # Headless: Compose's test scene renders offscreen and needs no display.
