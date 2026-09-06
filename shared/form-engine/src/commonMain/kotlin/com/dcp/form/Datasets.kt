@@ -122,7 +122,14 @@ fun compileChoices(choices: Choices?): ChoiceQuery? {
         labelColumns = choices.labelColumn ?: emptyMap(),
         // Sorted, so the selector two engines produce is comparable as data
         // rather than only in its effect.
-        selector = selector.toSortedMap(),
+        //
+        // `toSortedMap()` is JVM-only — it returns a java.util.SortedMap — and
+        // this is `commonMain`. It compiled for four years because the only
+        // target anything ever built was the JVM; the wasmJs spike is what
+        // found it, and Kotlin/Native fails on the same line. `toMap()` on a
+        // sorted list of pairs is a LinkedHashMap in that order, which is the
+        // same iteration order this always relied on.
+        selector = selector.entries.sortedBy { it.key }.associate { it.key to it.value },
         residual = residual,
     )
 }

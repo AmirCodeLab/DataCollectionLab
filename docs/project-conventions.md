@@ -798,6 +798,16 @@ notice. `./scripts/status.sh` section 5 asks locally.
   the generator to completion itself
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
+- **Commit the implementation before running a break.** A break is reverted
+  with `git checkout -- <file>`, and that reverts the *file*, not the break: if
+  the file also holds implementation that is not committed yet, the break takes
+  it with it. This is rule 12's pair — rule 12 says work has to be on disk,
+  this says the disk has to hold a version you can get back to — and it is
+  written here because it has already cost an afternoon's engine work, on
+  2026-09-06, in the middle of proving the very breaks that work was for. The
+  order is: implement, run the suites, **commit**, then break, watch, revert.
+  Committing first also makes the break's evidence exact, because `git diff`
+  after the revert is empty or the revert did not finish
 - A defect left unfixed on purpose goes in `docs/known-defects.md` with the
   reason it is still open. Knowing about a defect and having fixed it are
   different claims, in the same way a test existing and a test having caught
