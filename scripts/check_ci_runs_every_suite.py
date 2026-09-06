@@ -97,15 +97,34 @@ TEST_SOURCE_SETS: dict[str, str | None] = {
     # suite that needs a browser to prove an engine is a suite that will be
     # skipped the first time the browser is awkward.
     "wasmJsTest": "{project}:wasmJsNodeTest",
-    # commonTest compiles into every target's test binary. jvmTest is the one a
-    # Linux runner can execute, so that is what CI is required to run.
+    # commonTest compiles into every target's test binary. jvmTest is the
+    # baseline every module has; COMMON_TEST_ALSO_RUN below names the other
+    # target tasks a module has, and CI must run those too — "the vectors pass"
+    # was true of the JVM and of nothing else for as long as this file existed.
     "commonTest": "{project}:jvmTest",
+    # An intermediate source set: jvmTest and androidHostTest share it, and both
+    # run on a host JVM. It carries no tests of its own — only the `actual` that
+    # reads the corpus — so jvmTest is what proves it compiles and runs.
+    "jvmSharedTest": "{project}:jvmTest",
     "androidHostTest": "{project}:testAndroidHostTest",
     "androidUnitTest": "{project}:testDebugUnitTest",
     "iosTest": None,
     "iosSimulatorArm64Test": None,
     "androidDeviceTest": None,
     "androidInstrumentedTest": None,
+}
+
+#: Target test tasks, beyond jvmTest, that a module's commonTest compiles into.
+#:
+#: Named per project rather than inferred, because inferring them means parsing
+#: the Gradle target list and a guard that guesses is one that can be wrong
+#: quietly. A task here is REQUIRED of CI: deleting the step fails this script
+#: with the source set named, the same as any other suite.
+COMMON_TEST_ALSO_RUN: dict[str, tuple[str, ...]] = {
+    ":shared:form-engine": (
+        ":shared:form-engine:wasmJsNodeTest",
+        ":shared:form-engine:testAndroidHostTest",
+    ),
 }
 
 CANNOT_RUN_ON_LINUX = {
@@ -257,6 +276,11 @@ def check_gradle(commands: list[CiCommand], report: Report) -> None:
                 continue
 
             required[template.format(project=project)] = entry
+
+            # The same shared suite, on this module's other targets.
+            if entry.name == "commonTest":
+                for extra in COMMON_TEST_ALSO_RUN.get(project, ()):
+                    required[extra] = entry
 
     for task, source in sorted(required.items()):
         command = runs_gradle_task(commands, task)
@@ -475,10 +499,17 @@ def check_npm_scripts(commands: list[CiCommand], report: Report) -> None:
 #: asking Gradle, and that is deliberate: a stale result file is exactly the
 #: symptom being guarded against, and comparing a stale file's ids against the
 #: files on disk is what makes the staleness visible.
-VECTOR_SETS: dict[str, tuple[str, str, str]] = {
+VECTOR_SETS: dict[str, tuple[str, str | tuple[str, ...], str]] = {
     "vectors": (
         "evaluation",
-        "shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.ConformanceTest.xml",
+        (
+            "shared/form-engine/build/test-results/jvmTest/"
+            "TEST-com.dcp.form.GeneratedVectorTests.xml",
+            "shared/form-engine/build/test-results/wasmJsNodeTest/"
+            "TEST-com.dcp.form.GeneratedVectorTests.xml",
+            "shared/form-engine/build/test-results/testAndroidHostTest/"
+            "TEST-com.dcp.form.GeneratedVectorTests.xml",
+        ),
         "backend/tests/test_conformance.py",
     ),
     "crypto": (
@@ -520,6 +551,12 @@ def kotlin_executed_ids(results: Path) -> set[str] | None:
     found: set[str] = set()
     for name in names:
         found.update(_VECTOR_ID.findall(name))
+        # The generated per-vector runner names the case after the vector and
+        # the target appends its own suffix: `relevance-001[jvm]`,
+        # `calculate-001[wasmJs, node]`, and bare on android. Take the leading
+        # token too, so all three read the same. Ids that are not vectors are
+        # harmless — the comparison below is `on_disk - executed`.
+        found.add(name.split("[")[0].strip())
     # `jvm` is the target suffix on every name, not a vector.
     return {i for i in found if i != "jvm"}
 
@@ -537,33 +574,60 @@ def check_vectors(report: Report, strict: bool) -> None:
             )
             continue
 
-        executed = kotlin_executed_ids(ROOT / kotlin_results)
-        if executed is None:
-            message = (
-                f"cannot tell whether the {label} vectors ran: no results at "
-                f"{kotlin_results}. Run ./gradlew :shared:form-engine:jvmTest "
-                ":shared:core:jvmTest first."
-            )
-            report.fail(message) if strict else report.skip(message)
-            continue
-
-        missed = sorted(on_disk - executed)
-        if missed:
-            report.fail(
-                f"{len(missed)} {label} vector(s) exist and the Kotlin run did not "
-                f"execute them: {', '.join(missed[:6])}"
-                + (f" (+{len(missed) - 6} more)" if len(missed) > 6 else "")
-                + ". Either the suite is stale — a vector file changed and the task "
-                "was UP-TO-DATE — or the runner is not reading this directory. "
-                "A vector that is not run is indistinguishable from one that passes."
-            )
-            continue
-
-        report.ok(
-            f"conformance/{directory}",
-            f"{len(on_disk)} vectors",
-            f"{label}, both engines ({python_runner})",
+        paths = (
+            (kotlin_results,) if isinstance(kotlin_results, str) else tuple(kotlin_results)
         )
+        for kotlin_results in paths:
+            _check_one_target(
+                report, strict, directory, label, python_runner, on_disk, kotlin_results
+            )
+
+
+def _check_one_target(
+    report: Report,
+    strict: bool,
+    directory: str,
+    label: str,
+    python_runner: str,
+    on_disk: set[str],
+    kotlin_results: str,
+) -> None:
+    """One vector set on one Kotlin target, counted from its own report.
+
+    Per target and not once, because "the vectors pass" was true of the JVM and
+    of nothing else for as long as this file has existed (known defect 18). A
+    target's number comes from that target's JUnit XML: a suite that did not run
+    has no file, and a suite that ran a subset says so in its own count.
+    """
+    target = Path(kotlin_results).parent.name
+    executed = kotlin_executed_ids(ROOT / kotlin_results)
+    if executed is None:
+        message = (
+            f"cannot tell whether the {label} vectors ran on {target}: no results at "
+            f"{kotlin_results}. Run ./gradlew :shared:form-engine:jvmTest "
+            ":shared:form-engine:wasmJsNodeTest :shared:form-engine:testAndroidHostTest "
+            ":shared:core:jvmTest first."
+        )
+        report.fail(message) if strict else report.skip(message)
+        return
+
+    missed = sorted(on_disk - executed)
+    if missed:
+        report.fail(
+            f"{len(missed)} {label} vector(s) exist and the {target} run did not "
+            f"execute them: {', '.join(missed[:6])}"
+            + (f" (+{len(missed) - 6} more)" if len(missed) > 6 else "")
+            + ". Either the suite is stale — a vector file changed and the task "
+            "was UP-TO-DATE — or the runner is not reading this directory. "
+            "A vector that is not run is indistinguishable from one that passes."
+        )
+        return
+
+    report.ok(
+        f"conformance/{directory} on {target}",
+        f"{len(on_disk)} vectors",
+        f"{label} ({python_runner})",
+    )
 
 
 def main() -> int:

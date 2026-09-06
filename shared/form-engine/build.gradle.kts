@@ -16,7 +16,58 @@ plugins {
  *
  * Adding a UI or platform dependency here breaks that. Don't.
  */
+/*
+ * One test function per conformance vector, generated from the directory.
+ *
+ * The runner itself is `commonTest`, so it compiles for every target. This
+ * exists for the report rather than the run: a single test that loops over the
+ * corpus reports "1 passed" whether it executed 113 vectors or none, and a
+ * count nobody compares against anything is exactly what break 41 and break 82
+ * are about. With a function per vector, `how many vectors ran on this target`
+ * is a number in the test XML rather than a claim in a build log.
+ *
+ * Generated from the directory on every build and never committed, so it cannot
+ * drift from the corpus the way a hand-maintained list would.
+ */
+val generateVectorTests = tasks.register("generateVectorTests") {
+    val vectors = rootProject.layout.projectDirectory.dir("conformance/vectors")
+    val outputDir = layout.buildDirectory.dir("generated/vectorTests")
+    inputs.dir(vectors).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.dir(outputDir)
+    doLast {
+        val names = vectors.asFile.listFiles { f -> f.extension == "json" }
+            .orEmpty()
+            .map { it.nameWithoutExtension }
+            .sorted()
+        check(names.isNotEmpty()) { "no conformance vectors found in $vectors" }
+        val target = outputDir.get().asFile.resolve("com/dcp/form/GeneratedVectorTests.kt")
+        target.parentFile.mkdirs()
+        target.writeText(
+            buildString {
+                appendLine("package com.dcp.form")
+                appendLine()
+                appendLine("// GENERATED from conformance/vectors. Do not edit.")
+                appendLine("// ${names.size} vectors.")
+                appendLine()
+                appendLine("import kotlin.test.Test")
+                appendLine()
+                appendLine("/** What this file was generated from, for [VectorCoverageTest]. */")
+                appendLine("val GENERATED_VECTOR_IDS: List<String> = listOf(")
+                names.forEach { appendLine("    \"$it\",") }
+                appendLine(")")
+                appendLine()
+                appendLine("class GeneratedVectorTests {")
+                appendLine("    private val runner = VectorRunner()")
+                names.forEach { appendLine("    @Test fun `$it`() = runner.runVector(\"$it\")") }
+                appendLine("}")
+            }
+        )
+    }
+}
+
 kotlin {
+    sourceSets.commonTest.get().kotlin.srcDir(generateVectorTests)
+
     jvm()
 
     /*
@@ -39,9 +90,23 @@ kotlin {
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions { jvmTarget = JvmTarget.JVM_11 }
+        withHostTestBuilder {}.configure {}
     }
 
     sourceSets {
+        /*
+         * The vector reader is one implementation for two JVM-shaped targets.
+         *
+         * `jvmTest` and `androidHostTest` both run on a host JVM and both read
+         * the corpus with java.io, so the `actual` lives once in an
+         * intermediate source set they share. Copying it into each would be two
+         * things to keep in step for no reason, and the second copy is the one
+         * that would quietly stop matching.
+         */
+        val jvmSharedTest by creating { dependsOn(commonTest.get()) }
+        jvmTest.get().dependsOn(jvmSharedTest)
+        getByName("androidHostTest").dependsOn(jvmSharedTest)
+
         commonMain.dependencies {
             implementation(libs.kotlinx.serialization.json)
         }

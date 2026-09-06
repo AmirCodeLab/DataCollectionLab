@@ -13,25 +13,24 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
-import java.io.File
+import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Walks up from the working directory to the repo root holding the vectors. */
-fun vectorDir(): File {
-    var dir: File? = File(System.getProperty("user.dir")).absoluteFile
-    while (dir != null) {
-        val candidate = dir.resolve("conformance/vectors")
-        if (candidate.isDirectory) return candidate
-        dir = dir.parentFile
-    }
-    error("conformance/vectors not found above ${System.getProperty("user.dir")}")
-}
+/**
+ * Reading the corpus is the only part of this runner that is platform work.
+ *
+ * Everything below — the steps, the expectations, the refusals — is the
+ * contract, and it was JVM-only for no better reason than that `java.io.File`
+ * was in scope when it was written. That is what kept 113 vectors on one
+ * target while the engine shipped to four (known defect 18).
+ */
+expect fun vectorNames(): List<String>
 
-fun loadVector(file: File): JsonObject = Json.parseToJsonElement(file.readText()).jsonObject
+expect fun readVectorText(name: String): String
+
+fun loadVector(name: String): JsonObject =
+    Json.parseToJsonElement(readVectorText(name)).jsonObject
 
 /**
  * Runs an operation the spec says must be refused.
@@ -222,22 +221,18 @@ fun runSteps(
     return instance
 }
 
-@RunWith(Parameterized::class)
-class ConformanceTest(@Suppress("unused") private val name: String, private val file: File) {
+/**
+ * One vector, run end to end.
+ *
+ * Called from a generated test function per vector rather than looped, so the
+ * test report carries a row for each — a single looping test would report "1
+ * passed" whether it ran 113 vectors or none, which is break 41's shape and
+ * the reason that break exists.
+ */
+class VectorRunner {
 
-    companion object {
-        @JvmStatic
-        @Parameterized.Parameters(name = "{0}")
-        fun vectors(): List<Array<Any>> {
-            val files = vectorDir().listFiles { f -> f.extension == "json" }!!.sortedBy { it.name }
-            check(files.isNotEmpty()) { "no conformance vectors found" }
-            return files.map { arrayOf(it.nameWithoutExtension, it) }
-        }
-    }
-
-    @Test
-    fun vector() {
-        val vector = loadVector(file)
+    fun runVector(name: String) {
+        val vector = loadVector(name)
         val vectorId = vector.getValue("id").jsonPrimitive.content
         runSteps(vector) { instance, expect, stepIndex, position ->
             checkExpectations(instance, expect, vectorId, stepIndex, position)
@@ -647,11 +642,9 @@ class DeterminismPairTest {
      */
     @Test
     fun determinismPairsAgree() {
-        val dir = vectorDir()
-
         fun run(name: String): Map<String, FormValue> =
-            runSteps(loadVector(dir.resolve(name))).snapshot().mapValues { it.value.value }
+            runSteps(loadVector(name)).snapshot().mapValues { it.value.value }
 
-        assertEquals(run("determinism-001.json"), run("determinism-002.json"))
+        assertEquals(run("determinism-001"), run("determinism-002"))
     }
 }

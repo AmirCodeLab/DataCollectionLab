@@ -584,9 +584,13 @@ It sits at step 3 of item 0's build order, after the reachability and liveness
 work and before any editor, because it is engine work with vectors and both
 engines must land it together.
 
-**2. The conformance step runner, out of `jvmTest` and into a shared test
-source set. Half a day, and it is what closes known defect 18 rather than
-narrowing it.**
+**2.** ~~The conformance step runner, out of `jvmTest` and into a shared test
+source set.~~ **Done 6 September 2026.** All 116 vectors execute on JVM, wasmJs
+and Android, counted per target from each target's own JUnit XML, with breaks
+105–108. Android needed two lines of build config rather than the half-day it
+was given. **Defect 18 is narrowed, not closed** — iOS still executes nothing
+and needs a macOS runner, which is a budget decision rather than an engineering
+one.
 
 `jvmTest/ConformanceTest.kt` executes a vector's steps — `set`, `addInstance`,
 `expect.relevant` — and it reads the vectors from files, which is the part that

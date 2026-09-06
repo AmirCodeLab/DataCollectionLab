@@ -187,6 +187,12 @@ jobs:
       - name: wasmJsNodeTest
         run: ./gradlew :shared:form-engine:wasmJsNodeTest
 
+      # The engine's Android target, running the same corpus on a host JVM.
+      # Android is the platform every submission is actually collected on and
+      # it executed nothing until 6 September 2026 (known defect 18).
+      - name: androidHostTest
+        run: ./gradlew :shared:form-engine:testAndroidHostTest
+
       # The collection screen, driven through a real composition on the JVM
       # target — the same skiko-backed implementation the desktop client uses.
       # Headless: Compose's test scene renders offscreen and needs no display.
@@ -280,7 +286,7 @@ jobs:
       # and comparing stale ids against the files on disk is what makes the
       # staleness visible.
       - name: Run the conformance suites so their results exist
-        run: ./gradlew :shared:form-engine:jvmTest :shared:core:jvmTest
+        run: ./gradlew :shared:form-engine:jvmTest :shared:form-engine:wasmJsNodeTest :shared:form-engine:testAndroidHostTest :shared:core:jvmTest
 
       - name: Every suite is run by CI, and every vector was executed
         run: python scripts/check_ci_runs_every_suite.py --strict
