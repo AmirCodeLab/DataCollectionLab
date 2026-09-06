@@ -82,6 +82,7 @@ _FUNCTIONS = {
     "atan": "atan",
 }
 
+
 #: §4.3 functions that XLSForm has no spelling for, accepted by their IR name.
 #:
 #: Off for the importer and on for the builder, and the difference is not a
@@ -122,9 +123,12 @@ _COMPARISONS = {
 #: other and with themselves, because a form can contain either or both.
 _QUOTES = "'\"\u2018\u2019\u201c\u201d"
 _CLOSERS = {
-    "'": "'", '"': '"',
-    "\u2018": "\u2018\u2019", "\u2019": "\u2018\u2019",
-    "\u201c": "\u201c\u201d", "\u201d": "\u201c\u201d",
+    "'": "'",
+    '"': '"',
+    "\u2018": "\u2018\u2019",
+    "\u2019": "\u2018\u2019",
+    "\u201c": "\u201c\u201d",
+    "\u201d": "\u201c\u201d",
 }
 
 
@@ -194,14 +198,14 @@ def _tokenize(source: str) -> list[_Token]:
         if char in _QUOTES:
             end = _closing_quote(source, index)
             if end == -1:
-                raise ExpressionError(
-                    "a quoted string is missing its closing quote", offset=index
-                )
+                raise ExpressionError("a quoted string is missing its closing quote", offset=index)
             tokens.append(_Token("string", source[index + 1 : end], index))
             index = end + 1
             continue
         if char.isdigit() or (char == "." and index + 1 < length and source[index + 1].isdigit()):
-            match = re.match(r"\d+(\.\d+)?", source[index:])
+            # A leading `.5` is a number too, as XPath has it; `1.5.2` tokenizes
+            # as `1.5` then `.2` and the parser reports the second as trailing.
+            match = re.match(r"\d+(\.\d+)?|\.\d+", source[index:])
             assert match
             tokens.append(_Token("number", match.group(0), index))
             index += match.end()
@@ -259,9 +263,7 @@ class _Parser:
     def take(self) -> _Token:
         token = self.peek()
         if token is None:
-            raise ExpressionError(
-                "the expression ends sooner than expected", offset=self.end
-            )
+            raise ExpressionError("the expression ends sooner than expected", offset=self.end)
         self.position += 1
         return token
 
@@ -276,7 +278,8 @@ class _Parser:
         if not self.accept("op", text):
             found = self.peek()
             raise ExpressionError(
-                f"expected {text!r} but found {found.text!r}" if found else f"expected {text!r}"
+                f"expected {text!r} but found {found.text!r}" if found else f"expected {text!r}",
+                offset=found.offset if found else self.end,
             )
 
     # -- precedence ladder, loosest first ------------------------------------
@@ -286,9 +289,7 @@ class _Parser:
         if self.peek() is not None:
             trailing = self.peek()
             assert trailing is not None
-            raise ExpressionError(
-                f"unexpected trailing {trailing.text!r}", offset=trailing.offset
-            )
+            raise ExpressionError(f"unexpected trailing {trailing.text!r}", offset=trailing.offset)
         return node
 
     def parse_or(self) -> dict[str, Any]:
@@ -366,7 +367,8 @@ class _Parser:
             if self.self_path is None:
                 raise ExpressionError(
                     "'.' means the value of the current question, and there is no "
-                    "current question here"
+                    "current question here",
+                    offset=token.offset,
                 )
             return {"op": "ref", "path": self.self_path}
         if token.kind == "op" and token.text == "(":
@@ -380,7 +382,7 @@ class _Parser:
                 self.expect_op(")")
                 return {"op": "lit", "value": lowered == "true"}
             if self.peek() and self.peek().kind == "op" and self.peek().text == "(":  # type: ignore[union-attr]
-                return self.parse_call(token.text)
+                return self.parse_call(token.text, token.offset)
             if self.row_scope:
                 # `region_id=${region_id}` on a choice_filter: the left side is
                 # the candidate row's column, the right side is an answer. Form
@@ -390,11 +392,12 @@ class _Parser:
                 return {"op": "ref", "path": f"$row.{token.text}"}
             raise ExpressionError(
                 f"{token.text!r} is not something this importer understands. "
-                "A bare name is not a reference — XLSForm writes those as ${name}."
+                "A bare name is not a reference — XLSForm writes those as ${name}.",
+                offset=token.offset,
             )
         raise ExpressionError(f"unexpected {token.text!r}", offset=token.offset)
 
-    def parse_call(self, name: str) -> dict[str, Any]:
+    def parse_call(self, name: str, offset: int = 0) -> dict[str, Any]:
         self.expect_op("(")
         args: list[dict[str, Any]] = []
         if not (self.peek() and self.peek().kind == "op" and self.peek().text == ")"):  # type: ignore[union-attr]
@@ -409,15 +412,15 @@ class _Parser:
         # translated rather than looked up.
         if lowered == "not":
             if len(args) != 1:
-                raise ExpressionError("not() takes one argument")
+                raise ExpressionError("not() takes one argument", offset=offset)
             return {"op": "not", "args": args}
         if lowered == "selected":
             if len(args) != 2:
-                raise ExpressionError("selected() takes two arguments")
+                raise ExpressionError("selected() takes two arguments", offset=offset)
             return {"op": "selected", "args": args}
         if lowered == "if":
             if len(args) != 3:
-                raise ExpressionError("if() takes three arguments")
+                raise ExpressionError("if() takes three arguments", offset=offset)
             return {"op": "if", "args": args}
 
         # `null()` is the surface spelling of the null *literal*. Reading it
@@ -425,7 +428,7 @@ class _Parser:
         # would pick the wrong one half the time.
         if lowered == "null" and self.ir_functions:
             if args:
-                raise ExpressionError("null() takes no arguments")
+                raise ExpressionError("null() takes no arguments", offset=offset)
             return {"op": "lit", "value": None}
 
         target = self.functions.get(lowered)
@@ -433,6 +436,7 @@ class _Parser:
             raise ExpressionError(
                 f"{name}() is not a function this importer can translate yet",
                 function=lowered,
+                offset=offset,
             )
         return {"op": "call", "fn": target, "args": args}
 
