@@ -1,0 +1,116 @@
+{
+  "id": "repeat-014",
+  "description": "With no summaryLabel a row shows its source row's own label, per language, and an instance the enumerator added — which has no source row — shows its 1-based position (§2.3). The fallback is per language: a row that has an Urdu label uses it",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rowlabel",
+    "version": 1,
+    "title": {
+      "en": "rowlabel"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en",
+      "ur"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage",
+                "ur": "بغیر ہل"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling",
+                "ur": "لیزر ہمواری"
+              }
+            }
+          ],
+          "bind": {
+            "practice": "value"
+          },
+          "allowAdd": true,
+          "allowDelete": false
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "practice",
+            "dataType": "text",
+            "label": {
+              "en": "practice"
+            }
+          },
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "used"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "expect": {
+        "summaryLabels": {
+          "practices": {
+            "en": [
+              "Zero tillage",
+              "Laser levelling"
+            ],
+            "ur": [
+              "بغیر ہل",
+              "لیزر ہمواری"
+            ]
+          }
+        },
+        "addLabels": {
+          "practices": {
+            "en": null
+          }
+        }
+      }
+    },
+    {
+      "addInstance": "practices"
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 3
+        },
+        "summaryLabels": {
+          "practices": {
+            "en": [
+              "Zero tillage",
+              "Laser levelling",
+              "3"
+            ],
+            "ur": [
+              "بغیر ہل",
+              "لیزر ہمواری",
+              "3"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

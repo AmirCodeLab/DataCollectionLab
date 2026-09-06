@@ -322,7 +322,7 @@ def referenced_field(dep: str) -> str:
 
 
 def check_sensitivity_propagation(compiled_form: Any) -> list[str]:
-    """A field reading a sensitive field must itself be sensitive.
+    """An expression reading a sensitive field must carry the same protection.
 
     Otherwise the derived value leaks its input: a `calculate` reproduces it
     outright, and a `relevant` or `constraint` discloses it a bit at a time
@@ -330,8 +330,28 @@ def check_sensitivity_propagation(compiled_form: Any) -> list[str]:
     this an error that blocks publish; the same check runs in the Kotlin engine
     (shared/form-engine, Sensitivity.kt) and must agree with this one.
 
+    Two shapes, because the graph has two kinds of node that carry expressions.
+
+    **Fields**, which can be marked `sensitive` and therefore have a fix that
+    keeps the expression. Interpolation arguments count here and always have:
+    `labelArgs` and `constraintMessageArgs` are dependencies (§7.1), so they
+    are in `depends_on` and were always walked, even while §10.2's prose
+    listed six slots and not these.
+
+    **A repeat's own expressions** — `countExpr` and `summaryLabelArgs` — which
+    cannot. A repeat is a scope, not a field: it has no `CompiledField`, no
+    `depends_on`, and no `sensitive` flag to set. For as long as this function
+    walked only `compiled_form.order` there was no path by which it could see
+    them at all, which is defect 19 and is why the walk is fixed here rather
+    than a special case being added for `summaryLabel`. A repeat-level
+    expression reading a sensitive field is the same leak whichever node
+    carries it, and the only fix is to stop reading it.
+
     Returns violation messages, deterministically ordered so two runs — and two
-    implementations — produce the same list. Empty means safe to publish.
+    implementations — produce the same list. Fields first in document order,
+    then repeats in document order, each repeat's expressions in a fixed key
+    order: appending rather than interleaving keeps every expectation written
+    before repeats were walked exactly as it was. Empty means safe to publish.
     """
     violations: list[str] = []
     for field_id in compiled_form.order:
@@ -346,4 +366,20 @@ def check_sensitivity_propagation(compiled_form: Any) -> list[str]:
                 violations.append(
                     f"{field_id!r} is not sensitive but depends on sensitive field {base!r}"
                 )
+
+    by_repeat = getattr(compiled_form, "container_expr_deps", {})
+    for repeat_id in compiled_form.repeats:
+        per_key = by_repeat.get(repeat_id)
+        if not per_key:
+            continue
+        for key in ("countExpr", "summaryLabelArgs"):
+            deps = per_key.get(key)
+            if not deps:
+                continue
+            for base in sorted({referenced_field(dep) for dep in deps}):
+                dep_field = compiled_form.fields.get(base)
+                if dep_field is not None and dep_field.node.get("sensitive") is True:
+                    violations.append(
+                        f"repeat {repeat_id!r} {key} reads sensitive field {base!r}"
+                    )
     return violations

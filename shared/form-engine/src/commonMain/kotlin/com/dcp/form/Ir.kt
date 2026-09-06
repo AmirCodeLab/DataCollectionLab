@@ -171,6 +171,11 @@ data class RepeatNode(
     val rowSource: RowSource? = null,
     val minInstances: Int? = null,
     val maxInstances: Int? = null,
+    /** Text on the add control. Per-form and per-language, never a client's (§2.3). */
+    val addLabel: Map<String, String>? = null,
+    /** What one row of the instance list says: §7.1, in the instance's scope (§2.3). */
+    val summaryLabel: Map<String, String>? = null,
+    val summaryLabelArgs: List<@Serializable(ExprSerializer::class) Expr>? = null,
     override val children: List<FormNode> = emptyList(),
 ) : ContainerNode
 

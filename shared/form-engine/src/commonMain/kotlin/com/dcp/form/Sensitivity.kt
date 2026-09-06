@@ -49,6 +49,27 @@ fun checkSensitivityPropagation(form: CompiledForm): List<String> {
             }
         }
     }
+
+    // A repeat's own expressions. There is nothing to mark sensitive here — a
+    // repeat is a scope, not a field — so the message names the expression
+    // rather than the node, because the only fix is to stop reading it.
+    //
+    // Appended rather than interleaved: every expectation written before
+    // repeats were walked stays exactly as it was, which is the difference
+    // between adding a check and rewriting five fixtures to suit it.
+    for (repeatId in form.repeats.keys) {
+        val perKey = form.containerExprDeps[repeatId] ?: continue
+        for (key in listOf("countExpr", "summaryLabelArgs")) {
+            val deps = perKey[key] ?: continue
+            for (base in deps.map(::referencedField).distinct().sorted()) {
+                if (form.fields[base]?.node?.sensitive == true) {
+                    violations.add(
+                        "repeat '$repeatId' $key reads sensitive field '$base'"
+                    )
+                }
+            }
+        }
+    }
     return violations
 }
 

@@ -92,6 +92,9 @@ class CompiledForm:
         #: be evaluated without a field inside it to hang the walk on (§11.3).
         self.container_ancestors: dict[str, list[str]] = {}
         self.repeats: dict[str, dict[str, Any]] = {}
+        # repeat id -> expression key -> field ids it reads (see the repeat
+        # branch below). Read by `check_sensitivity_propagation`.
+        self.container_expr_deps: dict[str, dict[str, set[str]]] = {}
         self.warnings: list[str] = []
         self.order: list[str] = []
         self._compile()
@@ -203,6 +206,30 @@ class CompiledForm:
                 self.repeats[node_id] = node
                 self.containers[node_id] = node
                 self.container_ancestors[node_id] = list(ancestors)
+                # A repeat's own expressions, kept per key rather than merged.
+                #
+                # `check_sensitivity_propagation` walks fields, and a repeat is
+                # not one — it has no `CompiledField` and therefore no
+                # `depends_on`, so for as long as this was not collected there
+                # was no way for the check to see `summaryLabelArgs` at all
+                # (defect 19). A repeat cannot be marked `sensitive` either, so
+                # the violation has to name which expression carries the read,
+                # which is why this is a map by key and not one set.
+                repeat_deps: dict[str, set[str]] = {}
+                count_expr = node.get("countExpr")
+                if isinstance(count_expr, dict):
+                    found: set[str] = set()
+                    collect_refs(count_expr, found)
+                    if found:
+                        repeat_deps["countExpr"] = found
+                summary_deps: set[str] = set()
+                for expression in node.get("summaryLabelArgs") or []:
+                    if isinstance(expression, dict):
+                        collect_refs(expression, summary_deps)
+                if summary_deps:
+                    repeat_deps["summaryLabelArgs"] = summary_deps
+                if repeat_deps:
+                    self.container_expr_deps[node_id] = repeat_deps
                 continue
 
             if node["type"] == "group":
@@ -301,6 +328,35 @@ class CompiledForm:
                                 f"{field_id}: {args_key} reads {path!r}. A label "
                                 "has no candidate row (§7.1)."
                             )
+
+        # `summaryLabel` is §7.1 on a repeat rather than on a field, and every
+        # §7.1 rule applies to it unchanged (§2.3) — including this one, which
+        # is the difference between a slot an author can see is wrong and a gap
+        # in a sentence on a handset.
+        for repeat_id, node in self.repeats.items():
+            args = node.get("summaryLabelArgs") or []
+            if not args:
+                continue
+            strings = node.get("summaryLabel") or {}
+            for language, template in strings.items():
+                if not isinstance(template, str):
+                    continue
+                missing = sorted(i for i in slot_indices(template) if i >= len(args))
+                if missing:
+                    raise CompileError(
+                        f"{repeat_id}: summaryLabel[{language}] uses slot "
+                        f"{{{missing[0]}}} and summaryLabelArgs has {len(args)} "
+                        "argument(s)"
+                    )
+            # `$row.` is a column of a *choice* list's candidate row (§3.2). A
+            # summary label reads the instance, and an instance is answers.
+            for expression in args:
+                for path in _paths(expression):
+                    if path.startswith("$row."):
+                        raise CompileError(
+                            f"{repeat_id}: summaryLabelArgs reads {path!r}. A "
+                            "label has no candidate row (§7.1)."
+                        )
 
     def _check_references(self) -> None:
         known = set(self.fields) | set(self.containers)
@@ -432,6 +488,13 @@ class FormInstance:
         # which is the difference between "the sample knew about this member"
         # and "the enumerator added them", and is what an export joins on.
         self.row_keys: dict[str, dict[str, str | None]] = {rid: {} for rid in form.repeats}
+        # The source row's own label, kept beside its key because §2.3's
+        # chain needs it: a row with no `summaryLabel` shows what its source
+        # row said. An added instance has no entry here, which is exactly the
+        # case the chain falls through for.
+        self.row_labels: dict[str, dict[str, dict[str, str]]] = {
+            rid: {} for rid in form.repeats
+        }
         # Which repeats have had their rowSource resolved. §2.3: resolved ONCE,
         # the first time the repeat is relevant, and never re-resolved.
         self._rows_resolved: set[str] = set()
@@ -538,6 +601,9 @@ class FormInstance:
         for item in source.get("items") or []:
             key = item["value"]
             instance_id = self._create_instance(repeat_id, row_key=key)
+            label = item.get("label")
+            if isinstance(label, dict):
+                self.row_labels[repeat_id][instance_id] = label
             # A seeded value is an ordinary answer from this moment: it behaves
             # as if it had arrived as the question's `default`, and a later set
             # overwrites it and it stays overwritten.
@@ -549,6 +615,7 @@ class FormInstance:
 
     def _destroy_instance(self, repeat_id: str, instance_id: str) -> None:
         self.row_keys[repeat_id].pop(instance_id, None)
+        self.row_labels[repeat_id].pop(instance_id, None)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
             self.values.pop(path, None)
@@ -998,6 +1065,75 @@ class FormInstance:
         return self._render(
             field_id, "constraintMessage", "constraintMessageArgs", language
         )
+
+    def rendered_add_label(self, repeat_id: str, language: str) -> str | None:
+        """The text on the add control, or None if the form does not name it.
+
+        No arguments and no interpolation: "Add another household member" is
+        per-form and per-language and says nothing about any instance, which is
+        why it is a plain `{lang: string}` and why it lives on the node rather
+        than in a client (§2.3). A client that has None here supplies its own
+        wording; a client that has a string uses it exactly.
+        """
+        node = self.form.repeats.get(repeat_id)
+        if node is None:
+            raise CompileError(f"unknown repeat: {repeat_id}")
+        strings = node.get("addLabel")
+        if not isinstance(strings, dict):
+            return None
+        text = strings.get(language)
+        return text if isinstance(text, str) else None
+
+    def summary_label(self, repeat_id: str, instance_id: str, language: str) -> str:
+        """What one row of the instance list says (§2.3).
+
+        The chain, first thing that produces a label:
+
+        1. `summaryLabel`, rendered in this instance's scope — unless it has
+           arguments and every one of them is null.
+        2. The source row's own label, for an instance a `rowSource` created.
+        3. The instance's 1-based position in the current order.
+
+        Rule 1's exception is what an added instance needs. Between pressing
+        add and typing anything it has answered nothing, so a template of
+        ``"{0} — {1}"`` renders ``" — "`` — and two rows reading ``" — "``
+        cannot be told apart, which is the one thing the list exists to do.
+
+        The test is on the arguments, not on the rendered string: emptiness in
+        a string is punctuation, and recognising it would mean guessing at
+        languages the engine does not read. "This instance has answered none of
+        the things its label is made of" is the same question everywhere.
+        """
+        ordered = self.instances.get(repeat_id)
+        if ordered is None:
+            raise CompileError(f"unknown repeat: {repeat_id}")
+        if instance_id not in ordered:
+            raise CompileError(f"repeat {repeat_id} has no instance {instance_id!r}")
+        node = self.form.repeats[repeat_id]
+
+        args = node.get("summaryLabelArgs") or []
+        strings = node.get("summaryLabel")
+        if isinstance(strings, dict) and isinstance(strings.get(language), str):
+            ctx = self._context((repeat_id, instance_id))
+            # A constant summary label — a template with no arguments — is the
+            # author's deliberate choice and does not fall through. The chain
+            # only begins where there is something to have answered.
+            if not args or any(
+                evaluate(expression, ctx) is not None for expression in args
+            ):
+                rendered = render_field_text(
+                    node, "summaryLabel", "summaryLabelArgs", language, ctx, cast_str
+                )
+                if rendered is not None:
+                    return rendered
+
+        source_label = self.row_labels.get(repeat_id, {}).get(instance_id)
+        if isinstance(source_label, dict):
+            text = source_label.get(language)
+            if isinstance(text, str):
+                return text
+
+        return str(ordered.index(instance_id) + 1)
 
     def _render(
         self, field_id: str, key: str, args_key: str, language: str
