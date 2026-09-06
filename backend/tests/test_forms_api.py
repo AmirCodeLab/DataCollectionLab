@@ -60,7 +60,15 @@ def test_compile_reports_the_evaluation_order(form: dict[str, Any]) -> None:
     # Asserted against the JSON rather than parsed back through the model:
     # the model would agree with itself either way, and what the console reads
     # is these key names.
-    assert set(body) == {"formId", "version", "fieldCount", "evaluationOrder", "warnings"}
+    assert set(body) == {
+        "formId",
+        "version",
+        "fieldCount",
+        "evaluationOrder",
+        "warnings",
+        "screens",
+        "instancePlans",
+    }
     assert body["formId"] == "calc1"
     assert body["fieldCount"] == len(body["evaluationOrder"])
 
@@ -248,3 +256,137 @@ def test_the_same_companion_uploaded_twice_is_refused() -> None:
 
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def test_compile_returns_the_screen_plan_the_engine_built() -> None:
+    """§11.1's partition, over the wire, including the parts that surprise people.
+
+    The console must not derive this. A screen plan computed in TypeScript is a
+    third implementation of §11.1 — after the two the vectors compare — and it
+    would be the one deciding what an author believes their form does. So the
+    contract carries it, and this asserts the three rules an author is most
+    likely to be surprised by rather than only the happy shape.
+    """
+    form = {
+        "irVersion": "0.1",
+        "formId": "plan1",
+        "version": 1,
+        "defaultLanguage": "en",
+        "languages": ["en"],
+        "children": [
+            {"type": "question", "id": "a", "dataType": "text", "label": {"en": "A"}},
+            # A calculate produces no screen and appears on none.
+            {
+                "type": "question",
+                "id": "total",
+                "dataType": "integer",
+                "label": {"en": "T"},
+                "calculate": {"op": "lit", "value": 1},
+            },
+            # A field-list is one screen, and it flattens a nested plain group.
+            {
+                "type": "group",
+                "id": "sec",
+                "label": {"en": "Sec"},
+                "appearance": "field-list",
+                "children": [
+                    {"type": "question", "id": "b", "dataType": "text", "label": {"en": "B"}},
+                    {
+                        "type": "group",
+                        "id": "inner",
+                        "label": {"en": "In"},
+                        "children": [
+                            {
+                                "type": "question",
+                                "id": "c",
+                                "dataType": "text",
+                                "label": {"en": "C"},
+                            }
+                        ],
+                    },
+                ],
+            },
+            # A repeat is exactly one screen, at any instance count, and its
+            # children are partitioned separately into an instance plan.
+            {
+                "type": "repeat",
+                "id": "members",
+                "label": {"en": "M"},
+                "minInstances": 3,
+                "children": [
+                    {"type": "question", "id": "name", "dataType": "text", "label": {"en": "N"}}
+                ],
+            },
+        ],
+    }
+    response = call("POST", "/api/v1/forms/compile", json={"form": form})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    screens = body["screens"]
+    assert [s["kind"] for s in screens] == ["questions", "questions", "repeat"]
+    # `total` is a calculate: no screen of its own and on nobody else's.
+    assert [s["questionIds"] for s in screens] == [["a"], ["b", "c"], []]
+    # The field-list flattened `inner` into one screen and names the group.
+    assert screens[1]["groupId"] == "sec"
+    # One repeat screen whatever the instance count, and it names its repeat.
+    assert screens[2]["repeatId"] == "members"
+
+    # The instance plan is a separate axis, indexed within the instance.
+    assert body["instancePlans"] == {
+        "members": [
+            {
+                "index": 0,
+                "kind": "questions",
+                "questionIds": ["name"],
+                "repeatId": None,
+                "groupId": None,
+                "sectionId": "members",
+            }
+        ]
+    }
+
+
+def test_palette_is_served_from_the_registry_not_a_list_in_the_code() -> None:
+    """The palette equals the committed registry, read at request time.
+
+    Asserted against the file rather than against an expected list, and that is
+    the point: an expected list here would be the third hand-maintained copy of
+    the thing `specs/collectable-types-v0.1.json` exists to keep singular. This
+    fails if the registry gains a type and the API does not, which is the drift
+    that matters — the day `time` ships, the palette must gain it with no
+    console change and no change here either.
+    """
+    import json
+    import pathlib
+
+    registry = json.loads(
+        (pathlib.Path(__file__).resolve().parents[2] / "specs" / "collectable-types-v0.1.json")
+        .read_text()
+    )
+
+    response = call("GET", "/api/v1/forms/palette")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["version"] == str(registry["version"])
+
+    collectable = sorted(t["dataType"] for t in body["types"] if t["status"] == "collectable")
+    assert collectable == sorted(registry["collectable"])
+
+    # Every §2.1 dataType appears, so a builder can show the ones it cannot
+    # offer rather than silently omitting them — a type missing from a palette
+    # is indistinguishable from one that does not exist.
+    assert len(body["types"]) > len(collectable)
+
+    # The registry's own sentence, verbatim. A console paraphrase would be a
+    # second statement of when a type arrives and the copy nobody updates.
+    notes = registry.get("notes", {})
+    for entry in body["types"]:
+        if entry["dataType"] in notes:
+            assert entry["note"] == notes[entry["dataType"]]
+
+    sources = {t["dataType"]: t["status"] for t in body["choiceSources"]}
+    for kind in registry["choiceSources"]:
+        assert sources[kind] == "collectable"
+
