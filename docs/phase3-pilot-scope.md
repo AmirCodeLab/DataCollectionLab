@@ -623,8 +623,23 @@ that can emit structured skip logic can emit `relevant`.
 3. When a sample row is updated during collection — `memberAge` beside
    `upMemberAge` — is that a correction to the sample, or a new answer? It
    decides whether the sample must be writable.
-4. What does **Person Id** do? If it references a roster member, that is
-   cross-repeat referencing and a real feature gap.
+4. ~~**What does Person Id do?**~~ **Answered, 6 September 2026: it is not a
+   question type.** It is a *prefilled* question, filled either from the sample
+   or from an answer in another section or group. Both already express in the
+   IR — from the sample is `rowSource`'s `bind`; from another answer is
+   `calculate` or `default`.
+
+   **It needs no new surface.** The worry in this question was cross-repeat
+   referencing, 73 questions each picking a member out of a roster, and that is
+   not what these are. Nothing is added to §4.3, nothing to §2, and nothing to
+   the builder's palette beyond what it already has.
+   `docs/rcons-current-system.md` §5 listed it as a type with no DCP
+   equivalent; that is corrected.
+
+   It also dissolves the pairing this list drew with question 7. If `Person Id`
+   does not pick a member, an added member having no identifier cannot strand
+   73 questions. That half of question 7's stake is gone — the other half is
+   not, and is recorded there.
 5. How many enumerators, questions and days in the next fieldwork? It sizes the
    pilot.
 6. ~~**Does any survey have an enumerator type a household id and the roster
@@ -644,13 +659,42 @@ that can emit structured skip logic can emit `relevant`.
    It also settles what `_metadata.case_key` has to carry (§8): the case behind
    the enumerator's selection, which is item 2's `assignment` → `case_record`
    and not a value the form collects.
-7. **What does an enumerator read to tell one roster row from another — a PID,
-   a serial, or the name?** Their questionnaire's first roster question is
-   `PID`, marked *already filled*, so a row's identity is **visible** rather
-   than internal. Most of that is already expressible and one part is not — see
-   §5.1, which sets out exactly what is covered and what the answer decides.
-   Worth pairing with question 4: if `Person Id` picks a member from the
-   roster, then whatever the enumerator reads here is the referent of 73
-   questions, and an added member that has none cannot be picked.
+7. ~~**What does an enumerator read to tell one roster row from another — a
+   PID, a serial, or the name?**~~ **Answered, 6 September 2026: a specific
+   column of the sample.** That is `labelColumn`, which Form IR §2.3's
+   `rowSource` already carries, and the precedence is already written down —
+   `labelColumn` is what a row of the instance list says *when `summaryLabel`
+   is absent*. The mechanism is specified, §5.1's decision that a row needs no
+   second displayed identifier stands, and nothing is added to the IR.
+
+   **One half of §5.1 stays open and this answer does not reach it.** An
+   instance the enumerator *added* has no sample row, so it has no
+   `labelColumn` value and no `bind`-seeded `pid` either (`rows-006`). Beside
+   sampled rows reading `4471 — Fatima` it reads as an empty label, and §4.3
+   still has no `index()` or `position()` with which an author could generate
+   one. What an added member's row should read is theirs to answer, and asking
+   it did not answer it — see §5.1.
+
+   A second consequence worth stating: `labelColumn` lives on a **dataset**
+   `rowSource`, which §2.3 refuses until `_metadata.case_key` (item 2) and
+   known defect 16 both clear. Until then a preloaded roster's row label comes
+   the other way, through `summaryLabel` over `bind`-seeded questions (§5.1),
+   which is step 3's work.
 8. What does CERP not get from SurveyCTO? The most valuable competitive
    information available, and it comes from the customer rather than from us.
+9. ~~**Is the name on a roster row a sensitive field?**~~ **Answered,
+   6 September 2026: no — the enumerator is meant to read it.** Asked because
+   `summaryLabel` interpolates question values onto the repeat screen (§7.1),
+   so a name marked `sensitive` would be rendered there.
+
+   **It settles a schedule rather than a design.** Step 3 stays what it looks
+   like today — implement `addLabel` and `summaryLabel` on both engines with
+   vectors (§10) — and no sensitivity rule has to be settled in the
+   specification before it can ship.
+
+   It does not settle the general case, and that is filed rather than carried
+   here. §10.2's sensitivity leak is defined over `calculate`, `relevant`,
+   `constraint`, `required`, `readOnly` and `default`, and **labels are not in
+   that list**, so an author who *does* mark a name `sensitive` would have it
+   rendered onto the repeat screen with nothing refusing it. Known defect 19.
+   Not blocking this roster; still wrong.
