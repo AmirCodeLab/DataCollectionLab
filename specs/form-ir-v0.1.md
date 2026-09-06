@@ -125,6 +125,7 @@ A group does not create a data scope. Child paths are **not** nested under the g
   "label": { "en": "Household members" },
   "relevant": <expr>,
   "countExpr": <expr>,
+  "rowSource": <rowSource>,
   "minInstances": 0,
   "maxInstances": 30,
   "addLabel": { "en": "Add another household member" },
@@ -136,9 +137,170 @@ A group does not create a data scope. Child paths are **not** nested under the g
 
 A repeat **does** create a data scope. Children are addressed as `members[i].name`.
 
+**Where a repeat's rows come from.** Four sources. A repeat names one:
+
+| Source | Declared by | What decides the rows |
+|---|---|---|
+| An earlier answer | `countExpr` | the answers |
+| The enumerator | neither field | the enumerator, as they go |
+| The sample | `rowSource`, `kind: "dataset"` | the sample assigned to this case |
+| A list in the form | `rowSource`, `kind: "inline"` | the form author |
+
 - If `countExpr` is present the instance count is controlled by it and the user cannot add or remove instances. Growing the count creates empty instances; shrinking it discards the trailing instances and their data.
-- If absent, the user controls instance count, bounded by `minInstances` / `maxInstances`. `minInstances` instances are created when the form opens.
+- If neither field is present, the user controls instance count, bounded by `minInstances` / `maxInstances`. `minInstances` instances are created when the form opens.
+- If `rowSource` is present the instances are created from **rows that exist before the interview does** — the sample, or a list written into the form — and the enumerator may add to them or delete from them exactly where `rowSource` permits.
 - **Nested repeats are not supported in v0.1.** A repeat inside a repeat is a compile error. Deferred to v0.2 — the reference-resolution and aggregate rules need designing before implementation, and shipping a half-defined version would be worse than refusing it.
+
+`countExpr` says **how many**. `rowSource` says **which**. A repeat carrying both
+is a compile error (§10.2): they are two answers to one question and nothing
+sensible arbitrates between them.
+
+#### The row source
+
+A fixed list written into the form — the same ten agricultural practices asked
+of every household:
+
+```json
+"rowSource": {
+  "kind": "inline",
+  "items": [
+    { "value": "zero_till", "label": { "en": "Zero tillage" } },
+    { "value": "laser_lvl", "label": { "en": "Laser levelling" } }
+  ],
+  "bind": { "practice": "value" },
+  "allowAdd": false,
+  "allowDelete": false
+}
+```
+
+A roster preloaded from the sample:
+
+```json
+"rowSource": {
+  "kind": "dataset",
+  "dataset": "hh_members",
+  "labelColumn": { "en": "name_en", "ur": "name_ur" },
+  "filter": { "op": "eq", "args": [
+    { "op": "ref", "path": "$row.case_key" },
+    { "op": "ref", "path": "_metadata.case_key" } ] },
+  "bind": { "member_name": "name_en", "member_age": "age" },
+  "allowAdd": true,
+  "allowDelete": false
+}
+```
+
+**This is §3's shape on purpose.** `kind`, `dataset`, `labelColumn`, `filter`
+and `items` mean exactly what they mean for a choice list, and a dataset
+`rowSource` is resolved by **§3.2 unchanged** — the same selector/residual
+decomposition, the same selector ordering, the same performance contract, the
+same refusal to let a client pre-narrow. A roster over the sample and a
+`select_one` over the sample ask one question of one source. A second
+resolution model would be two ways to read one dataset, and §3.2's rules are the
+ones the vectors already reach.
+
+Four differences, each because a row is not an option:
+
+- There is no `valueColumn`. A row's identity is the dataset's own key (§3.1),
+  taken exactly, with no trimming, folding or normalisation.
+- `bind` says which of the row's columns land in which of the instance's
+  questions. **An inline row binds `value` and only `value`**: a `label` is §7
+  i18n and an answer is one value in no language, so binding one is a compile
+  error (§10.2). The label is what the row displays, and what an export resolves
+  from the IR — exactly as for a choice list, where the stored answer is the
+  value and the label is looked up beside it.
+- `allowAdd` and `allowDelete` say what the enumerator may do to the list. Both
+  default to `false`.
+- `labelColumn` is what a row of the instance list says when `summaryLabel` is
+  absent, rather than what an option reads.
+
+**Rows are resolved once.** The instances are created the first time the repeat
+is relevant, and the row set is **never re-resolved**. A newer version of the
+dataset arriving mid-interview adds no instance and removes none; a row deleted
+from the sample does not delete the instance holding a respondent's answers.
+
+**A `rowSource` filter MUST NOT reference an answer.** It may read `_metadata`
+(§8) and constants, and nothing else; an answer reference is a compile error
+(§10.2). This is what makes "resolved once" a rule rather than a race. A filter
+over answers has no defensible timing: resolve it early and it selects on nulls;
+resolve it late and an enumerator correcting a household id leaves the previous
+household's members sitting in the roster, every control reading correctly and
+nothing at all to see. Refusing it is the same decision this section already
+makes about nested repeats — a half-defined version is worse than a refusal that
+says so.
+
+**Seeding.** For each row an instance is created, and `bind` writes the named
+column's value into the named question of that instance. A seeded value is an
+ordinary answer from that moment: it behaves as if it had arrived as the
+question's `default` (§2.1), it is editable wherever the question is not
+`readOnly`, and it is the value an export carries. Whether a correction to a
+seeded value flows back to the sample is a separate question and still open —
+`docs/phase3-pilot-scope.md` §13, question 3.
+
+A `bind` naming a question that is not in this repeat's subtree is a compile
+error (§10.2). A `bind` naming a column the source does not carry seeds `null`
+**and the engine reports the missing column**; silently seeding null would be a
+roster of blank names on a device holding the sample, with nothing in an error
+state — §3.2's rule about an index that cannot answer, one level up.
+
+**Order.** Instances are created in source order, and instances added afterwards
+append, so the creation-order invariant holds unchanged. For an inline source
+that order is the document order of `items`, which is in the IR and therefore
+settled. For a dataset source it is the order of the rows in the published
+version — **which does not survive delivery today**, and is why `kind:
+"dataset"` is specified here and not yet implementable. See *What is live*
+below and `docs/known-defects.md`.
+
+**Adding and deleting.** `allowAdd` and `allowDelete` are independent, and both
+default to `false`.
+
+- `allowAdd: true` — the enumerator may add instances beyond the seeded ones,
+  bounded by `maxInstances`, exactly as in an enumerator-driven repeat. **The
+  two sources coexist in one roster**, and that is the ordinary case rather than
+  an edge: a household's known members come from the sample, and the baby born
+  since the sample was drawn does not. They are one list, in one order, entered
+  the same way, answering the same instance plan.
+- An added instance has no source row. Its `_rowKey` is `null` and `bind` does
+  not apply to it.
+- `allowDelete: true` — an instance may be deleted, bounded by `minInstances`. A
+  deleted preloaded row does not return: rows are resolved once.
+- Both `false` is a fixed roster. That the list cannot be edited is the point of
+  it: it is what makes the answers comparable across submissions, and an
+  enumerator who could delete a practice would produce a household that appears
+  not to farm.
+
+`minInstances` has **no effect** on a `rowSource` repeat; the source decides the
+initial count. `maxInstances` bounds **adding only**. A source returning more
+rows than `maxInstances` instantiates all of them and permits no add —
+truncating would drop a sampled household member with nothing in an error state.
+
+**The row's key.** Every instance created from a `rowSource` records the key of
+the row that made it — §3.1's key, exactly — addressable as
+`members[.]._rowKey` and `null` for an enumerator-added instance (`_` is
+reserved runtime metadata, §2.4). It is what an export joins back to the sample
+on, and it is what lets a supervisor see which sampled members were never
+interviewed. An instance id is internal and per submission; `_rowKey` is the
+identity the sample already had.
+
+#### What is live
+
+**`kind: "inline"` is implemented. `kind: "dataset"` is specified and refused.**
+An engine MUST refuse a `rowSource` with `kind: "dataset"` as a compile error
+(§10.2) until both of the following are true, and the refusal names them:
+
+1. **`_metadata.case_key` exists** (§8). A dataset `rowSource` filter cannot
+   reference an answer, so the case is the only thing it has to key on, and
+   cases arrive with Phase 3 item 2 (`docs/phase3-pilot-scope.md` §4.3).
+2. **A dataset version's row order survives delivery to a device.** It does not
+   today: the order is held on the server and is neither carried on the wire nor
+   part of a version's content address, so a roster's rows would arrive in an
+   order nobody chose. `docs/known-defects.md` has the measurement.
+
+The split is deliberate rather than a staging convenience. Inline alone covers
+the fixed-list tables, which are the shape that appears most in RCons's
+questionnaires, and it depends on nothing outside this document — the rows are
+in the IR. Specifying both now and building one keeps the two sources one
+mechanism, which is the claim §11.3 makes about how they render; building the
+inline half first is what stops that claim waiting on item 2.
 
 `addLabel` and `summaryLabel` are what a repeat screen renders (§11.3), and both
 are optional. `addLabel` names the add control — "Add another household member"
@@ -148,7 +310,10 @@ label evaluated **in the instance's scope**, so a bare reference among its
 arguments resolves to that instance (§4.2), and every §7.1 rule applies to it
 unchanged — null is the empty string, values are bidi-isolated, arguments are
 dependencies, and a slot with no argument is a compile error. Where
-`summaryLabel` is absent a row shows its 1-based position in the current order.
+`summaryLabel` is absent, an instance created from a `rowSource` shows its
+source row's label — `labelColumn` for a dataset row, `label` for an inline
+item — and an instance with neither shows its 1-based position in the current
+order.
 
 Instances carry **stable ids** internally. Positional addressing (`members[0]`) resolves against the current ordered list at evaluation time. Deleting an instance removes it from the order and destroys its values; it never renumbers the surviving instances in storage, so an operation referring to a surviving instance stays valid after a concurrent delete elsewhere.
 
@@ -214,6 +379,19 @@ are **reported at publish and not merged**. They are almost always a data
 error — the same village entered twice — but merging them would be the platform
 deciding that two rows a customer supplied are one, which is not a decision the
 platform can make. The report names them; the publisher decides.
+
+**Row order is deliberately not part of a version's identity, and §2.3 now wants
+it to be.** `version_checksum` sorts by key before hashing, so that two servers
+that inserted the same rows in different orders agree on the content address;
+publishing is idempotent by that address, so the same rows re-uploaded in a new
+order are not a new version at all. That was the right call while order was a
+presentation detail of a choice list. A `rowSource` (§2.3) creates one instance
+per row, and the order an enumerator reads a household in is the order the
+sample lists it in — so order becomes part of what a version *is*. **This
+section does not yet say that**, because saying it would not make it true: the
+server holds the order and nothing carries it to a device.
+`docs/known-defects.md` has the measurement and the work. The sentence belongs
+here when that work lands, and not before.
 
 ### 3.2 Resolving a dataset-backed list
 
@@ -984,6 +1162,14 @@ Automatically captured, addressable under `_metadata`:
 | `_metadata.app_version` | text |
 | `_metadata.language` | text |
 | `_metadata.duration_seconds` | integer |
+| `_metadata.case_key` | text |
+
+`_metadata.case_key` is the case this submission was opened against — the sample
+row it came from (`docs/phase3-pilot-scope.md` §4.3) — and `null` for a
+submission opened without one. A `rowSource` filter is answer-independent by
+§2.3, so this is what a roster preloaded from the sample keys on. **It does not
+exist yet**: cases arrive with Phase 3 item 2, which is one of the two reasons
+§2.3 refuses `kind: "dataset"` for now.
 
 ## 9. Versioning
 
@@ -1042,7 +1228,25 @@ Checked over a document that passed §10.1. These block publish:
 
 unresolvable reference, dependency cycle, duplicate id, invalid id format, type
 mismatch, unknown function, wrong arity, **sensitivity leak**, **a repeat inside
-a field-list group**.
+a field-list group**, **a repeat carrying both `countExpr` and `rowSource`**, **a
+`rowSource` filter that references an answer**, **a `bind` naming a question
+outside its repeat**, **an inline `bind` naming `label`**, and **a `rowSource`
+with `kind: "dataset"`** while §2.3's two conditions are unmet.
+
+The four `rowSource` refusals are one reason wearing four hats: each is a form
+that would run, and run differently on two engines or on two days. Two row
+sources have no arbiter; an answer-dependent filter has no defensible resolution
+time (§2.3); a bind reaching outside its repeat would write one row's value into
+a field that is not per-row; a bind onto a label would have to pick a language,
+and two engines picking one is two forms. In each case the alternative is not a
+worse behaviour but an undefined one.
+
+**`kind: "dataset"` is refused for a different reason and the message must say
+so.** It is not malformed and it is not ambiguous — it is specified, and two
+things it depends on do not exist (§2.3, *What is live*). A form author who
+wrote a valid preloaded roster needs to read that it is not built yet, not that
+their form is wrong. This refusal is expected to be deleted, and the two others
+are not.
 
 A **repeat inside a `field-list` group** is refused because the two say
 contradictory things about the same questions, not because we are choosing
@@ -1188,6 +1392,25 @@ into each, an add control where §2.3 permits adding, and a delete control on ea
 instance where §2.3 permits deleting. It asks nothing itself. §2.3 decides what
 is permitted; this section says only where it surfaces.
 
+**Four sources of rows, one screen.** §2.3 gives a repeat's rows four possible
+origins: a `countExpr` over the answers, the enumerator adding them as they go,
+the sample by way of a dataset `rowSource`, and a fixed list written into the
+form. **They render identically.** One repeat screen listing the rows in their
+current order, a way into each, and the enumerator enters a row to answer that
+roster's section. The source decides where rows come from. It decides nothing
+about how they look.
+
+What it does decide is which controls the screen carries, and §2.3 has already
+said so: an add control where adding is permitted, a delete control on each
+instance where deleting is. A fixed list of ten agricultural practices shows ten
+rows and neither control. A household roster preloaded from the sample shows the
+sampled members **and an add control**, because `allowAdd` is true and the two
+sources coexist in one roster: the members the sample knows about are listed,
+the one born since is added on that same screen, into that same list, and both
+answer the same instance plan. Nothing on the screen distinguishes them, and
+nothing should — the enumerator is interviewing a household, not auditing where
+its member list came from.
+
 **Relevance.** A repeat screen has no questions of its own, so §11.2's rule
 cannot decide it. A repeat screen is relevant when **both** hold:
 
@@ -1204,9 +1427,24 @@ pair in §11.2. An enumerator-driven repeat with no instances yet **MUST NOT** b
 skipped: its empty screen is the only door to the first instance, and skipping it
 would be §11.1's own defect one level in.
 
+Those two conditions decide all four sources without gaining a clause, which is
+the test of whether they were the right two. A fixed list has instances, so its
+screen is relevant. A preloaded roster whose filter matched no row and whose
+`allowAdd` is false offers neither an instance nor an add, so it is skipped —
+the same outcome as a `countExpr` currently sized zero, for the same reason, and
+it is why the second condition was written as *something to offer* rather than
+as *any instances*. A preloaded roster that matched no rows but permits an add
+is shown empty, exactly as an enumerator-driven roster at zero is shown.
+
 An instance whose every screen is currently irrelevant is still listed. It exists
 as data, it has an identity, and its delete control is the only way to be rid of
 it.
+
+**And the plan does not move.** A `rowSource` puts instances where a `countExpr`
+or an enumerator would have put them, and an instance count has never been in
+the screen plan. The count now arrives from the sample, which means it is
+unknown at compile time in one more way than before — and the constraint at the
+head of this section holds for exactly that reason rather than in spite of it.
 
 **Inside an instance.** `next` from an instance screen is the next relevant
 screen of the instance plan; from the last, it **leaves the instance**, and the
@@ -1217,9 +1455,9 @@ Neither ever moves to another instance.
 Leaving to the list rather than advancing into the next instance is what gives
 the "are we finished?" decision a place to happen, and for a roster whose length
 only the respondent knows, that decision is the feature. It also lets one rule
-serve both count modes: a `countExpr` roster of six and an enumerator-driven
-roster of six navigate identically, and differ only in which controls §2.3
-permits. A runtime MAY offer an explicit "next instance" control at the end of an
+serve both count modes: a `countExpr` roster of six, an enumerator-driven roster
+of six and a roster of six preloaded from the sample navigate identically, and
+differ only in which controls §2.3 permits. A runtime MAY offer an explicit "next instance" control at the end of an
 instance — that is `enterInstance` on the following one, the same operation as
 choosing it from the list, and not a second meaning for `next`.
 
@@ -1290,6 +1528,15 @@ is a legal roster.
   The add control's missing label is `addLabel` and the list row's is
   `summaryLabel`, both §2.3. What remains open below is nesting, and nothing
   else about repeats.
+
+  **Extended 6 September 2026.** A roster's rows may also come from the sample
+  or from a fixed list in the form — §2.3's `rowSource`, rendered by §11.3 as
+  the same one screen, because the source decides where rows come from and not
+  how they look. The inline half is built; the dataset half is specified and
+  refused until `_metadata.case_key` exists and a dataset version's row order
+  survives delivery. That narrows *cross-form references for case
+  pre-population* below rather than answering it: pre-population from a
+  **dataset** is specified, from another form's **submission** is not.
 
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population

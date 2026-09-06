@@ -112,6 +112,12 @@ and is the right place for the residue.
 questions in this database, run a skip-to → relevance conversion, and count what
 converts cleanly. That number decides whether the pilot is a month or three.
 
+> **Superseded 6 September 2026 — `docs/phase3-pilot-scope.md` §12.** The skip
+> logic is Urdu prose in a codes column and a person converts it when entering
+> the question, so there is no machine-readable corpus for a compiler to read
+> and no number for it to report. The recommendation above, and §9's, are kept
+> as the record of what was believed on 4 September.
+
 ---
 
 ## 4. Roster: mostly a repeat, with one gap
@@ -124,6 +130,13 @@ iterations:
 | From an earlier answer — "how many people live here?" | `countExpr` — works |
 | From the sample — a column stating the number | `countExpr` over a dataset value — works |
 | **Enumerator decides as they go** — keep adding until the respondent says stop | **Not implemented** |
+
+**Two more sources, found 6 September 2026.** A roster's rows can also be
+preloaded **from the sample** — a household's known members — or come from a
+**fixed list written into the questionnaire**, as the agricultural module's ten
+practices do. Neither is a count. Form IR §2.3 calls both a `rowSource`, and
+sample-preloaded rows can still be added to: the two sources coexist in one
+roster.
 
 The third is the common case for a household member roster, and it is a small
 addition: an "Add another" affordance bounded by `maxInstances`. `minInstances`

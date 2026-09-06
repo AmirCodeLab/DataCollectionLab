@@ -356,6 +356,7 @@ What watches that layer, and all there is:
 | That the "N of M" an enumerator reads counts only screens somebody can answer | `NavigatorTest` (`:shared:form-engine:jvmTest`) — the vectors pin the plan, this pins the displayed pair | 80 |
 | That the cursor re-reads its position after the instance list changes, and refuses an instance id that does not exist | `NavigatorTest` (`:shared:form-engine:jvmTest`) — §11.3's rules are pure functions the vectors reach; *calling* them from the cursor is not | 89 |
 | That two engines agree about which forms compile, for every §10.2 error except the sensitivity leak | `test_repeat_in_field_list.py` (`backend`) and `ScreensRepeatTest` (`:shared:form-engine:jvmTest`) — a matched pair, and nothing else. See below | — |
+| That both engines refuse the same four `rowSource` shapes, and that the one refusal meant to be **deleted** says so in its message | `test_row_source_refusals.py` (`backend`) and `RowSourceRefusalTest` (`:shared:form-engine:jvmTest`) — the second matched pair, same exposure. §2.3's `kind: "dataset"` is valid and unbuildable, not wrong | — |
 
 These exist because a break in that layer passed the vectors. Break 21 put the
 §6.2 finalisation gate one level up, in `FormNavigator.next()` — where a
@@ -521,6 +522,44 @@ and Y discards" — a sentence joining two operations is one an engine can
 implement half of and look finished, and a vector can assert half of and look
 thorough. When you meet one, write down both halves before writing either
 vector, and make the second one's failure message name which half it is.
+
+### A sequential fixture cannot see an ordering bug
+
+The rule above is about a sentence with two halves. This one is about a fixture
+with one shape, and it is the same failure arriving through the data rather than
+through the prose.
+
+> **A fixture whose ordering, numbering or naming is sequential cannot see an
+> ordering bug. When what is under test is an order — of rows, of instances, of
+> screens, of keys — make the fixture's natural orders disagree on purpose.**
+
+The tell is that two different right answers coincide. If the rows are `V000`,
+`V001`, `V002`, then key order, insertion order, published order and
+alphabetical order are all the same sequence, and an engine that picked any of
+them passes. The fixture is not weak evidence about ordering; it is **no**
+evidence about ordering, while reading as though it were.
+
+Three in one week, all found by reading rather than by any test:
+
+- **`repeat-006`** claimed "shrinking discards the **trailing** instances" and
+  asserted a count plus the first survivor — both true when the *middle*
+  instance is discarded instead (break 76).
+- **`screens-022`** was written with two instances and the enumerator in the
+  first, so a stale ordinal fell out of range and any clamp landed on the right
+  person by luck. **The break passed.** Rewritten to three instances with the
+  enumerator in the middle, the stale ordinal stays in range and points at the
+  next person (break 87).
+- **`test_rows_page_resumes_from_its_cursor_and_says_when_it_is_done`** publishes
+  `V000`…`V249`, where the file's order and the key order are one sequence. It
+  is the guard that closed break 48 and it would pass against a store that
+  sorted by key — which is exactly what the device does, and why
+  `docs/known-defects.md` 16 went unseen for two versions of that schema.
+
+The fix is cheap and it is a habit, not a technique: give the fixture a
+published order that is not its key order, put the interesting instance in the
+middle rather than at an end, and name rows so that alphabetical and intended
+disagree. `rows-007` is written that way deliberately, and says so in its
+description.
 
 ## Commands
 
@@ -758,8 +797,11 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    left, and no instance count enters the screen plan, so the "N of M" a
    household of six reads is the one it read at five. Both engines implement it
    under `screens-012`…`screens-025`, and defect 14 is closed. Remaining: the
-   roster UI, and `addLabel` / `summaryLabel`, which §2.3 specifies and neither
-   engine parses yet
+   roster UI, `addLabel` / `summaryLabel`, and §2.3's `rowSource` — a roster's
+   rows also come **preloaded from the sample** or from a **fixed list in the
+   form**, and all four sources render as the same one screen. The inline half
+   is buildable now; the dataset half waits on `_metadata.case_key` (item 2) and
+   on `docs/known-defects.md` 16
 4. **Separate sync for sample and form.** A 37,000-row sample over a village
    connection is a different proposition from a small form update, and the person
    holding the handset should decide which they are doing
@@ -767,9 +809,11 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
 
-**The skip-to prototype was item 0 and is now optional** (scope doc §12): RCons's
-tool can emit XLSForm once given a template, and their existing surveys are
-finished. Giving them that template is a real dependency of item 0.
+**The skip-to prototype was item 0 and is closed** (scope doc §12): the source
+skip logic is Urdu prose in a codes column, and a person converts it to relevance
+when entering the question in the dashboard. The conversion happens before any
+tool sees it, so there was never a machine-readable corpus to convert. Giving
+RCons the XLSForm template is still a real dependency of item 0.
 
 **There is no timeline, deliberately** — the pilot happens when the platform is
 ready, not on a date. The "roughly two months" this section used to carry
