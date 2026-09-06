@@ -157,6 +157,17 @@ def _check(
             f"{where}: errors[{path}] expected {want_kinds}, got {got_kinds}"
         )
 
+    # §2.3: the source row each instance came from, in instance order. Asserted
+    # as a whole list rather than per index, because what it is evidence about
+    # is the ORDER — an engine that sorted or renumbered produces the same set.
+    for repeat_id, want_keys in expect.get("rowKeys", {}).items():
+        got_keys = [
+            instance.row_key(repeat_id, iid) for iid in instance.instances[repeat_id]
+        ]
+        assert got_keys == want_keys, (
+            f"{where}: rowKeys[{repeat_id}] expected {want_keys}, got {got_keys}"
+        )
+
     for repeat_id, want in expect.get("instanceCount", {}).items():
         got = instance.instance_count(repeat_id)
         assert got == want, (

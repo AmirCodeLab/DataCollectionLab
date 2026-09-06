@@ -1,0 +1,114 @@
+{
+  "id": "rows-005",
+  "description": "`allowDelete: false` refuses a delete. Half two of \u00a72.3's pair. The add this form permits still works, so an engine that refused both fails here and not only on rows-004",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows5",
+    "version": 1,
+    "title": {
+      "en": "rows5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": true,
+          "allowDelete": false
+        },
+        "maxInstances": 6
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "refuse": {
+        "deleteInstance": {
+          "repeat": "practices",
+          "index": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 4
+        }
+      }
+    },
+    {
+      "addInstance": "practices"
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 5
+        }
+      }
+    }
+  ]
+}

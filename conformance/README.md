@@ -36,6 +36,7 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 | `expect.errors` | Expected error kinds per field |
 | `expect.formValid` | Expected whole-form validity |
 | `expect.instanceCount` | Expected number of instances per repeat |
+| `expect.rowKeys` | The source row each instance came from, in instance order — null for one the enumerator added (§2.3) |
 | `expect.choices` | Expected option values, in order (§3.2) |
 | `expect.labels` | Expected option labels, per language |
 | `expect.selector` | The selector **the source was asked for** (§3.2) |
@@ -61,6 +62,22 @@ instance and its answer survived — so an engine that refused for the wrong
 reason, or refused by throwing after mutating, fails anyway. `repeat-010` is
 its control: the same step kind over `maxInstances`, which was already enforced,
 so a failing `repeat-009` is the engine and not the harness.
+
+## Why `rowKeys` is a list and not a lookup
+
+`expect.rowKeys` names a whole ordered list rather than an index-to-key map, and
+that is the assertion doing its job. What a `rowSource` is evidence about is the
+**order** — an engine that sorted the rows, or renumbered them after a delete,
+produces the same *set* of keys and would satisfy any per-index check written
+against a fixture whose keys were already in order.
+
+`rows-007` is built against exactly that. Its four keys are chosen so document
+order, alphabetical order and reverse-alphabetical order are three different
+sequences, and the row it deletes is a middle one. Measured: a copy of that
+vector with its keys renamed `p1`…`p4` — identical in every other respect —
+**passes** a break that sorts the rows, while `rows-007` fails it. See
+`docs/project-conventions.md`, "A sequential fixture cannot see an ordering
+bug", and breaks 94 and 48.
 
 ## Why a dataset vector asserts three things and not one
 

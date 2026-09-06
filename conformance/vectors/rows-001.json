@@ -1,0 +1,117 @@
+{
+  "id": "rows-001",
+  "description": "An inline rowSource creates one instance per item, in the document order of `items`, before any answer is given. The repeat still contributes exactly ONE screen (\u00a711.1) \u2014 four rows, three screens in the plan",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows1",
+    "version": 1,
+    "title": {
+      "en": "rows1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": false,
+          "allowDelete": false
+        }
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 4
+        },
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "laser_lvl",
+            "bed_plant",
+            "residue"
+          ]
+        },
+        "screens": {
+          "count": 3,
+          "kinds": {
+            "1": "repeat"
+          },
+          "repeats": {
+            "1": "practices"
+          },
+          "relevant": [
+            0,
+            1,
+            2
+          ]
+        }
+      }
+    }
+  ]
+}

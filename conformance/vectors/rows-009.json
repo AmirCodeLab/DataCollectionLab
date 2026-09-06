@@ -1,0 +1,116 @@
+{
+  "id": "rows-009",
+  "description": "`minInstances` has no effect on a rowSource repeat \u2014 the source decides the initial count, and 6 does not become the floor that creates two empty rows beside the four real ones",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows9",
+    "version": 1,
+    "title": {
+      "en": "rows9"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": false,
+          "allowDelete": true
+        },
+        "minInstances": 6
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 4
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "practices",
+        "index": 2
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 3
+        },
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "laser_lvl",
+            "residue"
+          ]
+        }
+      }
+    }
+  ]
+}

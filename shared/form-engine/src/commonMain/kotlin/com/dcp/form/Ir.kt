@@ -168,10 +168,38 @@ data class RepeatNode(
     override val label: Map<String, String>? = null,
     @Serializable(ExprSerializer::class) override val relevant: Expr? = null,
     @Serializable(ExprSerializer::class) val countExpr: Expr? = null,
+    val rowSource: RowSource? = null,
     val minInstances: Int? = null,
     val maxInstances: Int? = null,
     override val children: List<FormNode> = emptyList(),
 ) : ContainerNode
+
+/**
+ * Where a repeat's rows come from, when they exist before the interview does
+ * (Form IR §2.3).
+ *
+ * Deliberately shaped like [Choices]: `kind`, `dataset`, `labelColumn` and
+ * `filter` mean what they mean for a choice list, and a dataset row source is
+ * resolved by §3.2 unchanged. A roster over the sample and a `select_one` over
+ * the sample ask one question of one source; a second resolution model would be
+ * two ways to read one dataset.
+ *
+ * [allowAdd] and [allowDelete] are two booleans and not one, because a spec
+ * sentence naming two operations is one an engine implements half of and looks
+ * finished — breaks 74 and 75, and the conjunction rule they were written from.
+ */
+@Serializable
+data class RowSource(
+    val kind: String,
+    val items: List<ChoiceItem> = emptyList(),
+    val dataset: String? = null,
+    val labelColumn: Map<String, String>? = null,
+    @Serializable(ExprSerializer::class) val filter: Expr? = null,
+    /** Question id -> the row column seeding it. An inline row has only `value`. */
+    val bind: Map<String, String> = emptyMap(),
+    val allowAdd: Boolean = false,
+    val allowDelete: Boolean = false,
+)
 
 @Serializable
 data class Choices(

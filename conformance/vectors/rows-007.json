@@ -1,0 +1,136 @@
+{
+  "id": "rows-007",
+  "description": "Rows keep the document order of `items`, and a delete never renumbers the survivors. THE FIXTURE IS THE POINT: the four keys are chosen so that document order, alphabetical order and reverse-alphabetical order are three different sequences, and the deleted row is a MIDDLE one. An engine that sorted, reversed or renumbered passes every sequential fixture and fails this one \u2014 break 48's blind spot, and repeat-006's and screens-022's. See docs/project-conventions.md, 'A sequential fixture cannot see an ordering bug'",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows7",
+    "version": 1,
+    "title": {
+      "en": "rows7"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "practice",
+            "dataType": "text",
+            "label": {
+              "en": "Practice"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": false,
+          "allowDelete": true,
+          "bind": {
+            "practice": "value"
+          }
+        }
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "laser_lvl",
+            "bed_plant",
+            "residue"
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "practices[0].practice": "a",
+        "practices[1].practice": "b",
+        "practices[2].practice": "c",
+        "practices[3].practice": "d"
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "practices",
+        "index": 1
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 3
+        },
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "bed_plant",
+            "residue"
+          ]
+        },
+        "values": {
+          "practices[0].practice": "a",
+          "practices[1].practice": "c",
+          "practices[2].practice": "d"
+        }
+      }
+    }
+  ]
+}

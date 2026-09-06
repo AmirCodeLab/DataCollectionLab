@@ -104,6 +104,65 @@ class CompiledForm:
             if node["type"] in ("group", "repeat"):
                 yield from self._walk(node.get("children", []), ancestors + [node["id"]])
 
+    def _check_row_source(self, node: dict[str, Any]) -> None:
+        """§10.2's four `rowSource` refusals, checked where the repeat is met.
+
+        Each is a form that would run, and run differently on two engines or on
+        two days. `kind: "dataset"` is the odd one out and its message says so:
+        it is specified and not yet buildable, not malformed, and it is the one
+        refusal here that is expected to be deleted (§2.3, *What is live*).
+        """
+        repeat_id = node["id"]
+        source = node.get("rowSource")
+        if source is None:
+            return
+        if node.get("countExpr") is not None:
+            raise CompileError(
+                f"repeat {repeat_id!r} carries both countExpr and rowSource; "
+                "countExpr says how many and rowSource says which, and nothing "
+                "arbitrates between them"
+            )
+
+        kind = source.get("kind")
+        if kind == "dataset":
+            raise CompileError(
+                f"repeat {repeat_id!r} uses rowSource kind 'dataset', which is "
+                "specified but not yet implemented: it needs _metadata.case_key "
+                "(Phase 3 item 2) and a dataset version's row order to survive "
+                "reaching a device (known-defects 16). Use kind 'inline' or wait"
+            )
+        if kind != "inline":
+            raise CompileError(
+                f"repeat {repeat_id!r} has an unknown rowSource kind {kind!r}"
+            )
+
+        own_fields = {
+            child["id"]
+            for child, _ in self._walk(node.get("children", []), [])
+            if child["type"] == "question"
+        }
+        for question_id, column in (source.get("bind") or {}).items():
+            if question_id not in own_fields:
+                raise CompileError(
+                    f"repeat {repeat_id!r} binds {question_id!r}, which is not a "
+                    "question inside it; a row's value cannot land in a field "
+                    "that is not per-row"
+                )
+            # A label is §7 i18n and an answer is one value in no language, so
+            # binding one would make an engine pick a language and two engines
+            # picking one is two forms.
+            if column == "label":
+                raise CompileError(
+                    f"repeat {repeat_id!r} binds {question_id!r} to an inline "
+                    "row's label; only 'value' is bindable, because a label is "
+                    "i18n and an answer is not"
+                )
+            if column != "value":
+                raise CompileError(
+                    f"repeat {repeat_id!r} binds {question_id!r} to {column!r}; "
+                    "an inline row has only 'value'"
+                )
+
     def _compile(self) -> None:
         seen: set[str] = set()
 
@@ -140,6 +199,7 @@ class CompiledForm:
                             f"a repeat cannot appear inside a field-list group "
                             f"(repeat {node_id!r} inside group {anc!r})"
                         )
+                self._check_row_source(node)
                 self.repeats[node_id] = node
                 self.containers[node_id] = node
                 self.container_ancestors[node_id] = list(ancestors)
@@ -367,6 +427,14 @@ class FormInstance:
         self.datasets: DatasetSource = datasets or InMemoryDatasetSource({})
 
         self.instances: dict[str, list[str]] = {rid: [] for rid in form.repeats}
+        # The source row each instance came from (§2.3), by instance id. An
+        # instance the enumerator added has no entry and reads back as None —
+        # which is the difference between "the sample knew about this member"
+        # and "the enumerator added them", and is what an export joins on.
+        self.row_keys: dict[str, dict[str, str | None]] = {rid: {} for rid in form.repeats}
+        # Which repeats have had their rowSource resolved. §2.3: resolved ONCE,
+        # the first time the repeat is relevant, and never re-resolved.
+        self._rows_resolved: set[str] = set()
         # A plain serial rather than a counter object, because `restore` has to
         # push it past ids minted on a device: a form rebuilt from storage
         # already holds `i1`..`i4`, and a `countExpr` that grows afterwards must
@@ -383,6 +451,11 @@ class FormInstance:
         }
 
         for rid, node in form.repeats.items():
+            # §2.3: minInstances has no effect on a rowSource repeat — the
+            # source decides the initial count, and a floor beside it would
+            # create empty rows alongside the real ones.
+            if node.get("rowSource") is not None:
+                continue
             for _ in range(int(node.get("minInstances", 0))):
                 self._create_instance(rid)
 
@@ -427,10 +500,11 @@ class FormInstance:
                 f"{list(self.instances[repeat_id])}"
             )
 
-    def _create_instance(self, repeat_id: str) -> str:
+    def _create_instance(self, repeat_id: str, row_key: str | None = None) -> str:
         self._instance_serial += 1
         instance_id = f"i{self._instance_serial}"
         self.instances[repeat_id].append(instance_id)
+        self.row_keys[repeat_id][instance_id] = row_key
         self._assert_creation_order(repeat_id)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
@@ -440,7 +514,41 @@ class FormInstance:
             )
         return instance_id
 
+    def _resolve_rows(self, repeat_id: str) -> None:
+        """Create this repeat's instances from its `rowSource`. Once, ever.
+
+        §2.3: the row set is resolved the first time the repeat is relevant and
+        is **never re-resolved**. A row deleted from the source afterwards does
+        not delete the instance holding a respondent's answers, and a row the
+        enumerator deleted does not come back.
+
+        `maxInstances` is deliberately not consulted. It bounds *adding*; a
+        source with more rows than the ceiling instantiates all of them and
+        permits no add, because truncating would drop a row with nothing in an
+        error state.
+        """
+        node = self.form.repeats[repeat_id]
+        source = node.get("rowSource")
+        if source is None or repeat_id in self._rows_resolved:
+            return
+        if not self.container_relevant(repeat_id):
+            return
+        self._rows_resolved.add(repeat_id)
+        bind = source.get("bind") or {}
+        for item in source.get("items") or []:
+            key = item["value"]
+            instance_id = self._create_instance(repeat_id, row_key=key)
+            # A seeded value is an ordinary answer from this moment: it behaves
+            # as if it had arrived as the question's `default`, and a later set
+            # overwrites it and it stays overwritten.
+            for question_id, column in bind.items():
+                path = f"{repeat_id}[{instance_id}].{question_id}"
+                value = item.get(column)
+                self.values[path] = value
+                self.states[path].value = value
+
     def _destroy_instance(self, repeat_id: str, instance_id: str) -> None:
+        self.row_keys[repeat_id].pop(instance_id, None)
         for fid in self._fields_of(repeat_id):
             path = f"{repeat_id}[{instance_id}].{fid}"
             self.values.pop(path, None)
@@ -453,6 +561,16 @@ class FormInstance:
         if node.get("countExpr") is not None:
             raise CompileError(
                 f"repeat {repeat_id} is controlled by countExpr; instances cannot be added"
+            )
+        # §2.3: `allowAdd` and `allowDelete` are independent, and both default
+        # to false. Two booleans rather than one, because a spec sentence naming
+        # two operations is one an engine implements half of and looks finished
+        # — breaks 74 and 75. Vectors rows-004 and rows-005, one half each.
+        source = node.get("rowSource")
+        if source is not None and not source.get("allowAdd", False):
+            raise CompileError(
+                f"repeat {repeat_id} takes its rows from a rowSource that does "
+                "not permit adding"
             )
         maximum = node.get("maxInstances")
         if maximum is not None and len(self.instances[repeat_id]) >= int(maximum):
@@ -475,18 +593,34 @@ class FormInstance:
             raise CompileError(
                 f"repeat {repeat_id} is controlled by countExpr; instances cannot be removed"
             )
+        source = node.get("rowSource")
+        if source is not None and not source.get("allowDelete", False):
+            raise CompileError(
+                f"repeat {repeat_id} takes its rows from a rowSource that does "
+                "not permit deleting"
+            )
         if index < 0 or index >= len(ordered):
             raise CompileError(f"no instance at {repeat_id}[{index}]")
         # Spec 2.3 bounds the count by minInstances AND maxInstances. The
         # ceiling was checked on the add and the floor was checked nowhere, so
         # a roster declaring minInstances 1 could be emptied. Vector repeat-009.
-        minimum = node.get("minInstances")
+        # A rowSource repeat has no floor: §2.3 gives minInstances no effect
+        # there, so a delete it permits is not silently bounded by one.
+        minimum = None if source is not None else node.get("minInstances")
         if minimum is not None and len(ordered) <= minimum:
             raise CompileError(f"repeat {repeat_id} is at its minimum of {minimum}")
         instance_id = ordered.pop(index)
         self._assert_creation_order(repeat_id)
         self._destroy_instance(repeat_id, instance_id)
         self.recalculate()
+
+    def row_key(self, repeat_id: str, instance_id: str) -> str | None:
+        """The source row an instance came from, or None if nobody's row.
+
+        §2.3 addresses it as `members[.]._rowKey`. It is the identity the sample
+        already had, where an instance id is this submission's private counter.
+        """
+        return self.row_keys.get(repeat_id, {}).get(instance_id)
 
     def container_relevant(self, container_id: str) -> bool:
         """A group's or repeat's own relevance, with its ancestors' (spec 5).
@@ -887,6 +1021,14 @@ class FormInstance:
         the pass moves to the next field. A field outside a repeat that
         aggregates over one therefore always sees fully-evaluated instances.
         """
+        # A rowSource resolves before anything inside is evaluated, for the same
+        # reason countExpr does below: the instances have to exist before the
+        # fields in them are walked. It runs on every pass and returns at once
+        # after the first, because "the first time the repeat is relevant" is a
+        # condition only recalculation can notice.
+        for rid in self.form.repeats:
+            self._resolve_rows(rid)
+
         # countExpr governs instance count before anything inside is evaluated
         for rid, node in self.form.repeats.items():
             if node.get("countExpr") is None:

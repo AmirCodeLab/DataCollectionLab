@@ -167,6 +167,12 @@ def _can_add(instance: FormInstance, repeat_id: str) -> bool:
     node = instance.form.repeats.get(repeat_id)
     if node is None or node.get("countExpr") is not None:
         return False
+    # §2.3: a rowSource that does not permit adding cannot, whatever the
+    # ceiling says. This is the branch that decides whether an empty fixed list
+    # is a screen at all — vectors rows-010 and rows-011, one answer each.
+    source = node.get("rowSource")
+    if source is not None and not source.get("allowAdd", False):
+        return False
     maximum = node.get("maxInstances")
     if maximum is None:
         return True

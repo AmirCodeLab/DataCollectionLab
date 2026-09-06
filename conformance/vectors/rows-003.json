@@ -1,0 +1,108 @@
+{
+  "id": "rows-003",
+  "description": "A question the bind does not name is not seeded \u2014 it starts null like any other. Seeding is what `bind` says and nothing more; the control for rows-002",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows3",
+    "version": 1,
+    "title": {
+      "en": "rows3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "practice",
+            "dataType": "text",
+            "label": {
+              "en": "Practice"
+            }
+          },
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": false,
+          "allowDelete": false,
+          "bind": {
+            "practice": "value"
+          }
+        }
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "values": {
+          "practices[0].practice": "zero_till",
+          "practices[0].used": null,
+          "practices[3].used": null
+        }
+      }
+    }
+  ]
+}

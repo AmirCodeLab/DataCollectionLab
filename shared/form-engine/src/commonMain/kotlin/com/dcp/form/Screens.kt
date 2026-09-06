@@ -145,6 +145,11 @@ fun buildScreenPlan(ir: FormIr): ScreenPlan {
 private fun canAdd(instance: FormInstance, repeatId: String): Boolean {
     val node = instance.form.repeats[repeatId] ?: return false
     if (node.countExpr != null) return false
+    // §2.3: a rowSource that does not permit adding cannot, whatever the
+    // ceiling says. This is the branch that decides whether an empty fixed list
+    // is a screen at all — vectors rows-010 and rows-011, one answer each.
+    val source = node.rowSource
+    if (source != null && !source.allowAdd) return false
     val maximum = node.maxInstances ?: return true
     return instance.instanceCount(repeatId) < maximum
 }
