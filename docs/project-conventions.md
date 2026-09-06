@@ -159,6 +159,51 @@ back; assignment, supervision and review move forward, which is what Phase 3 is.
     tell whoever it concerns. Do not plan a rewrite; there is no longer one that
     works.
 
+12. **Work that exists only in a terminal does not exist.** Any substantial
+    finding — an analysis, a measurement, a probe result — is written to a file
+    as soon as it is complete, before the session that produced it can end. It
+    does not have to be committed to be safe; it has to be on disk.
+
+    Like rule 11, **the check is at the point of creation, not the point of
+    loss.** By the time work is missing there is nothing left to decide. The
+    two rules are not in tension and they meet precisely: disk is what makes
+    work safe, a commit is what makes it published, and rule 11 is the reason
+    the answer to losing something is never "commit it faster".
+
+    Three times, in three different ways, and none of them looked like a risk
+    at the time:
+
+    - **The pre-rewrite backup in `/private/tmp`.** Held outside the repository
+      during the 2026-09-04 rebuild, in a directory the operating system is
+      entitled to clear.
+    - **Seven conformance vectors the generator deleted** — `repeat-009..012`
+      and `screens-009..011`, hand-written straight to JSON, removed by any run
+      of `generate_vectors.py` because `main()` cleared the directory before
+      writing. Every suite stayed green: the runners glob, so a vector that
+      stops existing is not a failure, it is simply not run. Break 82.
+    - **An analysis that lived only in terminal output** — the Phase 3 item 0
+      builder scope, the longest piece of reasoning produced for this
+      repository, gone when the session holding it was cleared on 2026-09-06.
+      Part of it was recovered from what had been pasted back into the
+      conversation; the rest was rewritten from scratch, and
+      `docs/phase3-item0-builder-scope.md` marks which sections are which,
+      because recovered text and text written afterwards are not worth the
+      same and must not read as though they were.
+
+    The shape is the same each time and it is the shape this file keeps
+    recording: **absence does not announce itself.** A deleted vector looks
+    like a smaller suite, a cleared temporary directory looks like an empty
+    directory, and an analysis nobody saved looks exactly like an analysis
+    nobody did. Nothing goes red. That is why the rule is a habit at the moment
+    of finishing a piece of work rather than a check somewhere later — there is
+    no later that can catch it.
+
+    Cheap, and therefore not worth arguing about in the moment: the scratchpad
+    is a file write away, `docs/` is a file write away, and neither costs a
+    review or a branch. A finding written down and thrown away later has cost
+    nothing. A finding not written down is the only one that cannot be
+    recovered.
+
 ## The API contract
 
 The app is the source of truth. Everything downstream is generated from it:
