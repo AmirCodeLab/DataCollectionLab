@@ -26,7 +26,7 @@ from app.modules.crypto.envelope import check_sensitivity_propagation
 from app.modules.entities.models import Dataset, DatasetVersion, FormVersionDataset
 from app.modules.form_engine.expression import forbidden_regex_feature
 from app.modules.form_engine.runtime import CompiledForm
-from app.modules.forms.models import Form, FormDeployment, FormVersion
+from app.modules.forms.models import Form, FormDeployment, FormDraft, FormVersion
 from app.modules.forms.schemas import (
     DatasetPin,
     DeployedFormVersion,
@@ -660,6 +660,65 @@ async def deployed_versions_for_device(
         )
         for row in rows
     ]
+
+
+class DraftConflict(RuntimeError):
+    """Somebody else saved this draft since the revision the caller holds."""
+
+    def __init__(self, current: int) -> None:
+        super().__init__(f"draft has moved on; current revision is {current}")
+        self.current = current
+
+
+async def get_draft(session: AsyncSession, form_id: str) -> FormDraft | None:
+    """The unpublished IR for a form, or None if nothing is being edited."""
+    return await session.get(FormDraft, form_id)
+
+
+async def save_draft(
+    session: AsyncSession,
+    *,
+    form_id: str,
+    ir: dict[str, Any],
+    expected_revision: int | None,
+    updated_by: str | None = None,
+) -> FormDraft:
+    """Create or replace a form's draft, and bump its revision.
+
+    **This does not publish and cannot.** A draft carries no version number and
+    no checksum, so there is nothing here to promote — Form IR §2.3, and
+    `migrations/schema/006_form_draft.sql` for why the columns are absent rather
+    than merely unused. Publishing is `publish_version`, which compiles first.
+
+    Nothing validates the IR on the way in, deliberately: a draft is allowed to
+    be a form that does not compile, because that is most of what editing one
+    is. `POST /forms/compile` is how an author finds out, on every save, without
+    the draft refusing to hold their work meanwhile.
+
+    `expected_revision` is optimistic concurrency, and None means "I am starting
+    this draft". A caller holding a stale revision is refused rather than
+    merged: two authors and one draft is last-write-wins otherwise, and a
+    silently discarded afternoon is not reported as a bug — it is assumed to be
+    a forgotten save.
+    """
+    draft = await session.get(FormDraft, form_id, with_for_update=True)
+    if draft is None:
+        if expected_revision is not None:
+            raise DraftConflict(0)
+        draft = FormDraft(form_id=form_id, ir=ir, revision=1, updated_by=updated_by)
+        session.add(draft)
+        await session.flush()
+        return draft
+
+    if expected_revision is not None and expected_revision != draft.revision:
+        raise DraftConflict(draft.revision)
+
+    draft.ir = ir
+    draft.revision = draft.revision + 1
+    draft.updated_by = updated_by
+    draft.updated_at = datetime.now(UTC)
+    await session.flush()
+    return draft
 
 
 async def get_form_version(

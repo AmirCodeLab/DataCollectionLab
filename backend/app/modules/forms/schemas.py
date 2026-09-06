@@ -39,12 +39,109 @@ class FormListResponse(BaseModel):
     forms: list[FormSummary]
 
 
+class PaletteType(BaseModel):
+    """One dataType, and whether a client can actually present it.
+
+    `status` is `collectable` or `in_spec_only`, and the distinction is the
+    whole reason this endpoint exists: a dataType can be in the IR, carry a
+    conformance vector and be evaluated identically by both engines, and still
+    arrive on a phone as a label with empty space under it. That was defect 7.
+
+    A builder shows the `in_spec_only` ones **disabled, carrying `note`** —
+    which is the registry's own sentence about that type, not a sentence the
+    console invented. The day `time` ships, the palette gains it with no
+    console change.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    data_type: str = Field(serialization_alias="dataType")
+    status: str
+    note: str | None = None
+
+
+class PaletteResponse(BaseModel):
+    """The question palette, served rather than copied.
+
+    `specs/collectable-types-v0.1.json` exists to stop two hand-maintained
+    copies drifting, and its own header names `SUBMISSION_STATUSES` as the case
+    this repository already paid for. Until now the console could not read it
+    at all — it got `uncollectableTypes` as a count on the import response and
+    nothing else — so a builder would have had to hard-code the list, which is
+    the second copy the registry was written to prevent.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    #: The registry's version. A fact about this build, not a permanent one.
+    version: str
+    types: list[PaletteType]
+    #: `choices.kind` values a client can present. The second axis, and it has
+    #: to be asked separately: a dataset-backed `select_one` is a collectable
+    #: dataType and not a collectable question (§3).
+    choice_sources: list[PaletteType] = Field(serialization_alias="choiceSources")
+
+
+class DraftDocument(BaseModel):
+    """A form's unpublished IR.
+
+    `revision` is what a caller sends back on the next save. It is not a
+    version number and cannot become one — see `FormDraft`.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    form_id: str = Field(serialization_alias="formId")
+    ir: dict[str, Any]
+    revision: int
+    updated_at: datetime = Field(serialization_alias="updatedAt")
+    updated_by: str | None = Field(default=None, serialization_alias="updatedBy")
+
+
+class SaveDraftRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    ir: dict[str, Any]
+    #: The revision the editor loaded. Omitted when starting a draft; a
+    #: mismatch is a 409 rather than a merge.
+    expected_revision: int | None = Field(default=None, alias="expectedRevision")
+    updated_by: str | None = Field(default=None, alias="updatedBy")
+
+
 class CompileRequest(BaseModel):
     """A Form IR document to compile. Its own formId and version are authoritative."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     form: dict[str, Any]
+
+
+class ScreenSummary(BaseModel):
+    """One screen of the plan, as §11.1 partitions it.
+
+    Written out rather than left free-form for the reason the builder exists:
+    a console that derived this itself would be a **third** implementation of
+    §11.1, unreachable by any vector, deciding what an author believes their
+    form does. §11.1 has six rules and three of them surprise people — a
+    calculate produces no screen, a field-list flattens nested plain groups,
+    and a repeat is exactly one screen at any instance count. The plan is the
+    only honest way to show an author which of those applied to them.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int
+    #: `questions` or `repeat`.
+    kind: str
+    #: Ordered, and empty for a repeat screen — that screen shows the instance
+    #: list and carries no questions of its own (§11.3).
+    question_ids: list[str] = Field(serialization_alias="questionIds")
+    #: The repeat this screen shows the instances of; only on a repeat screen.
+    repeat_id: str | None = Field(default=None, serialization_alias="repeatId")
+    #: The field-list group that produced this screen, if one did.
+    group_id: str | None = Field(default=None, serialization_alias="groupId")
+    #: Nearest enclosing group, for a header.
+    section_id: str | None = Field(default=None, serialization_alias="sectionId")
 
 
 class CompileResponse(BaseModel):
@@ -58,6 +155,16 @@ class CompileResponse(BaseModel):
     evaluation_order: list[str] = Field(serialization_alias="evaluationOrder")
     # Warnings do not block a publish (Form IR §10).
     warnings: list[str]
+    #: The screen plan (§11.1), top level.
+    screens: list[ScreenSummary] = []
+    #: One plan per repeat, keyed by repeat id, rendered once per instance
+    #: (§11.3). Separate from `screens` because it is a different axis and not
+    #: a deeper level of the same one: an instance plan's indices are within
+    #: the instance, and flattening the two would make a repeat's questions
+    #: look like screens of the form.
+    instance_plans: dict[str, list[ScreenSummary]] = Field(
+        default_factory=dict, serialization_alias="instancePlans"
+    )
 
 
 class EvaluateRequest(BaseModel):

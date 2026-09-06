@@ -111,6 +111,20 @@ def collectable_choice_sources() -> frozenset[str]:
 
 
 @lru_cache(maxsize=1)
+def collectable_types_notes() -> dict[str, str]:
+    """The registry's own sentence about each type it has one for.
+
+    Returned to a builder verbatim. A console that paraphrased "why can I not
+    use this" would be a second statement of when a type arrives, and it is the
+    copy that does not get updated on the day it does — the same shape as the
+    refusal message in §2.3.
+    """
+    document = json.loads((specs_dir() / COLLECTABLE_TYPES_FILE).read_text())
+    notes = document.get("notes") or {}
+    return {str(k): str(v) for k, v in notes.items()}
+
+
+@lru_cache(maxsize=1)
 def collectable_types_version() -> str:
     """The registry's version — a fact about an app version, not a permanent one."""
     return str(json.loads((specs_dir() / COLLECTABLE_TYPES_FILE).read_text())["version"])

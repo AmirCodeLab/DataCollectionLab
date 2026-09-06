@@ -19,10 +19,13 @@ from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.form_engine.expression import CompileError
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
+from app.modules.form_engine.screens import FormScreen, build_screen_plan
 from app.modules.forms import service
+from app.modules.forms.models import FormDraft
 from app.modules.forms.schemas import (
     CompileRequest,
     CompileResponse,
+    DraftDocument,
     EvaluateRequest,
     EvaluateResponse,
     FieldSnapshot,
@@ -34,9 +37,14 @@ from app.modules.forms.schemas import (
     ImportFormResponse,
     ImportInstrumentation,
     ImportSummary,
+    PaletteResponse,
+    PaletteType,
     PublishVersionRequest,
     PublishVersionResponse,
+    SaveDraftRequest,
+    ScreenSummary,
 )
+from app.modules.forms.xlsform import datatypes
 from app.modules.forms.xlsform.datatypes import SpecsUnavailable
 from app.modules.forms.xlsform.importer import CoverageHole, ImportFailed, import_workbook
 from app.modules.forms.xlsform.report import render_markdown
@@ -52,6 +60,129 @@ async def list_forms(
     """Every form and its version numbers — enough to name and filter by one."""
     async with session.begin():
         return await service.list_forms(session, include_archived=include_archived)
+
+
+@router.get(
+    "/{form_id}/draft",
+    response_model=DraftDocument,
+    response_model_by_alias=True,
+    responses={404: {"model": MessageError}},
+)
+async def get_draft(
+    form_id: Annotated[str, Path(min_length=1, max_length=64)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> DraftDocument:
+    """The unpublished IR for a form, if anything is being edited."""
+    async with session.begin():
+        draft = await service.get_draft(session, form_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="no draft for this form")
+        return _draft(draft)
+
+
+@router.put(
+    "/{form_id}/draft",
+    response_model=DraftDocument,
+    response_model_by_alias=True,
+    responses={409: {"model": MessageError}},
+)
+async def save_draft(
+    form_id: Annotated[str, Path(min_length=1, max_length=64)],
+    request: SaveDraftRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> DraftDocument:
+    """Create or replace a form's draft.
+
+    **Saving does not publish and cannot.** A draft has no version number and
+    no checksum to carry into `form_version`; publishing is
+    `POST /forms/versions`, which compiles and runs every §10 check. Form IR
+    §2.3 is the reason there is one route to a published version and not two.
+
+    The IR is not validated here. A draft is allowed to be a form that does not
+    compile — that is most of what editing one is — and
+    `POST /forms/compile` is how an author finds out without the draft refusing
+    to hold their work meanwhile.
+    """
+    async with session.begin():
+        try:
+            draft = await service.save_draft(
+                session,
+                form_id=form_id,
+                ir=request.ir,
+                expected_revision=request.expected_revision,
+                updated_by=request.updated_by,
+            )
+        except service.DraftConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return _draft(draft)
+
+
+def _draft(draft: FormDraft) -> DraftDocument:
+    return DraftDocument(
+        form_id=draft.form_id,
+        ir=draft.ir,
+        revision=draft.revision,
+        updated_at=draft.updated_at,
+        updated_by=draft.updated_by,
+    )
+
+
+@router.get("/palette", response_model=PaletteResponse, response_model_by_alias=True)
+async def palette() -> PaletteResponse:
+    """Every dataType the IR defines, and whether a client can present it.
+
+    Served from `specs/collectable-types-v0.1.json` and the Form IR spec's §2.1
+    table, so a console never carries its own copy. A hand-written palette is
+    the drift the registry exists to prevent, and it fails in the direction
+    that hurts: a type the console offers and no client can render is defect 7,
+    published.
+    """
+    try:
+        collectable = datatypes.collectable_types()
+        all_types = datatypes.spec_data_types()
+        notes = datatypes.collectable_types_notes()
+        sources = datatypes.collectable_choice_sources()
+        version = datatypes.collectable_types_version()
+    except SpecsUnavailable as exc:
+        # The specs directory is a deployment fact, not a request fact.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return PaletteResponse(
+        version=version,
+        types=[
+            PaletteType(
+                data_type=name,
+                status="collectable" if name in collectable else "in_spec_only",
+                note=notes.get(name),
+            )
+            for name in sorted(all_types)
+        ],
+        choice_sources=[
+            PaletteType(
+                data_type=kind,
+                status="collectable" if kind in sources else "in_spec_only",
+                note=notes.get(f"{kind} choices"),
+            )
+            for kind in sorted({"inline", "dataset"} | set(sources))
+        ],
+    )
+
+
+def _screen(screen: FormScreen) -> ScreenSummary:
+    """A plan screen as the console reads it.
+
+    The plan comes from `build_screen_plan`, the same function both engines
+    implement and the vectors compare — never rebuilt here. §11.1's partition
+    is one thing or it is three.
+    """
+    return ScreenSummary(
+        index=screen.index,
+        kind=screen.kind,
+        question_ids=list(screen.question_ids),
+        repeat_id=screen.repeat_id,
+        group_id=screen.group_id,
+        section_id=screen.section_id,
+    )
 
 
 @router.post("/compile", response_model=CompileResponse, response_model_by_alias=True)
@@ -72,12 +203,18 @@ async def compile_form(request: CompileRequest) -> CompileResponse:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except service.PublishRefused as exc:
         raise HTTPException(status_code=422, detail=exc.violations) from exc
+    plan = build_screen_plan(request.form)
     return CompileResponse(
         form_id=compiled.form_id,
         version=compiled.version,
         field_count=len(compiled.fields),
         evaluation_order=compiled.topo_order,
         warnings=compiled.warnings,
+        screens=[_screen(s) for s in plan.screens],
+        instance_plans={
+            repeat_id: [_screen(s) for s in screens]
+            for repeat_id, screens in plan.instance_plans.items()
+        },
     )
 
 

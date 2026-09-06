@@ -592,6 +592,146 @@
         }
       }
     },
+    "/api/v1/forms/{form_id}/draft": {
+      "get": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Get Draft",
+        "description": "The unpublished IR for a form, if anything is being edited.",
+        "operationId": "get_draft_api_v1_forms__form_id__draft_get",
+        "parameters": [
+          {
+            "name": "form_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Form Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Save Draft",
+        "description": "Create or replace a form's draft.\n\n**Saving does not publish and cannot.** A draft has no version number and\nno checksum to carry into `form_version`; publishing is\n`POST /forms/versions`, which compiles and runs every §10 check. Form IR\n§2.3 is the reason there is one route to a published version and not two.\n\nThe IR is not validated here. A draft is allowed to be a form that does not\ncompile — that is most of what editing one is — and\n`POST /forms/compile` is how an author finds out without the draft refusing\nto hold their work meanwhile.",
+        "operationId": "save_draft_api_v1_forms__form_id__draft_put",
+        "parameters": [
+          {
+            "name": "form_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Form Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftDocument"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forms/palette": {
+      "get": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Palette",
+        "description": "Every dataType the IR defines, and whether a client can present it.\n\nServed from `specs/collectable-types-v0.1.json` and the Form IR spec's §2.1\ntable, so a console never carries its own copy. A hand-written palette is\nthe drift the registry exists to prevent, and it fails in the direction\nthat hurts: a type the console offers and no client can render is defect 7,\npublished.",
+        "operationId": "palette_api_v1_forms_palette_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaletteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms/compile": {
       "post": {
         "tags": [
@@ -2091,6 +2231,24 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "screens": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenSummary"
+            },
+            "type": "array",
+            "title": "Screens",
+            "default": []
+          },
+          "instancePlans": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ScreenSummary"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Instanceplans"
           }
         },
         "type": "object",
@@ -2572,6 +2730,48 @@
           "warning",
           "info"
         ]
+      },
+      "DraftDocument": {
+        "properties": {
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "ir": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ir"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          },
+          "updatedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "formId",
+          "ir",
+          "revision",
+          "updatedAt"
+        ],
+        "title": "DraftDocument",
+        "description": "A form's unpublished IR.\n\n`revision` is what a caller sends back on the next save. It is not a\nversion number and cannot become one — see `FormDraft`."
       },
       "EnvironmentKind": {
         "type": "string",
@@ -3913,6 +4113,66 @@
           "reopen"
         ]
       },
+      "PaletteResponse": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/PaletteType"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "choiceSources": {
+            "items": {
+              "$ref": "#/components/schemas/PaletteType"
+            },
+            "type": "array",
+            "title": "Choicesources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "types",
+          "choiceSources"
+        ],
+        "title": "PaletteResponse",
+        "description": "The question palette, served rather than copied.\n\n`specs/collectable-types-v0.1.json` exists to stop two hand-maintained\ncopies drifting, and its own header names `SUBMISSION_STATUSES` as the case\nthis repository already paid for. Until now the console could not read it\nat all — it got `uncollectableTypes` as a count on the import response and\nnothing else — so a builder would have had to hard-code the list, which is\nthe second copy the registry was written to prevent."
+      },
+      "PaletteType": {
+        "properties": {
+          "dataType": {
+            "type": "string",
+            "title": "Datatype"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataType",
+          "status"
+        ],
+        "title": "PaletteType",
+        "description": "One dataType, and whether a client can actually present it.\n\n`status` is `collectable` or `in_spec_only`, and the distinction is the\nwhole reason this endpoint exists: a dataType can be in the IR, carry a\nconformance vector and be evaluated identically by both engines, and still\narrive on a phone as a label with empty space under it. That was defect 7.\n\nA builder shows the `in_spec_only` ones **disabled, carrying `note`** —\nwhich is the registry's own sentence about that type, not a sentence the\nconsole invented. The day `time` ships, the palette gains it with no\nconsole change."
+      },
       "ProjectKeyCreate": {
         "properties": {
           "publicKey": {
@@ -4725,6 +4985,102 @@
           "reason"
         ],
         "title": "RejectedOp"
+      },
+      "SaveDraftRequest": {
+        "properties": {
+          "ir": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ir"
+          },
+          "expectedRevision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectedrevision"
+          },
+          "updatedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ir"
+        ],
+        "title": "SaveDraftRequest"
+      },
+      "ScreenSummary": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "questionIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Questionids"
+          },
+          "repeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeatid"
+          },
+          "groupId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groupid"
+          },
+          "sectionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sectionid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "kind",
+          "questionIds"
+        ],
+        "title": "ScreenSummary",
+        "description": "One screen of the plan, as §11.1 partitions it.\n\nWritten out rather than left free-form for the reason the builder exists:\na console that derived this itself would be a **third** implementation of\n§11.1, unreachable by any vector, deciding what an author believes their\nform does. §11.1 has six rules and three of them surprise people — a\ncalculate produces no screen, a field-list flattens nested plain groups,\nand a repeat is exactly one screen at any instance count. The plan is the\nonly honest way to show an author which of those applied to them."
       },
       "SecurityMode": {
         "type": "string",

@@ -66,6 +66,39 @@ class FormVersion(Base):
     )
 
 
+class FormDraft(Base):
+    """Unpublished IR, one row per form. **Nothing here can become a version.**
+
+    The columns this model does not have are the design. No `version`, no
+    `ir_checksum`, no `published_at`, no status: there is no state a draft can
+    be put into that means published, so promoting one is not a column write —
+    it is `publish_version`, which compiles and runs `check_publishable`.
+
+    That is deliberate rather than minimal. A table shaped like `form_version`
+    sitting beside `form_version` is the shortcut the next person in a hurry
+    takes, and Form IR §2.3 is about exactly that: a second route to the same
+    artifact is how two callers end up disagreeing about which version a
+    submission belongs to (breaks 40, 42, 61). `migrations/schema/006_form_draft.sql`
+    carries the reasoning; `tests/test_form_version_has_one_writer.py` holds the
+    other half.
+    """
+
+    __tablename__ = "form_draft"
+
+    form_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("form.id", ondelete="CASCADE"), primary_key=True
+    )
+    ir: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    #: Optimistic concurrency. Two authors and one draft is last-write-wins
+    #: unless something stops it, and a silently discarded afternoon is not
+    #: reported as a bug — it is assumed to be a forgotten save.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_by: Mapped[str | None] = mapped_column(Text)
+
+
 class FormDeployment(Base):
     __tablename__ = "form_deployment"
 

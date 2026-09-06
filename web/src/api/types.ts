@@ -39,6 +39,8 @@ export interface CompileResponse {
   fieldCount: number;
   evaluationOrder: string[];
   warnings: string[];
+  screens?: ScreenSummary[];
+  instancePlans?: Record<string, ScreenSummary[]>;
 }
 
 /**
@@ -223,6 +225,20 @@ export interface DeviceRegisterResponse {
 export const DIAGNOSTIC_SEVERITYS = ["error", "warning", "info"] as const;
 
 export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITYS)[number];
+
+/**
+ * A form's unpublished IR.
+ *
+ * `revision` is what a caller sends back on the next save. It is not a
+ * version number and cannot become one — see `FormDraft`.
+ */
+export interface DraftDocument {
+  formId: string;
+  ir: Record<string, unknown>;
+  revision: number;
+  updatedAt: string;
+  updatedBy?: string | null;
+}
 
 export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
 
@@ -660,6 +676,41 @@ export const OP_KINDS = [
 export type OpKind = (typeof OP_KINDS)[number];
 
 /**
+ * The question palette, served rather than copied.
+ *
+ * `specs/collectable-types-v0.1.json` exists to stop two hand-maintained
+ * copies drifting, and its own header names `SUBMISSION_STATUSES` as the case
+ * this repository already paid for. Until now the console could not read it
+ * at all — it got `uncollectableTypes` as a count on the import response and
+ * nothing else — so a builder would have had to hard-code the list, which is
+ * the second copy the registry was written to prevent.
+ */
+export interface PaletteResponse {
+  version: string;
+  types: PaletteType[];
+  choiceSources: PaletteType[];
+}
+
+/**
+ * One dataType, and whether a client can actually present it.
+ *
+ * `status` is `collectable` or `in_spec_only`, and the distinction is the
+ * whole reason this endpoint exists: a dataType can be in the IR, carry a
+ * conformance vector and be evaluated identically by both engines, and still
+ * arrive on a phone as a label with empty space under it. That was defect 7.
+ *
+ * A builder shows the `in_spec_only` ones **disabled, carrying `note`** —
+ * which is the registry's own sentence about that type, not a sentence the
+ * console invented. The day `time` ships, the palette gains it with no
+ * console change.
+ */
+export interface PaletteType {
+  dataType: string;
+  status: string;
+  note?: string | null;
+}
+
+/**
  * A public key being registered as a recipient (envelope §4.1).
  *
  * `extra="forbid"`, deliberately. The private key is generated in the browser
@@ -852,6 +903,32 @@ export type RejectReason = (typeof REJECT_REASONS)[number];
 export interface RejectedOp {
   opId: string | null;
   reason: RejectReason;
+}
+
+export interface SaveDraftRequest {
+  ir: Record<string, unknown>;
+  expectedRevision?: number | null;
+  updatedBy?: string | null;
+}
+
+/**
+ * One screen of the plan, as §11.1 partitions it.
+ *
+ * Written out rather than left free-form for the reason the builder exists:
+ * a console that derived this itself would be a **third** implementation of
+ * §11.1, unreachable by any vector, deciding what an author believes their
+ * form does. §11.1 has six rules and three of them surprise people — a
+ * calculate produces no screen, a field-list flattens nested plain groups,
+ * and a repeat is exactly one screen at any instance count. The plan is the
+ * only honest way to show an author which of those applied to them.
+ */
+export interface ScreenSummary {
+  index: number;
+  kind: string;
+  questionIds: string[];
+  repeatId?: string | null;
+  groupId?: string | null;
+  sectionId?: string | null;
 }
 
 export const SECURITY_MODES = ["standard", "field_level", "project_e2e"] as const;
