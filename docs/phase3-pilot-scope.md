@@ -551,9 +551,16 @@ appear nowhere in `shared/form-engine/src` or
 gaining one: `summaryLabel` interpolates question values onto the repeat screen
 (§7.1), and if a roster row's name were `sensitive` that would display it.
 RCons answered on 6 September 2026 that it is not — the enumerator is meant to
-read the name — so step 3 is implementation and vectors, nothing else. The
-general gap that question exposed, labels sitting outside §10.2's sensitivity
-leak definition, is known defect 19 and is not step 3's to carry.
+read the name — so no specification decision blocks the start of it.
+
+**One thing step 3 must close rather than inherit.**
+`check_sensitivity_propagation` walks *fields*, and `summaryLabelArgs` sits on a
+**repeat**, which is not one. A question's label is already covered — both
+engines collect `labelArgs` and `constraintMessageArgs` into a field's
+dependencies, and `label-005` pins that edge — so this is a structural gap
+rather than an oversight in the same place. It costs nothing today because
+nothing parses `summaryLabel`; it becomes a live leak on the first day
+something does. Known defect 19, and it belongs inside step 3.
 
 It is written here, and in `docs/phase3-item0-builder-scope.md` §5, so that
 neither item plans around it separately. **The failure this prevents is not
@@ -714,9 +721,13 @@ that can emit structured skip logic can emit `relevant`.
    vectors (§10) — and no sensitivity rule has to be settled in the
    specification before it can ship.
 
-   It does not settle the general case, and that is filed rather than carried
-   here. §10.2's sensitivity leak is defined over `calculate`, `relevant`,
-   `constraint`, `required`, `readOnly` and `default`, and **labels are not in
-   that list**, so an author who *does* mark a name `sensitive` would have it
-   rendered onto the repeat screen with nothing refusing it. Known defect 19.
-   Not blocking this roster; still wrong.
+   It does not settle the general case, and what that case actually is turned
+   out to be narrower than it first looked. §10.2's prose defines the leak over
+   `calculate`, `relevant`, `constraint`, `required`, `readOnly` and `default`
+   and does not mention labels — but both engines already collect `labelArgs`
+   and `constraintMessageArgs` into a field's dependencies, so a **question**
+   label interpolating a sensitive field is refused at publish today and
+   `label-005` pins the edge. What is genuinely outside the check is
+   `summaryLabelArgs`, because it sits on a **repeat** and the check walks
+   fields. It is latent — nothing parses `summaryLabel` yet — and it becomes
+   real the day step 3 lands. Known defect 19.

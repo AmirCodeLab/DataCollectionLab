@@ -674,6 +674,50 @@ commit — `scripts/check_ci_runs_every_suite.py` will refuse the half of it tha
 is a source set with no job, which is the correct behaviour and should not be
 worked around.
 
+## 19. A roster row's label will sit outside the sensitivity check
+
+| | |
+|---|---|
+| **Where** | `specs/form-ir-v0.1.md` §10.2 (the prose definition); `backend/app/modules/crypto/envelope.py` `check_sensitivity_propagation`; `shared/form-engine/.../Sensitivity.kt` |
+| **Status** | Open and **latent**. Read from both engines 6 September 2026 |
+| **Why not fixed** | It cannot leak yet: `summaryLabel` is specified in §2.3 and §11.3 and parsed by neither engine, so there is nothing to hold a reference. Fixing it before the field exists would mean writing a check over a shape no vector can construct. It is scheduled instead — pilot scope §10, inside step 3, which is what makes `summaryLabel` real |
+| **Blocks** | Nothing today. It is a precondition on step 3 rather than a blocker of it |
+
+**What a reviewer would see, the day after step 3 ships: a name marked
+`sensitive` printed on the roster screen, with a clean publish behind it.**
+
+`check_sensitivity_propagation` iterates `compiled_form.order` — fields — and
+tests each field's `depends_on`. That is exact and it is the right shape for
+every case it covers. **A repeat is not a field.** It gets no `CompiledField`,
+so it has no `depends_on`, so nothing it carries is ever examined, and
+`summaryLabelArgs` is carried by a repeat.
+
+**Question labels are already handled, which is why this is narrow.** Both
+engines collect `labelArgs` and `constraintMessageArgs` into the field's
+dependency set, deliberately and with the reasoning written at the collection
+site: a label interpolating a sensitive field is refused at publish by the
+check that already exists. `conformance/vectors/label-005` asserts the
+dependency edge itself rather than a render, precisely so that dropping it
+fails something. None of that reaches a repeat's own strings.
+
+**§10.2's prose is also narrower than both engines.** It defines a leak as a
+field whose `calculate`, `relevant`, `constraint`, `required`, `readOnly` or
+`default` reads a sensitive field. Labels are not in that list and are
+nevertheless enforced. That is the inverse of defect 17 — there the
+specification promises what no engine does, here the engines do what the
+specification does not describe — and it is the reason this gap was easy to
+state backwards on first reading. The list should say what is actually checked.
+
+**Two things to do, and the order matters.**
+
+1. **Correct §10.2's definition** to cover interpolation arguments, so the
+   prose matches the two implementations that already agree with each other.
+2. **Extend the check past fields when `summaryLabel` lands**, in the same
+   commit that lands it, with a `sensitivity` vector for a roster row reading a
+   sensitive question. Doing it in a later commit means shipping a version in
+   which the leak is reachable, and the window would be invisible: a form that
+   publishes clean is exactly what this check exists to make impossible.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be
