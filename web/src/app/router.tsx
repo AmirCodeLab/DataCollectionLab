@@ -1,4 +1,4 @@
-/** Route tree. Two views: the submission list, and one submission. */
+/** Route tree: submissions, projects, and the form builder. */
 
 import {
   createRootRoute,
@@ -13,6 +13,8 @@ import { SubmissionsPage } from "@/pages/SubmissionsPage";
 import { SubmissionPage } from "@/pages/SubmissionPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { ProjectKeysPage } from "@/pages/ProjectKeysPage";
+import { FormsPage } from "@/pages/FormsPage";
+import { BuilderPage } from "@/pages/BuilderPage";
 
 export const PAGE_SIZE = 50;
 
@@ -81,6 +83,20 @@ const projectKeysRoute = createRoute({
   component: ProjectKeysPage,
 });
 
+const formsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forms",
+  component: FormsPage,
+});
+
+/** `$formId` is the form row's id, not the §1 `formId` key — the draft and
+ *  the versions hang off the row. */
+const builderRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forms/$formId",
+  component: BuilderPage,
+});
+
 /** Exported for tests, which mount one route over a memory history rather than
  *  the browser history this module's `router` is bound to. */
 export const routeTree = rootRoute.addChildren([
@@ -89,6 +105,8 @@ export const routeTree = rootRoute.addChildren([
   submissionRoute,
   projectsRoute,
   projectKeysRoute,
+  formsRoute,
+  builderRoute,
 ]);
 
 export const router = createRouter({ routeTree });

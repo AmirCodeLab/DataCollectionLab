@@ -9,6 +9,10 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** FastAPI's `detail` as sent — a string, or for `POST /forms/compile` and
+     *  `POST /forms/versions` a list of violations. `message` flattens it;
+     *  this keeps the shape for a view that renders one line per violation. */
+    readonly detail: unknown = message,
   ) {
     super(message);
     this.name = "ApiError";
@@ -43,27 +47,27 @@ export async function apiGet<T>(
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, await describeFailure(response));
+    throw await failure(response);
   }
   return (await response.json()) as T;
 }
 
 /** FastAPI puts the useful part under `detail`; fall back to the status text. */
-async function describeFailure(response: Response): Promise<string> {
+async function failure(response: Response): Promise<ApiError> {
+  let detail: unknown = `${response.status} ${response.statusText}`;
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object" && "detail" in body) {
-      const detail: unknown = body.detail;
-      if (typeof detail === "string") return detail;
-      return JSON.stringify(detail);
+      detail = body.detail;
     }
   } catch {
     // Not JSON — the status line is all we have.
   }
-  return `${response.status} ${response.statusText}`;
+  const message = typeof detail === "string" ? detail : JSON.stringify(detail);
+  return new ApiError(response.status, message, detail);
 }
 
-/** POST JSON. The only write the console makes today is registering a key. */
+/** POST JSON. */
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   let response: Response;
   try {
@@ -77,7 +81,26 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, await describeFailure(response));
+    throw await failure(response);
+  }
+  return (await response.json()) as T;
+}
+
+/** PUT JSON. The builder's draft is the one thing the console replaces whole. */
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw new ApiError(0, `API unreachable (${String(cause)})`);
+  }
+
+  if (!response.ok) {
+    throw await failure(response);
   }
   return (await response.json()) as T;
 }

@@ -169,26 +169,74 @@ async def list_forms(session: AsyncSession, *, include_archived: bool) -> FormLi
     forms = (await session.execute(statement)).scalars().all()
 
     versions: dict[str, list[int]] = {}
+    latest: dict[str, str] = {}
     if forms:
         rows = await session.execute(
-            select(FormVersion.form_id, FormVersion.version)
+            select(FormVersion.form_id, FormVersion.version, FormVersion.id)
             .where(FormVersion.form_id.in_([f.id for f in forms]))
             .order_by(FormVersion.form_id, FormVersion.version)
         )
-        for form_id, version in rows:
+        for form_id, version, version_id in rows:
             versions.setdefault(form_id, []).append(version)
+            latest[form_id] = version_id  # ordered by version, so the last wins
+
+    drafted: set[str] = set()
+    if forms:
+        rows = await session.execute(
+            select(FormDraft.form_id).where(FormDraft.form_id.in_([f.id for f in forms]))
+        )
+        drafted = {form_id for (form_id,) in rows}
 
     return FormListResponse(
         forms=[
             FormSummary(
                 id=form.id,
                 form_id=form.form_key,
+                project_id=form.project_id,
                 title=form.title,
                 versions=versions.get(form.id, []),
                 archived_at=form.archived_at,
+                has_draft=form.id in drafted,
+                latest_version_id=latest.get(form.id),
             )
             for form in forms
         ]
+    )
+
+
+class FormExists(RuntimeError):
+    """`(project_id, form_key)` is taken — `form` has that UNIQUE constraint."""
+
+
+async def create_form(
+    session: AsyncSession, *, project_id: str, form_key: str, title: str
+) -> FormSummary:
+    """A form row with no version, so a draft has something to belong to.
+
+    Publishing creates the row when it is missing (`publish_version`), and
+    that was the only way one came to exist. The builder starts before
+    anything is publishable, and a draft cannot be held for a form that is not
+    there (`form_draft.form_id` is a foreign key). This is the smallest thing
+    that closes the gap: a row, and nothing that looks like a version.
+    """
+    existing = (
+        await session.execute(
+            select(Form).where(Form.project_id == project_id, Form.form_key == form_key)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise FormExists(f"form {form_key!r} already exists in this project")
+    form = Form(id=new_ulid(), project_id=project_id, form_key=form_key, title=title)
+    session.add(form)
+    await session.flush()
+    return FormSummary(
+        id=form.id,
+        form_id=form.form_key,
+        project_id=form.project_id,
+        title=form.title,
+        versions=[],
+        archived_at=None,
+        has_draft=False,
     )
 
 

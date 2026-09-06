@@ -590,6 +590,56 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Create Form",
+        "description": "A form with nothing published yet, so the builder has somewhere to start.\n\nCreates the `form` row and **no version**. A draft is saved against it\nwith `PUT /forms/{id}/draft`, and a version comes only from\n`POST /forms/versions`, exactly as for an imported form.",
+        "operationId": "create_form_api_v1_forms_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFormRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormSummary"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/forms/{form_id}/draft": {
@@ -2368,6 +2418,36 @@
         "title": "ContentKeyView",
         "description": "A submission's content key, in the only form the server has it: wrapped."
       },
+      "CreateFormRequest": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Projectid"
+          },
+          "formId": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Formid"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "formId",
+          "title"
+        ],
+        "title": "CreateFormRequest",
+        "description": "A form row with nothing in it yet — where a draft can start.\n\nA draft belongs to a form (`form_draft.form_id` → `form.id`), and until\nnow a form row only ever came from publishing. The builder starts with\nnothing published, so it needs this first. It creates **no version**:\n`versions` stays empty until `POST /forms/versions`."
+      },
       "DatasetDeltaPage": {
         "properties": {
           "datasetVersionId": {
@@ -3143,6 +3223,10 @@
             "type": "string",
             "title": "Formid"
           },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
           "title": {
             "type": "string",
             "title": "Title"
@@ -3165,12 +3249,29 @@
               }
             ],
             "title": "Archivedat"
+          },
+          "hasDraft": {
+            "type": "boolean",
+            "title": "Hasdraft",
+            "default": false
+          },
+          "latestVersionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latestversionid"
           }
         },
         "type": "object",
         "required": [
           "id",
           "formId",
+          "projectId",
           "title",
           "versions",
           "archivedAt"
