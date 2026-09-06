@@ -538,8 +538,12 @@ the screen planner on both engines, then the UI.
 
 ### Shared work, owned by neither item
 
-**`addLabel` and `summaryLabel` on both engines, with vectors. Scheduled once,
-before either item that needs it.**
+Work that more than one item needs and no item owns. It is listed here because
+that is the condition under which a shared change gets done twice, or done
+inside whichever item reaches it first and then re-litigated by the other.
+
+**1. `addLabel` and `summaryLabel` on both engines, with vectors. Scheduled
+once, before either item that needs it.**
 
 ~~§2.3 and §11.3 specify both and neither engine implements either.~~ **Done
 6 September 2026**, on both engines, with `repeat-013`…`repeat-015`,
@@ -578,7 +582,35 @@ how a shared engine change acquires an owner who was not choosing to be one.
 
 It sits at step 3 of item 0's build order, after the reachability and liveness
 work and before any editor, because it is engine work with vectors and both
-engines must land it together. The row above says "the screen planner on both
+engines must land it together.
+
+**2. The conformance step runner, out of `jvmTest` and into a shared test
+source set. Half a day, and it is what closes known defect 18 rather than
+narrowing it.**
+
+`jvmTest/ConformanceTest.kt` executes a vector's steps — `set`, `addInstance`,
+`expect.relevant` — and it reads the vectors from files, which is the part that
+differs per target. Moved into a shared test source set with per-target file
+access, **the same 113 vectors become executable on every target that can host
+a test task**, and that is one change rather than three: Wasm through
+`process.getBuiltinModule('fs')`, which the spike proved works, and Android
+through its own unit-test source set. iOS stays last because it needs a macOS
+runner, and the CI guard is right to refuse an `iosTest` source set without one
+(break 24(h)).
+
+Why it does not wait behind the editor. It is half a day. Wasm is now a
+shipping target — O-3 is closed on it (§18.4 of the architecture doc) — and
+what it currently executes is 113 forms compiling with their screen plans
+built, plus four behavioural assertions. That is more than any non-JVM target
+had before 6 September 2026 and it is **not rule 2**, which is the claim the
+whole `conformance/` directory exists to make. Every day it waits is a day the
+engine's second shipping target is verified by less than its first, on a
+platform that now runs in front of a respondent.
+
+The spike also found why this matters more than it looked: `toSortedMap()` sat
+in `commonMain` and iOS had never compiled, for as long as that line existed.
+An untested target and an unbuildable one are indistinguishable from inside a
+green CI run. The row above says "the screen planner on both
 engines" for the same reason: §11.3 is not finished on either engine until
 this lands, and the earlier wording — "both engines done" — was the kind of
 sentence that gets planned against.

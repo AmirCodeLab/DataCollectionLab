@@ -628,51 +628,67 @@ follow — produces exactly the divergence §10 was written to prevent.
 
 | | |
 |---|---|
-| **Where** | `shared/form-engine/build.gradle.kts` (targets), `shared/form-engine/src/` (source sets), `.github/workflows/ci.yml` (the Kotlin job), `conformance/README.md` |
-| **Status** | Open. Read from the build files and the workflow 6 September 2026 |
-| **Why not fixed** | Three platforms, three different costs, and none of them is a source set. iOS needs a macOS runner — the CI guard **refuses** an `iosTest` source set today for exactly that reason (break 24(h)), so adding one without a runner makes the build worse, not better. Android needs an instrumented runner or Robolectric. Wasm needs a target that does not exist and has never been compiled. Doing any of them badly produces the thing this row is about: a target with no test task |
-| **Blocks** | Phase 3 item 0's browser preview, which is the whole premise that a form cannot behave one way in preview and another in the field (§2.1). Nothing today verifies that the engine behaves the same anywhere except the JVM |
+| **Where** | `shared/form-engine/build.gradle.kts` (targets), `shared/form-engine/src/` (source sets), `.github/workflows/ci.yml` (the Kotlin job) |
+| **Status** | **Open, and narrower than it was.** Wasm now executes part of the corpus; Android and iOS still execute none. Corrected 6 September 2026 by what the wasmJs spike found |
+| **Why not fixed** | The remaining fix is one piece of work and it is scheduled: porting the vector **step** runner out of `jvmTest` into a shared test source set, which covers Wasm, Android and iOS at once. Half a day. It is not done in the spike's own commit because a spike that also rewrites the conformance runner is two things, and the runner change wants its own breaks |
+| **Blocks** | Nothing now. It blocked item 0's browser preview until 6 September; O-3 is closed on the spike's evidence and the preview has its engine |
 
-**What a reviewer sees: a guarantee that reads as four platforms wide and is
-one.** `conformance/README.md` opened by saying every vector must pass
-identically on the Python reference implementation and on the Kotlin engine "on
-JVM, Android, iOS and Wasm". The correcting commit made that line say JVM. The
-gap it was covering is this row.
+**The row said iOS was a declared target that executed no vector. It was worse
+than that: iOS did not build.**
+
+The spike's first compile failed on `toSortedMap()` in `commonMain` — that
+returns a `java.util.SortedMap` and is JVM-only — and Kotlin/Native fails on the
+identical line:
 
 ```
-targets declared     jvm(), iosArm64(), iosSimulatorArm64(), android { }
-test source sets     src/jvmTest          — the only one
-CI runs              ./gradlew :shared:form-engine:jvmTest
-wasmJs anywhere      no Gradle file in the repository contains it
+$ ./gradlew :shared:form-engine:compileKotlinIosSimulatorArm64
+e: .../commonMain/kotlin/com/dcp/form/Datasets.kt:125:29 Unresolved reference 'toSortedMap'.
 ```
 
-All 113 vectors, and every one of the nine Kotlin conformance test files, run
-on the JVM. Android and iOS compile and are never exercised. Wasm does not
-compile because there is nothing to compile.
+**The engine had not compiled for iOS for as long as that line had existed**,
+and nothing noticed, because the only target anything ever built was the JVM.
+That is this defect's real shape and it is worth stating precisely: an untested
+target and an unbuildable one look identical from inside a green CI run, and
+this row asserted the first while the second was true. One
+behaviour-preserving line fixed both targets.
 
-**Rule 2 is narrower than it sounds, and this is where.** "Every vector passes
-identically on both engines" is true and is worth what it costs — but *both
-engines* is Python and Kotlin-on-JVM. It is not a statement about the handset,
-which runs the Android target, or about the browser, which runs a target that
-does not exist. The rule was never wrong; the README's summary of it was, and a
-summary is what people read.
+**Where it stands now.**
 
-**The honest position is that portability here is a design property, not a
-tested one.** `shared/form-engine` is dependency-free of UI and Android
-framework code, deliberately, and its build file says so in a comment that ends
-"Don't". That is a real constraint and it is enforced by review. It is not
-evidence that the engine produces the same answers under Kotlin/Native or under
-a Wasm compiler, and those are the toolchains where a difference would actually
-be plausible — integer width, string comparison, date arithmetic.
+| Target | Compiles | Executes |
+|---|---|---|
+| JVM | yes | all 113 vectors, all five suites |
+| **wasmJs** | **yes, since 6 Sep 2026** | **113 vector forms compile with their screen plans built, plus 4 behavioural assertions in `commonTest`. `wasmJsNodeTest` runs in CI** |
+| iOS | **yes, since 6 Sep 2026** — it did not before | nothing |
+| Android | yes | nothing |
 
-**Closing it, in the order that pays.** Android first: an existing target, a
-runner that already exists in CI, and the platform every submission is actually
-collected on. Wasm second, as part of item 0's spike, because it is the one
-that unblocks something. iOS last, since it needs a runner the project does not
-have. Each step is a test source set **and** a CI job that runs it in the same
-commit — `scripts/check_ci_runs_every_suite.py` will refuse the half of it that
-is a source set with no job, which is the correct behaviour and should not be
-worked around.
+**What Wasm executes is not rule 2 and should not be read as it.** Compiling
+every form in the corpus and building its screen plan exercises the compile
+path over real documents, which is more than any non-JVM target had before. It
+is not "every vector passes identically", because the vectors' *steps* — `set`,
+`addInstance`, `expect.relevant` — are run by `jvmTest/ConformanceTest.kt`,
+which reads files, and file reading is the part that differs per target.
+
+**Rule 2 is still narrower than it sounds.** "Every vector passes identically on
+both engines" means Python and Kotlin-on-JVM. It is not yet a statement about
+the handset, which runs the Android target, or the browser, which now runs a
+target that at least exists.
+
+**Closing it is one piece of work, not three.** Porting the step runner into a
+shared test source set with per-target file access makes the same 113 vectors
+executable on every target that can host a test task — Wasm through
+`process.getBuiltinModule('fs')`, which the spike proved works, and Android
+through its own unit-test source set. iOS still needs a macOS runner and stays
+last for that reason; the CI guard refuses an `iosTest` source set without one
+(break 24(h)) and that refusal is correct. Scheduled as shared work owned by
+neither item — `docs/phase3-pilot-scope.md` §10, beside `addLabel` /
+`summaryLabel`, which was scheduled there for the same reason — and ahead of
+the editor, because it is half a day and because every day it waits is a day
+the engine's second target is verified by less than its first.
+
+Each step remains a test source set **and** a CI job in the same commit.
+`scripts/check_ci_runs_every_suite.py` refused the spike's `wasmJsTest` source
+set until a job ran it — break 24(d), firing unprompted on a real change — which
+is the mechanism working and must not be worked around.
 
 ## Closed
 
