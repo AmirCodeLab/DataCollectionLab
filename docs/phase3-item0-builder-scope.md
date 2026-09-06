@@ -326,6 +326,301 @@ Tree, per node, badged from the plan the server returned:
 
 ---
 
+> **WRITTEN AFTER THE LOSS — NOT RECOVERED.** Everything from here to the end of
+> §6 was written on 6 September 2026, after the original was gone. It is not a
+> reconstruction of what was there and does not claim to be: the original text
+> of these sections was never seen again, so nothing below can be checked
+> against it. §3's remainder, §4 and §5 continue topics the surviving text names
+> and points at. **§6's topic is a choice made after the loss** — the original's
+> §6 subject did not survive in any form, so this one takes the largest question
+> the surviving text leaves open (§1: "One gap that has no home yet") rather
+> than guessing at what was there.
+
+### What the plan view shows
+
+The tree shows containment. The plan shows sequence and count, which containment
+does not imply and which is what an enumerator actually experiences.
+
+Screens in order, each with its index, its kind, the questions on it, and — for
+a repeat screen — the instance plan nested beneath it once. Once and not
+recursively: §11.1 says an instance plan can contain no repeat screen, and it is
+a compile error rather than a convention that keeps it that way, so a plan view
+that renders arbitrary nesting is drawing a shape the IR cannot hold.
+
+**Selection is shared between the views. Editing is not.** Clicking a question
+in the plan selects it in the tree; edits happen in the tree. The plan is
+derived, and an editable derived view is a second definition of the partition —
+the thing the rule at the head of §3 already refuses, arriving as a
+convenience.
+
+**The plan view exists for the three rules that surprise people.** A calculate
+produces no screen. A field-list flattens nested plain groups. A repeat is
+exactly one screen whether it holds zero rows or thirty. An author who has read
+none of §11.1 sees all three in the plan the first time they look, which is
+worth more than documentation nobody opens.
+
+### Staleness is shown, never computed away
+
+The plan comes from the server. Between an edit and the next compile response
+the displayed plan is out of date, and there are exactly two honest things to do
+about it: show that it is stale, or fetch a new one.
+
+**The console must never recompute a plan locally, including partially.** Not to
+renumber after a delete, not to grey out a screen, not "just for the badge".
+Every one of those is `build_screen_plan` reimplemented in TypeScript, reachable
+by no vector, and deciding what an author believes about their form — which is
+the third implementation §3 opens by refusing. The failure mode is not that the
+local version is wrong on day one. It is that it is right on day one, and then
+§11.1 gains a rule.
+
+---
+
+## 4. Preview, the trace, and test mode
+
+Three things that get called "preview" and are not the same thing. They are
+built in this order and the later two are worth little without the earlier.
+
+| | Question it answers | Needs |
+|---|---|---|
+| **Preview** | What does this form look like to an enumerator? | The engine, hosted (§2.1, and the Wasm spike) |
+| **The trace** | Why is this question in the state it is in? | Preview, plus an evaluation surface the engine does not expose today |
+| **Test mode** | Is this form still doing what it did before I edited it? | Both of the above, plus draft storage (§6) |
+
+### Preview
+
+Renders the screen plan the server returned, one screen at a time, with the
+engine evaluating relevance, constraints and calculates as answers are entered.
+The engine, not an approximation — §2.1 is the whole reason, and the Wasm
+question is which copy of the engine, never whether.
+
+Preview is inspection. An author opens it, walks the form, and closes it. It
+proves the form works now and proves nothing about the form in three weeks.
+
+### The trace
+
+The trace is the feature that makes the expression editor usable, and it is
+worth more than the visual builder in §2.
+
+**"Why is this hidden?" is the question authors actually have**, and §4.4 is why
+it is hard to answer by looking. Null propagates. A `relevant` that is null
+rather than false hides a question exactly as thoroughly, arrives from a
+reference to an unanswered question three screens back, and looks identical on
+screen. §4.7 widened this deliberately — a wrong-typed argument is null, never
+an error — so the everyday case has no error message anywhere by design.
+
+The trace answers it by showing the AST with each subexpression's value against
+the current answers: which conjunct was false, which reference was null, and
+what the whole node came to. It is the same tree §2's editor renders, annotated.
+
+**The trace reports evaluation; it does not define it.** Both engines already
+agree on every value it would display — that is what `conformance/vectors` and
+the 1,395-probe function matrix are for — so the trace adds no semantics and
+needs no vectors of its own. What it does need is a stated boundary: if a second
+engine ever emits a trace too, the trace format must not become a second place
+where evaluation is written down. It is a view of an answer, not the answer.
+
+### Test mode
+
+A saved set of answers, replayed against the draft after every edit, carrying
+what the author expects to be true.
+
+This is the regression half, and it is the half a builder is uniquely able to
+offer. RCons change questions the week before fieldwork — that sentence opens
+§2 of the pilot scope and is the reason item 0 exists at all. The risk in a late
+edit is never the question being edited; it is the skip pattern four screens
+later that used to work.
+
+**A test case is not a conformance vector, and must not be stored as one.**
+
+The shape is close enough to be tempting: a test case is an ordered list of
+`set`, `addInstance` and `deleteInstance` steps with `expect` assertions, which
+is exactly `conformance/README.md`'s step kinds. Put them in
+`conformance/vectors` anyway and two unlike things share a directory. A vector
+is normative, is owned by this repository, compares two engines, and changes
+only with a spec change (rule 3). An author's test case is owned by the author,
+asserts about one form, and is *supposed* to change when they change their form.
+Mixing them means the vector count stops meaning what it means, rule 3 stops
+being enforceable, and `generate_vectors.py` — which had to be taught not to
+delete files it did not write (break 82) — acquires a new class of file it must
+not touch and cannot recognise.
+
+Test cases live with the draft (§6). The one legitimate crossing is manual and
+deliberate: an author's test case that turns out to expose an engine
+disagreement gets rewritten by hand as a vector, in a commit that says so.
+
+---
+
+## 5. Rosters
+
+### The four sources, and what the builder offers for each
+
+§2.3 says a repeat's rows come from four places and a repeat names one. The
+builder's job is to make that choice visible, because it is the single decision
+that determines everything else about the roster.
+
+| Source | Declared by | In v1 |
+|---|---|---|
+| An earlier answer | `countExpr` | Yes — the §2 expression editor, integer-typed |
+| The enumerator | neither field | Yes — `minInstances`, `maxInstances`, `allowAdd`, `allowDelete` |
+| A list in the form | `rowSource`, `kind: "inline"` | Yes — a row table, edited in place |
+| The sample | `rowSource`, `kind: "dataset"` | **Shown, disabled** |
+
+`countExpr` and `rowSource` together are a compile error (§10.2), so this is a
+choice of one and the editor should present it as one — a source selector, not
+four independent fields that happen to conflict. The refusal exists because two
+row sources have no arbiter; a UI that lets an author set both and then reports
+a compile error has taught them nothing.
+
+### The rule in §5
+
+> **The builder renders the engine's diagnostics. It never composes its own.**
+
+This is the rule §2 points at for warnings, and rosters are where breaking it
+would be most tempting.
+
+`kind: "dataset"` is refused today, and §10.2 requires the refusal to *name its
+two conditions*: `_metadata.case_key`, which arrives with item 2, and a dataset
+version's row order surviving delivery to a device, which is known defect 16.
+The builder shows that message verbatim.
+
+The temptation is to write a friendlier sentence into the console — "preloaded
+rosters are coming soon". It is one sentence and it is wrong in three ways: it
+is a second statement of when the feature arrives, it will not be updated on the
+day the refusal is deleted, and it hides which of the two conditions is still
+outstanding, which is the only part an author or a project manager can act on.
+The engine's message is maintained because the engine's tests read it.
+
+The same rule covers every warning — the decimal-equality one §4.5 names, the
+missing-translation one, and the three §10.3 promises and no engine emits
+(known defect 17). The builder displays what `POST /forms/compile` returns. When
+defect 17 is closed the builder gains three warnings and no console change.
+
+### The inline row editor
+
+Inline rows are IR. The rows are `items` in the document, so editing them is
+editing the form, and this is the one place where a spreadsheet-shaped grid is
+the right control.
+
+Two things it must show and one it must not do:
+
+- **`bind` maps a source column into a question**, per row. A `bind` naming a
+  column the source does not carry seeds `null` rather than failing (§2.3), so
+  the editor should surface an unmatched column name at edit time — as a
+  display, not as a refusal it invented.
+- **An added instance has no source row.** Its `_rowKey` is `null` and `bind`
+  does nothing for it. An author who builds a five-row inline roster with
+  `allowAdd: true` needs to see that rows six onward arrive empty.
+- **It must not offer to reorder rows for a dataset source.** For inline, order
+  is the author's and is settled. For a dataset source it is the published row
+  order, and defect 16 is that it does not survive delivery — which is half of
+  why that source is refused, and not something a UI control can fix.
+
+### What the tree refuses
+
+Nested repeats (§2.3) and a repeat inside a `field-list` group (§10.2) are both
+compile errors. The tree editor refuses the drop, and §1 already states the
+principle: the compile error is the backstop, not the message. An author who has
+just dragged something should be told why it will not go there, at the moment
+they drag it, in the tree — not by a refusal after they press publish.
+
+### `addLabel` and `summaryLabel`
+
+A repeat screen renders `addLabel` — the text on the add control, per-form and
+per-language — and `summaryLabel`, the expression that tells one row from
+another in the list (§11.3, and §13 q6 of the pilot scope). Both are optional,
+both are specified, and **neither engine implements either**.
+
+That is shared work. Item 0 needs it because a roster editor with no way to set
+either produces rosters an enumerator cannot read; item 3 needs it for the same
+screen. It is scheduled once, at step 3, owned by neither item — see the build
+order below and §10 of `docs/phase3-pilot-scope.md`.
+
+---
+
+## 6. Drafts, and the path a form takes to publish
+
+> **The topic of this section is a choice made after the loss.** The original
+> §6 did not survive in any form. This takes the gap §1 names and leaves open —
+> "One gap that has no home yet" — because it is the largest unanswered
+> question in the surviving text and because §2.3 makes it the highest-risk
+> piece of item 0 to get wrong.
+
+### There is nowhere to keep an unpublished form
+
+`form_version` is immutable and published. There is no `form_draft` table in
+`001_initial.sql` and nothing else in the backend holds unpublished IR —
+`grep -rn form_draft backend/` returns nothing. Every form on the platform today
+arrives already final, from an importer or a seed script, which is exactly the
+situation item 0 exists to end.
+
+Browser storage is not an answer. It loses work on a cleared profile, it cannot
+be handed to a colleague, and a form half-authored on someone's laptop is
+precisely the thing rule 12 was written about.
+
+### The lifecycle, stated once
+
+```
+draft            mutable      IR + test cases + author + updated_at
+  │
+  ├─ every save → POST /forms/compile      diagnostics, screens, warnings
+  │                                        (no version created, nothing stored)
+  │
+  └─ publish   → POST /forms/versions      check_publishable, then frozen
+                                           immutable, numbered, deployable
+```
+
+**A draft never becomes a version except through `POST /forms/versions`.** This
+must be written into the migration comment and not only here, because a table
+sitting next to `form_version` holding the same shape of document is the
+shortcut the next person in a hurry will take, and §2.3 is the whole warning:
+the export work already found that a second route to the same artifact is how
+two callers end up disagreeing about which version a submission belongs to
+(breaks 40, 42, 61).
+
+There is no promotion, no copy, no "publish this draft row". Publishing sends
+the IR through the endpoint an import uses and gets back a version, and the
+draft is not the thing that became it.
+
+### What a draft is not
+
+- **Not a version.** It has no version number. Numbers are minted at publish and
+  a draft that is never published never consumes one.
+- **Not a branch.** One draft per form (§1). Branching and draft-of-draft
+  versioning are out of v1, and the reason is that they are cheap to add later
+  and expensive to remove once authors rely on them.
+- **Not collected data.** A draft holds a form definition and an author's test
+  answers, never a respondent's. That is what makes it safe to store mutable and
+  unencrypted, and it is worth stating so nobody reasons from `form_draft` to
+  "drafts of submissions".
+
+### Two things it needs that are easy to leave out
+
+**Concurrency.** One draft per form and more than one author is last-write-wins
+unless something stops it. A monotonic `updated_at` or an etag on the draft,
+checked on save, is small and is the difference between two people editing a
+questionnaire and one of them silently discarding the other's afternoon.
+
+**A stated retention answer, even if the answer is "none yet".** Drafts
+accumulate, they are the only mutable form storage on the platform, and an
+unstated retention policy is how a table becomes permanent by accident.
+`docs/known-defects.md` is the right home if the answer is that it is not
+handled.
+
+### Publish is where the gates are, and §0 is why
+
+A draft that compiles is not a draft that may publish. `check_publishable` is
+the boundary, and §0.4's two additions — reachability and liveness — belong
+there rather than in the builder, for the reason §0.1 gives: the builder shares
+the endpoint and, having no import record, structurally cannot reach the
+strongest half of the gate that exists today.
+
+The builder should run the same refusals early and show them while the author is
+still editing. That is a preview of the server's answer, never a substitute for
+it, and it is the same relationship as §3's screen plan and §5's diagnostics:
+the console displays what the server decides, and decides nothing itself.
+
+---
+
 ## Present and not in §2.2's table
 
 `build_screen_plan` on both engines (not exposed over the API),
