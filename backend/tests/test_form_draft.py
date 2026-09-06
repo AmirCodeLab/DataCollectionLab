@@ -98,8 +98,13 @@ def draft_db():  # noqa: ANN201 - pytest fixture
         from app.modules.forms.models import Form
         from app.modules.projects.models import Project
 
+        # Two transactions, not one. The form's FK needs the project to be
+        # committed, and relying on the unit of work to order two `add`s across
+        # two modules is the kind of assumption that fails on a runner and not
+        # on a laptop — which is exactly how this first ran.
         async with _session(_db_url()) as session, session.begin():
             session.add(Project(id=PROJECT_ID, name="Draft", slug="draft"))
+        async with _session(_db_url()) as session, session.begin():
             session.add(
                 Form(id=FORM_ID, project_id=PROJECT_ID, form_key="drafty", title="Drafty")
             )
