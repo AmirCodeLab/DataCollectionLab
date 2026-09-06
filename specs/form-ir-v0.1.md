@@ -1250,7 +1250,9 @@ mismatch, unknown function, wrong arity, **sensitivity leak**, **a repeat inside
 a field-list group**, **a repeat carrying both `countExpr` and `rowSource`**, **a
 `rowSource` filter that references an answer**, **a `bind` naming a question
 outside its repeat**, **an inline `bind` naming `label`**, and **a `rowSource`
-with `kind: "dataset"`** while §2.3's two conditions are unmet.
+with `kind: "dataset"`** while §2.3's two conditions are unmet,
+and **a statically-unreachable container holding answerable questions**
+(§10.3).
 
 The four `rowSource` refusals are one reason wearing four hats: each is a form
 that would run, and run differently on two engines or on two days. Two row
@@ -1289,6 +1291,38 @@ it blocks publish in every security mode.
 
 Allow publish: missing translation, decimal equality comparison, unreachable
 relevance (statically false), repeat with no bound, unused calculate.
+
+**Statically false** means decidable without answers and without a clock: the
+expression holds no `ref`, no `today()` and no `now()`, and evaluating it by
+§4.7 yields `false`. An expression that reads an answer is not statically false
+however plainly it fails. Deciding *that* would be a data-flow analysis, and two
+engines performing one independently is two definitions of which forms publish.
+
+#### An unreachable container holding questions is an error, not a warning
+
+A `group` or `repeat` whose `relevant` is statically false, and whose subtree
+holds at least one `question` that is not a `calculate`, is a **semantic error**
+(§10.2). It blocks publish. A statically-false `relevant` on a question is a
+warning, as above.
+
+The engine's finding is identical in the two cases — this node can never appear
+— so what separates them is the author's intent, and on that they are not close.
+
+**A leaf stays a warning because staging is real work.** An author writes a
+question, is not ready to ask it, gives it `false()` and returns to it next
+version. That is deliberate, it is visible in the single place it applies, and
+refusing it would put this specification in the way of a normal way of working.
+
+**Questions inside a container that can never appear are not that.** Nobody
+writes questions in order to guarantee they are never asked. The form then
+collects less than it reads as collecting: the questions are in the document,
+they survive import, they list in a builder's question tree and in any review of
+what the form asks — and they reach no screen on any path through any interview
+(§11.1). Whoever reads the form to learn what it collects gets the wrong answer,
+and the collected data cannot afterwards distinguish a question nobody answered
+from a question nobody was asked.
+
+That is a document which must not ship, which is what §10.2 is for.
 
 ## 11. Screen flow
 
