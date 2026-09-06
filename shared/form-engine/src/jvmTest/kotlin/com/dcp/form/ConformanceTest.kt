@@ -306,6 +306,20 @@ class ConformanceTest(@Suppress("unused") private val name: String, private val 
             assertEquals(want, got, "$where: errors[$path]")
         }
 
+        // §2.3: the source row each instance came from, in instance order.
+        // Asserted as a whole list rather than per index, because what it is
+        // evidence about is the ORDER — an engine that sorted or renumbered
+        // produces the same set.
+        expect["rowKeys"]?.jsonObject?.forEach { (repeatId, want) ->
+            val wantKeys = want.jsonArray.map { element ->
+                if (element is JsonNull) null else element.jsonPrimitive.content
+            }
+            val gotKeys = instance.instances.getValue(repeatId).map { instanceId ->
+                instance.rowKey(repeatId, instanceId)
+            }
+            assertEquals(wantKeys, gotKeys, "$where: rowKeys[$repeatId]")
+        }
+
         expect["instanceCount"]?.jsonObject?.forEach { (repeatId, want) ->
             val got = instance.instanceCount(repeatId)
             assertEquals(want.jsonPrimitive.content.toInt(), got, "$where: instanceCount[$repeatId]")

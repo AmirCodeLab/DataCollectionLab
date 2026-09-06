@@ -1,0 +1,80 @@
+{
+  "id": "rows-010",
+  "description": "\u00a711.3's relevance rule decides a rowSource with no clause of its own: an empty source with no add offers nothing, so its screen is SKIPPED \u2014 the same outcome as a countExpr sized zero. rows-011 is the other half, where the same empty source permits an add and is shown",
+  "spec": "11.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows10",
+    "version": 1,
+    "title": {
+      "en": "rows10"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [],
+          "allowAdd": false,
+          "allowDelete": false
+        }
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 0
+        },
+        "screens": {
+          "count": 3,
+          "relevant": [
+            0,
+            2
+          ],
+          "next": {
+            "0": 2
+          }
+        }
+      }
+    }
+  ]
+}

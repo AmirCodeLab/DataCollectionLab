@@ -475,6 +475,103 @@ input actually is); a screen the plan does not otherwise have; or a refusal that
 names the field and its message without navigating. The third is what §6.2
 already requires and no client implements.
 
+## 16. A dataset's published row order does not reach a device
+
+| | |
+|---|---|
+| **Where** | `shared/core/.../db/datasets.sq` (`dataset_row` has no order column; three read queries `ORDER BY r.rowid`), `DatasetStore.applyDelta`, and `backend/app/modules/entities/rows.py` `version_checksum` |
+| **Status** | Open. Measured 6 September 2026 — `scripts/measure_dataset_row_order.sh` |
+| **Why not fixed** | Found while specifying Form IR §2.3's `rowSource`, which is the first feature that needs the order. Fixing it is a device migration, a wire field and a decision about a version's content address; doing that inside the spec change would have been three things in one commit. §2.3 refuses `kind: "dataset"` until it lands, so nothing ships on top of it meanwhile |
+| **Blocks** | **A roster preloaded from the sample — Form IR §2.3 `rowSource` with `kind: "dataset"`, and therefore Phase 3's household member roster.** One of the two reasons that source is refused; the other is `_metadata.case_key` (item 2). Both must clear before it can be scheduled, and this one is the easier to miss, because cases are a visible dependency and this is a `SELECT` with no `ORDER BY` |
+
+**What an enumerator would see: a household in an order nobody chose.** A roster
+preloaded from the sample (§2.3) creates one instance per dataset row, so the
+list on the repeat screen *is* the sample's row order. Today it would be the
+head of household third, and after any correction to any member, last.
+
+The server is not where this is wrong. `dataset_record.ordinal` (migration 0005,
+break 48) is stored, is the sort key of `dataset_rows_page`, `dataset_rows_for`
+and the delta's changed-row walk, and is the paging cursor. The order is intact
+right up to the response body — and then `dataset_rows_page` returns
+`[dict(data) for _, data in page]`. **The ordinal is the cursor, not a field.**
+It never goes over the wire, there is no column for it on the device, and
+`datasets.sq` reads rows back with `ORDER BY r.rowid`: insertion order, which
+matches the published order only for as long as nothing re-inserts.
+
+Two things then re-insert. Both measured, on the device's own schema:
+
+```
+$ ./scripts/measure_dataset_row_order.sh
+PASS  after first sync             m3 m1 m2 m4
+FAIL  after the delta's seed       m1 m2 m3 m4   (published: m3 m1 m2 m4)
+FAIL  after one changed row        m2 m3 m4 m1   (published: m3 m1 m2 m4)
+```
+
+1. **The delta's seed re-sorts the whole version.** `copyRowsToVersion` is
+   `INSERT ... SELECT ... WHERE dataset_version_id = ?` with no `ORDER BY`, so
+   SQLite serves the scan from the `(dataset_version_id, record_key)` primary
+   key and assigns the new rowids in **key order**. The head of the household
+   moves from first to third on the first delta, with no row having changed.
+2. **A changed row moves to the end.** `insertRow` is `INSERT OR REPLACE`, which
+   deletes and re-inserts, minting a fresh rowid.
+
+And two more that no script reaches, because they are about what is never sent:
+
+3. **A reorder cannot be delivered.** The delta's changed-set test is
+   `before.get(key) != projection(dict(data))` — content only. A version that
+   reorders rows without changing any of them produces `changed == []`.
+4. **A reorder cannot be published.** `version_checksum` sorts by key before
+   hashing, deliberately, *"so that two servers that inserted the same rows in
+   different orders agree"*, and `publish_dataset_version` is idempotent by that
+   address. Re-uploading the same sample in a new order returns the existing
+   version.
+
+So this is not an omission. **Order is excluded from a dataset version's
+identity by a stated decision**, and that decision was right while a dataset was
+a choice list, where order is presentation. §2.3 makes it data. That is the
+thing to decide before any of the code below is written, and it is why Form IR
+§3.1 records the conflict instead of asserting the sentence it wants.
+
+**Nothing that exists could have caught this.** The server-side guard from break
+48 publishes `V000…V249` — a fixture where published order and key order are the
+same sequence, so it passes against a store that sorts by key, and it is
+evidence about paging rather than about order. The device side has no order
+assertion at all. This is break 87's shape a second time: a fixture in which the
+wrong answer and the right answer coincide.
+
+**What this blocks, stated where somebody scheduling work will read it.** A
+preloaded roster is the household member list — the shape RCons's fieldwork is
+built around — and it cannot ship until row order is part of a dataset version's
+identity. That is not a polish item to do afterwards: a roster whose rows arrive
+in an order nobody chose is wrong in a way that looks right, because every name
+is present and every answer attaches to the correct person. Only the sequence is
+somebody else's, and nothing on the screen says so. Item 2's cases are the
+dependency everyone will see; this is the one that gets scheduled around.
+
+**What closing it needs**, in the order it has to happen:
+
+1. Decide whether row order is part of a version's content address. If yes,
+   `version_checksum` folds the ordinal in — forward-only, because a device
+   compares against the stored `dataset_version.checksum` column and nothing
+   recomputes an existing one, so no device re-fetches.
+2. Carry the ordinal on the wire, store it on `dataset_row`, and read by it
+   rather than by `rowid` in all three queries. That closes (1) and (2) above
+   together: with an explicit order column, neither the seed copy's scan order
+   nor a re-minted rowid can be observed.
+3. Make the delta able to say a row moved — a row enters `changed` when its
+   ordinal changed as well as when its content did.
+4. Fix the fixtures. The server test needs a published order that is not key
+   order, and the device needs an order assertion of its own; `ORDER BY rowid`
+   held for two versions of this schema with nothing watching it.
+
+Step 2 is a device schema migration, which is the reason this is a defect and
+not a paragraph in the §2.3 commit.
+
+**A note on the measurement.** The first version of the script read both stages
+after all three had run, and stage 2 printed stage 3's answer — the two losses
+are independent and each hides the other. It is in the script's comments because
+the same mistake would make a fix look complete when only one half of it was.
+
 ## Closed
 
 A defect leaves this file when it is fixed, or when it is decided to be

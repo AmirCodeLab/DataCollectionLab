@@ -1,0 +1,108 @@
+{
+  "id": "rows-008",
+  "description": "A source returning more rows than `maxInstances` instantiates ALL of them and permits no add. Truncating would drop a row with nothing in an error state; the ceiling bounds adding, not the source",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows8",
+    "version": 1,
+    "title": {
+      "en": "rows8"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": true,
+          "allowDelete": false
+        },
+        "maxInstances": 2
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 4
+        }
+      }
+    },
+    {
+      "refuse": {
+        "addInstance": "practices"
+      }
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 4
+        }
+      }
+    }
+  ]
+}

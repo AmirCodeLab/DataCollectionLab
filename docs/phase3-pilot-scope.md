@@ -4,7 +4,7 @@
 **Decided:** 4 September 2026
 **Re-ordered:** 4 September 2026 — RCons will author their forms in the
 dashboard, so the visual form builder is item 0 and the skip-to prototype comes
-out of the sequence (§12).
+out of the sequence; **closed as not needed 6 September 2026 (§12)**.
 **Status:** scope and order agreed.
 **Timeline:** deliberately none. See §11.
 
@@ -39,8 +39,9 @@ declarative relevance. They are not mechanically interchangeable.
 confirmed their questionnaire tool can emit XLSForm once we give them a
 template, and their existing surveys are finished. So new forms arrive already
 declarative and the conversion problem applies only to a corpus nobody is
-waiting on. The prototype that was item 0 is kept as optional work in §12,
-against the day that corpus has to move.
+waiting on. The prototype that was item 0 is **closed in §12** — the old
+corpus carries its skip logic as prose, so there was never a corpus for it to
+convert.
 
 **What replaced it follows from the same conversation.** RCons will build their
 forms in the dashboard themselves rather than handing us questionnaires to
@@ -279,6 +280,24 @@ RCons's roster is DCP's `repeat`. Three ways of deciding the count:
 The third is the common case for a household member roster: keep adding until
 the respondent says stop.
 
+**Corrected again, 6 September 2026 — the table above is about the count, and
+two of the four sources do not give one.** Reading real RCons questionnaires
+found rows that exist before the interview does: a household's known members
+come **preloaded from the sample**, and their agricultural module repeats the
+same four questions over a **fixed list of ten practices** written into the
+questionnaire. Neither is a count from anywhere; both are a list of rows. Form
+IR §2.3 now calls that a `rowSource` and §11.3 renders all four sources as the
+same one screen — the source decides where rows come from, not how they look.
+Preloaded rows and enumerator-added rows **coexist in one roster**, which is the
+ordinary case: the sample knows the members it knew, and the baby born since is
+added to the same list.
+
+The fixed-list half is buildable now. The sample half is not — it needs
+`_metadata.case_key`, which is item 2's cases, and it needs a dataset version's
+row order to survive reaching a device, which it does not
+(`docs/known-defects.md` 16). §2.3 specifies both and refuses the second until
+those land.
+
 **Corrected 4 September 2026.** This section first said the third way was
 "Missing" and that what was missing was the user-driven add. That was wrong, and
 reading the code moved the gap rather than closing it.
@@ -408,7 +427,9 @@ Named so their absence is a decision:
 it was the only unknown cost and it was cheap to resolve. It is neither of those
 now: RCons's questionnaire tool can emit XLSForm once given a template, and
 their existing surveys are finished, so nothing is waiting on the conversion. It
-moves to §12 as optional work. The visual form builder takes its place, because
+moved to §12 as optional work, and §12 closed it on 6 September: the skip logic
+is Urdu prose and a person converts it on entry. The visual form builder takes
+its place, because
 RCons authoring their own forms is the thing every other item assumes.
 
 Item 3 was also re-costed — see §5. It was in this table as "small" while it was
@@ -435,40 +456,48 @@ actually in progress, not from this document.
 
 ---
 
-## 12. Optional — the skip-to prototype
+## 12. Not needed — the skip-to prototype
 
-**Not scheduled. Kept because the reasoning that removed it could change.**
+**Closed 6 September 2026. Not deferred, and not optional work kept in reserve.
+Not needed.**
 
-This was item 0. Take the 2,128 questions in the Sindh listing database, convert
-their skip rules to declarative relevance, and report the percentage that
-converts without manual work plus the shapes that do not.
+This was item 0, then optional work held against the day RCons's old corpus had
+to move. Reading their actual questionnaires closed it: **there is nothing for a
+converter to consume, because a person has already done the conversion.**
+
+RCons's questionnaire carries its skip logic as Urdu prose in a codes column. It
+is an instruction to whoever enters the question, not a machine-readable rule.
+Somebody reads that column and enters the question in the dashboard with its
+relevance condition already worked out. The conversion happens in the head of
+the person typing the form in, and it happens **before any tool sees it**. A
+skip-to → relevance compiler would be handed prose.
+
+The rule it was to convert looked like this, and this is the shape that is not
+in the database in this form:
 
 ```
-q8==1 to q10
 q11==2 to q12a, q10<=6 to q12b, q10<15 to endSection, q11 to q13
 ```
 
-Read as: *after this question, if q11==2 go to q12a; otherwise if q10<=6 go to
-q12b; otherwise if q10<15 end the section; otherwise go to q13.* A single rule
-determines the relevance of every question it jumps over, not just its target.
-Chains compose. Some sets — backward jumps, overlapping conditions — have no
-single declarative reading.
+**This is not the reason §10 gave, and the difference matters.** §10 removed
+this item because nothing was *waiting* on it — the tool can emit XLSForm, and
+their existing surveys are finished. That was true, and it left the item
+standing as work somebody might one day schedule. The real reason is that the
+number it was to report was never measurable: "the percentage that converts
+without manual work" is a statistic over a machine-readable corpus, and the
+corpus is Urdu sentences. An item kept for a number nobody can compute is worse
+than a closed one, because it looks like a decision that has been deferred.
 
-**Why it came out of the sequence.** RCons confirmed their questionnaire → CSV
-tool can emit XLSForm once we give them a template, and their existing surveys
-are finished. So every form authored from now on arrives already declarative,
-and the conversion problem applies only to a corpus that nobody is waiting on.
+**Where the work actually went.** Item 0's relevance editor is carrying it. The
+migration path is a person reading skip prose and building a condition in the
+builder, which means that editor has to be good for exactly that person — a
+second, independent argument for §2.1's decision that it is visual **with** a
+code escape hatch. The conversion is a UI requirement, not a compiler.
 
-**What would bring it back.** That the old corpus has to move — a longitudinal
-follow-up on a finished survey, a re-run, or a question set RCons wants to reuse
-rather than re-author. If that happens this is a throwaway script over the real
-corpus, still not a production importer, and the number it reports still decides
-whether the migration is an afternoon or a fortnight.
-
-**Giving RCons the XLSForm template is now the real dependency**, and it is
-small. It belongs with item 0: a builder that produces Form IR and an importer
-that consumes XLSForm are the two ends of the same question, which is what a
-form is allowed to contain.
+**What would bring it back.** That RCons's questionnaire tool starts holding
+skip logic as structured data rather than prose. Nothing suggests it will, and
+if it did, the XLSForm template (§13 question 1) is the cheaper target: a tool
+that can emit structured skip logic can emit `relevant`.
 
 ---
 
@@ -478,7 +507,7 @@ form is allowed to contain.
    September 2026: yes, once we give them a template.** It was the
    highest-value question in this list and it turned out to be the one that
    re-ordered the phase — the skip-to conversion applies only to the existing
-   corpus (§12), and the template is a dependency of item 0.
+   corpus, and §12 then closed even that. The template is a dependency of item 0.
 2. Do enumerators rely on resuming at **section** granularity, or is resuming
    within a submission enough? `section_progress` suggests the former.
 3. When a sample row is updated during collection — `memberAge` beside
@@ -488,5 +517,12 @@ form is allowed to contain.
    cross-repeat referencing and a real feature gap.
 5. How many enumerators, questions and days in the next fieldwork? It sizes the
    pilot.
-6. What does CERP not get from SurveyCTO? The most valuable competitive
+6. **Does any survey have an enumerator type a household id and the roster fill
+   from it?** Form IR §2.3 refuses a preloaded roster whose filter reads an
+   answer, because resolving it early selects on nulls and resolving it late
+   leaves the previous household's members in the list after a correction —
+   with every control reading correctly and nothing to see. If that shape is in
+   their fieldwork, the re-resolution design is needed **before** the pilot
+   rather than after it, and this is the question that decides which.
+7. What does CERP not get from SurveyCTO? The most valuable competitive
    information available, and it comes from the customer rather than from us.

@@ -1,0 +1,144 @@
+{
+  "id": "rows-006",
+  "description": "Preloaded rows and enumerator-added rows COEXIST in one roster (\u00a72.3, \u00a711.3). The added instance appends after the seeded ones, its _rowKey is null, and `bind` does not apply to it \u2014 it is not a fifth practice with a missing name, it is a row with no source",
+  "spec": "2.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rows6",
+    "version": 1,
+    "title": {
+      "en": "rows6"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hh",
+        "dataType": "text",
+        "label": {
+          "en": "Hh"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "practices",
+        "label": {
+          "en": "Practices"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "practice",
+            "dataType": "text",
+            "label": {
+              "en": "Practice"
+            }
+          },
+          {
+            "type": "question",
+            "id": "used",
+            "dataType": "boolean",
+            "label": {
+              "en": "Used"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "zero_till",
+              "label": {
+                "en": "Zero tillage"
+              }
+            },
+            {
+              "value": "laser_lvl",
+              "label": {
+                "en": "Laser levelling"
+              }
+            },
+            {
+              "value": "bed_plant",
+              "label": {
+                "en": "Bed planting"
+              }
+            },
+            {
+              "value": "residue",
+              "label": {
+                "en": "Residue retention"
+              }
+            }
+          ],
+          "allowAdd": true,
+          "allowDelete": false,
+          "bind": {
+            "practice": "value"
+          }
+        },
+        "maxInstances": 6
+      },
+      {
+        "type": "question",
+        "id": "tail",
+        "dataType": "text",
+        "label": {
+          "en": "Tail"
+        }
+      }
+    ]
+  },
+  "context": {
+    "today": "2026-08-28"
+  },
+  "steps": [
+    {
+      "addInstance": "practices"
+    },
+    {
+      "expect": {
+        "instanceCount": {
+          "practices": 5
+        },
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "laser_lvl",
+            "bed_plant",
+            "residue",
+            null
+          ]
+        },
+        "values": {
+          "practices[3].practice": "residue",
+          "practices[4].practice": null
+        }
+      }
+    },
+    {
+      "set": {
+        "practices[4].practice": "own_answer"
+      }
+    },
+    {
+      "expect": {
+        "values": {
+          "practices[4].practice": "own_answer"
+        },
+        "rowKeys": {
+          "practices": [
+            "zero_till",
+            "laser_lvl",
+            "bed_plant",
+            "residue",
+            null
+          ]
+        }
+      }
+    }
+  ]
+}
