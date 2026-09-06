@@ -710,6 +710,48 @@
         }
       }
     },
+    "/api/v1/forms/expressions": {
+      "post": {
+        "tags": [
+          "forms"
+        ],
+        "summary": "Expressions",
+        "description": "Surface text to a §4.1 AST, or an AST back to text (Appendix A).\n\nOne implementation, server-side, and that is the decision rather than a\nconvenience. §2.1 of the builder scope says no form logic lives in the\nbuilder, and a parser in the console is form logic in the builder — a\nsecond thing that decides what an expression means, in a second language,\nwhich is the shape this repository keeps paying for.\n\n**This is not a conformance surface.** Both engines consume AST and neither\nparses text, so there is nothing here for a vector to compare between two\nimplementations: only one exists by construction. What replaces a vector is\na round trip — `parse(render(node)) == node` over every expression in the\ncorpus, in `tests/test_expression_text.py`.\n\nA bad expression is a 200 carrying `error` and `offset`, not a 422. The\ncode field asks on every pause in typing, and most of what it sends is\nhalf-written by definition; an error status for \"the author has not\nfinished the sentence\" would make the normal case look like a failure.",
+        "operationId": "expressions_api_v1_forms_expressions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpressionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpressionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms/palette": {
       "get": {
         "tags": [
@@ -2931,6 +2973,103 @@
         ],
         "title": "ExportValueTooLongResponse",
         "description": "409 from GET /exports/{formId}."
+      },
+      "ExpressionRequest": {
+        "properties": {
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expression"
+          },
+          "selfPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selfpath"
+          },
+          "rowScope": {
+            "type": "boolean",
+            "title": "Rowscope",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ExpressionRequest"
+      },
+      "ExpressionResponse": {
+        "properties": {
+          "expression": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expression"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "title": "ExpressionResponse",
+        "description": "The AST and its canonical text, or where the text went wrong.\n\nBoth directions in one shape because a code field needs both: it renders an\nexisting expression to show the author, and parses what they type back."
       },
       "FieldSnapshot": {
         "properties": {

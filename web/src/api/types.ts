@@ -305,6 +305,26 @@ export interface ExportValueTooLongResponse {
   detail: ExportValueTooLong;
 }
 
+export interface ExpressionRequest {
+  text?: string | null;
+  expression?: Record<string, unknown> | null;
+  selfPath?: string | null;
+  rowScope?: boolean;
+}
+
+/**
+ * The AST and its canonical text, or where the text went wrong.
+ *
+ * Both directions in one shape because a code field needs both: it renders an
+ * existing expression to show the author, and parses what they type back.
+ */
+export interface ExpressionResponse {
+  expression?: Record<string, unknown> | null;
+  text?: string | null;
+  error?: string | null;
+  offset?: number | null;
+}
+
 /**
  * One field after recalculation — `FieldState.to_dict()` in the engine.
  *

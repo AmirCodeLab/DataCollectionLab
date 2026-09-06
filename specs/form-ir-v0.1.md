@@ -1644,3 +1644,74 @@ is a legal roster.
 - Whether a residual predicate should be expressible as a store-side operation
   (`in`, prefix match) rather than only as equality — §3.2 extracts equality and
   nothing else, so `$row.population > 1000` is a full scan by construction
+
+---
+
+## Appendix A — Expression surface syntax (non-normative)
+
+**This appendix is not normative and defines nothing about what a form means.**
+§4 is the definition: an expression is a typed AST, and "expressions are a typed
+AST, never XPath" is a locked decision. This appendix describes a *surface* —
+what a builder's code field shows an author and reads back — for exactly one
+document, so that an author who needs something the visual editor cannot express
+has somewhere to type it.
+
+**It is not a conformance surface, and that is worth saying plainly**, because
+"a new grammar" reads like a `conformance/functions` obligation and is not one.
+Both engines consume AST. Neither parses text, and neither ever will — the IR
+that reaches a handset has no strings in it. There is nothing here for a vector
+to compare between two implementations, because only one implementation exists
+by construction: `app/modules/forms/expression_text.py`, server-side, behind
+`POST /forms/expressions`.
+
+What replaces a vector is a **round trip**: `parse(render(node)) == node` for
+every expression node, asserted over every expression in the conformance corpus
+rather than over examples chosen by hand.
+
+### A.1 It is XLSForm's XPath, extended
+
+The syntax is the one the importer already reads, because a second parser is a
+second thing that decides what an expression means. It is extended only where
+§4.3 has a function XLSForm cannot spell.
+
+| | |
+|---|---|
+| Reference | `${field_name}`; a bare name **only** inside a choice filter, where it is a column of the candidate row (§3.2) |
+| Literals | `12`, `1.5`, `'text'`, `"text"`, `true()`, `false()`, `null()` |
+| Comparison | `=` (or `==`), `!=`, `<`, `<=`, `>`, `>=` |
+| Boolean | `and`, `or`, `not(x)` |
+| Arithmetic | `+`, `-`, `*`, `div`, `mod`, `idiv`, unary `-` |
+| Conditional | `if(test, then, else)` |
+| Membership | `selected(list, value)` |
+| Functions | every §4.3 function, under its **IR name** — `dec`, `str`, `len` — and under its XPath name where XLSForm has one: `number`, `string`, `string-length` |
+
+**Precedence, loosest first:** `or`, `and`, comparison, then `+ - div mod idiv`
+together, then `*`, then unary `-`, then primaries. `div` sitting with `+` rather
+than with `*` is XPath's ladder and not a mistake: `${a} + ${b} div 2` is
+`(${a} + ${b}) div 2`.
+
+### A.2 What has no surface, and says so
+
+Two nodes are reachable in the IR and cannot be written as text. The renderer
+refuses them by name rather than inventing a spelling, and a code field reports
+that the expression must be edited as IR.
+
+- **`in`** — XLSForm has no such operator, so an author cannot have typed one.
+  `selected` covers the same ground for the cases a builder produces.
+- **The `null` function** — `null()` is the surface for the null *literal*, and
+  giving one surface two ASTs would make the round trip pick the wrong one half
+  the time.
+
+A string containing both `'` and `"` also has no surface form: the tokenizer has
+no escape sequence, so there is nothing to read back.
+
+### A.3 Errors carry an offset
+
+A failure names the character it is about, so a code field can put a caret under
+it. `null` where the failure is about the whole expression rather than a point
+in it — an empty expression has no offending character.
+
+The importer does not use offsets and is right not to: it reports against a
+spreadsheet cell, and `survey!H27` is the location its author is looking at. A
+code field's author is looking at the expression itself, where "somewhere in
+this string" is not a location.

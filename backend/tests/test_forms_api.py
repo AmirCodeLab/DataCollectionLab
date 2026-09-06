@@ -390,3 +390,62 @@ def test_palette_is_served_from_the_registry_not_a_list_in_the_code() -> None:
     for kind in registry["choiceSources"]:
         assert sources[kind] == "collectable"
 
+
+
+def test_expressions_parses_text_and_renders_it_back() -> None:
+    """Both directions, and the canonical text is what the next load shows."""
+    response = call(
+        "POST",
+        "/api/v1/forms/expressions",
+        json={"text": "${age} >= 18 and is_null(${exit_reason})"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["error"] is None
+    assert body["expression"]["op"] == "and"
+    # `is_null` has no XLSForm spelling — the importer refuses it and this
+    # surface accepts it, because six of §4.3's functions would otherwise have
+    # no surface at all in the field that exists for what the visual editor
+    # cannot express.
+    assert body["expression"]["args"][1] == {
+        "op": "call",
+        "fn": "is_null",
+        "args": [{"op": "ref", "path": "exit_reason"}],
+    }
+    assert body["text"] == "${age} >= 18 and is_null(${exit_reason})"
+
+
+def test_a_half_written_expression_is_a_200_with_an_offset() -> None:
+    """Not a 422. Most of what a code field sends is unfinished by definition.
+
+    The field asks on every pause in typing, so an error status for "the author
+    has not finished the sentence" would make the normal case look like a
+    failure — and a console that learned to ignore 422 here would ignore the
+    ones that matter.
+    """
+    response = call("POST", "/api/v1/forms/expressions", json={"text": "${age} >= "})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["expression"] is None
+    assert body["error"] == "the expression ends sooner than expected"
+    # The caret goes at the end of the expression, which is where the author
+    # is. Counted in the string the caller sent, not in a trimmed copy of it.
+    assert body["offset"] == len("${age} >=")
+
+
+def test_an_ast_with_no_surface_says_so_rather_than_inventing_one() -> None:
+    """`in` has no XLSForm spelling, so no author can have typed one."""
+    response = call(
+        "POST",
+        "/api/v1/forms/expressions",
+        json={
+            "expression": {
+                "op": "in",
+                "args": [{"op": "ref", "path": "a"}, {"op": "lit", "value": "x"}],
+            }
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["text"] is None
+    assert "no surface syntax" in body["error"]

@@ -108,6 +108,36 @@ class SaveDraftRequest(BaseModel):
     updated_by: str | None = Field(default=None, alias="updatedBy")
 
 
+class ExpressionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    #: Surface text (Form IR Appendix A), or an AST to render back to text.
+    text: str | None = None
+    expression: dict[str, Any] | None = None
+    #: The question a bare `.` refers to inside a constraint.
+    self_path: str | None = Field(default=None, alias="selfPath")
+    #: A choice filter is the one place a bare name means a candidate row's
+    #: column (§3.2). Off everywhere else, where a bare name is a mistake.
+    row_scope: bool = Field(default=False, alias="rowScope")
+
+
+class ExpressionResponse(BaseModel):
+    """The AST and its canonical text, or where the text went wrong.
+
+    Both directions in one shape because a code field needs both: it renders an
+    existing expression to show the author, and parses what they type back.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    expression: dict[str, Any] | None = None
+    text: str | None = None
+    error: str | None = None
+    #: The character the error is about, for a caret under it. Null where the
+    #: failure is about the whole expression rather than a point in it.
+    offset: int | None = None
+
+
 class CompileRequest(BaseModel):
     """A Form IR document to compile. Its own formId and version are authoritative."""
 

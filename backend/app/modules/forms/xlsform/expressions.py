@@ -82,6 +82,31 @@ _FUNCTIONS = {
     "atan": "atan",
 }
 
+#: §4.3 functions that XLSForm has no spelling for, accepted by their IR name.
+#:
+#: Off for the importer and on for the builder, and the difference is not a
+#: preference. An XLSForm author writing `is_null()` has written something
+#: XLSForm does not have, and reporting that is right. An author in the
+#: builder's code field is writing IR expressions directly, and refusing them
+#: would leave six of §4.3's twenty-six functions with no surface at all — in a
+#: field that exists precisely for what the visual editor cannot express.
+def _ir_function_surface() -> dict[str, str]:
+    """Every §4.3 function under its IR name, for the builder's code field.
+
+    Two things at once, and both are needed for a round trip. The six functions
+    XLSForm has no spelling for at all — `is_null`, the date arithmetic — and
+    the ones it spells differently: `number` is `dec`, `string` is `str`,
+    `string-length` is `len`. The importer maps XPath onto IR names, so
+    rendering an AST produces IR names, and a surface that could not read its
+    own output back would not be a surface.
+    """
+    from app.modules.form_engine.expression import FUNCTIONS
+
+    return {name: name for name in FUNCTIONS}
+
+
+_IR_ONLY_FUNCTIONS = _ir_function_surface()
+
 _COMPARISONS = {
     "=": "eq",
     "==": "eq",
@@ -118,17 +143,30 @@ class ExpressionError(Exception):
     [function] names the offending XPath function when that is what stopped
     us, so the caller can count it towards the roadmap rather than only
     reporting it.
+
+    [offset] is the character in the source the failure is about. The importer
+    does not need it — it reports against a spreadsheet cell, and "survey!H27"
+    is the location an author is looking at. A builder's code field does: the
+    author is looking at the expression itself, and "somewhere in this string"
+    is not a location. None where the failure is about the whole expression
+    rather than a point in it.
     """
 
-    def __init__(self, message: str, *, function: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, function: str | None = None, offset: int | None = None
+    ) -> None:
         super().__init__(message)
         self.function = function
+        self.offset = offset
 
 
 @dataclass
 class _Token:
     kind: str
     text: str
+    #: Where this token starts in the source, for an error a code field can
+    #: put a caret under.
+    offset: int = 0
 
 
 def _tokenize(source: str) -> list[_Token]:
@@ -143,8 +181,10 @@ def _tokenize(source: str) -> list[_Token]:
         if source.startswith("${", index):
             end = source.find("}", index)
             if end == -1:
-                raise ExpressionError("a ${...} reference is missing its closing brace")
-            tokens.append(_Token("ref", source[index + 2 : end].strip()))
+                raise ExpressionError(
+                    "a ${...} reference is missing its closing brace", offset=index
+                )
+            tokens.append(_Token("ref", source[index + 2 : end].strip(), index))
             index = end + 1
             continue
         # Straight and curly both. Excel's autocorrect turns a typed
@@ -154,51 +194,64 @@ def _tokenize(source: str) -> list[_Token]:
         if char in _QUOTES:
             end = _closing_quote(source, index)
             if end == -1:
-                raise ExpressionError("a quoted string is missing its closing quote")
-            tokens.append(_Token("string", source[index + 1 : end]))
+                raise ExpressionError(
+                    "a quoted string is missing its closing quote", offset=index
+                )
+            tokens.append(_Token("string", source[index + 1 : end], index))
             index = end + 1
             continue
         if char.isdigit() or (char == "." and index + 1 < length and source[index + 1].isdigit()):
             match = re.match(r"\d+(\.\d+)?", source[index:])
             assert match
-            tokens.append(_Token("number", match.group(0)))
+            tokens.append(_Token("number", match.group(0), index))
             index += match.end()
             continue
         # `.` on its own is "this question's value" (XForms), and it is a
         # different token from the `.` inside 1.5, handled above.
         if char == "." and not source.startswith("..", index):
-            tokens.append(_Token("dot", "."))
+            tokens.append(_Token("dot", ".", index))
             index += 1
             continue
         two = source[index : index + 2]
         if two in ("!=", "<=", ">=", "=="):
-            tokens.append(_Token("op", two))
+            tokens.append(_Token("op", two, index))
             index += 2
             continue
         if char in "=<>+-*(),":
-            tokens.append(_Token("op", char))
+            tokens.append(_Token("op", char, index))
             index += 1
             continue
         match = re.match(r"[A-Za-z_][\w.\-]*", source[index:])
         if match:
-            tokens.append(_Token("name", match.group(0)))
+            tokens.append(_Token("name", match.group(0), index))
             index += match.end()
             continue
-        raise ExpressionError(f"unexpected character {char!r}")
+        raise ExpressionError(f"unexpected character {char!r}", offset=index)
     return tokens
 
 
 class _Parser:
     def __init__(
-        self, tokens: list[_Token], self_path: str | None, row_scope: bool = False
+        self,
+        tokens: list[_Token],
+        self_path: str | None,
+        row_scope: bool = False,
+        end: int = 0,
+        ir_functions: bool = False,
     ) -> None:
         self.tokens = tokens
         self.position = 0
+        #: Where the source ends. An expression that stops early is the most
+        #: common state a code field is ever in — the author is mid-typing —
+        #: and "at the end" is the only honest place to point.
+        self.end = end
         self.self_path = self_path
         #: Inside a `choice_filter` a bare name is a *column of the candidate
         #: row*, which is the one place in XLSForm where a bare name means
         #: something. Everywhere else it is an error, and deliberately so.
         self.row_scope = row_scope
+        self.ir_functions = ir_functions
+        self.functions = {**_FUNCTIONS, **_IR_ONLY_FUNCTIONS} if ir_functions else _FUNCTIONS
 
     def peek(self) -> _Token | None:
         return self.tokens[self.position] if self.position < len(self.tokens) else None
@@ -206,7 +259,9 @@ class _Parser:
     def take(self) -> _Token:
         token = self.peek()
         if token is None:
-            raise ExpressionError("the expression ends sooner than expected")
+            raise ExpressionError(
+                "the expression ends sooner than expected", offset=self.end
+            )
         self.position += 1
         return token
 
@@ -229,7 +284,11 @@ class _Parser:
     def parse(self) -> dict[str, Any]:
         node = self.parse_or()
         if self.peek() is not None:
-            raise ExpressionError(f"unexpected trailing {self.peek().text!r}")  # type: ignore[union-attr]
+            trailing = self.peek()
+            assert trailing is not None
+            raise ExpressionError(
+                f"unexpected trailing {trailing.text!r}", offset=trailing.offset
+            )
         return node
 
     def parse_or(self) -> dict[str, Any]:
@@ -270,7 +329,8 @@ class _Parser:
             # XPath spells these as words, and `div` is not `/`: §4.5 makes
             # integer division a separate operator, so mapping `div` to `div`
             # is correct and `idiv` has no XPath spelling to map from.
-            if token and token.kind == "name" and token.text.lower() in ("div", "mod"):
+            words = ("div", "mod", "idiv") if self.ir_functions else ("div", "mod")
+            if token and token.kind == "name" and token.text.lower() in words:
                 self.take()
                 right = self.parse_multiplicative()
                 node = {"op": token.text.lower(), "args": [node, right]}
@@ -332,7 +392,7 @@ class _Parser:
                 f"{token.text!r} is not something this importer understands. "
                 "A bare name is not a reference — XLSForm writes those as ${name}."
             )
-        raise ExpressionError(f"unexpected {token.text!r}")
+        raise ExpressionError(f"unexpected {token.text!r}", offset=token.offset)
 
     def parse_call(self, name: str) -> dict[str, Any]:
         self.expect_op("(")
@@ -360,7 +420,15 @@ class _Parser:
                 raise ExpressionError("if() takes three arguments")
             return {"op": "if", "args": args}
 
-        target = _FUNCTIONS.get(lowered)
+        # `null()` is the surface spelling of the null *literal*. Reading it
+        # back as a call would give one surface two ASTs, and the round trip
+        # would pick the wrong one half the time.
+        if lowered == "null" and self.ir_functions:
+            if args:
+                raise ExpressionError("null() takes no arguments")
+            return {"op": "lit", "value": None}
+
+        target = self.functions.get(lowered)
         if target is None:
             raise ExpressionError(
                 f"{name}() is not a function this importer can translate yet",
@@ -370,7 +438,11 @@ class _Parser:
 
 
 def translate(
-    source: str, *, self_path: str | None = None, row_scope: bool = False
+    source: str,
+    *,
+    self_path: str | None = None,
+    row_scope: bool = False,
+    ir_functions: bool = False,
 ) -> dict[str, Any]:
     """Compile one XLSForm expression into a Form IR expression node (§4.1).
 
@@ -392,7 +464,26 @@ def translate(
     text = source.strip()
     if not text:
         raise ExpressionError("the expression is empty")
-    return _Parser(_tokenize(text), self_path, row_scope=row_scope).parse()
+    # Offsets are counted in `text`, which is stripped; a caller holding
+    # `source` needs them counted in that. Shifting here rather than tokenizing
+    # the untrimmed string keeps the parser's own arithmetic simple and the
+    # reported position honest — a caret one character out is worse than none,
+    # because it points confidently at the wrong thing.
+    lead = len(source) - len(source.lstrip())
+    try:
+        return _Parser(
+            _tokenize(text),
+            self_path,
+            row_scope=row_scope,
+            end=len(text),
+            ir_functions=ir_functions,
+        ).parse()
+    except ExpressionError as exc:
+        if lead and exc.offset is not None:
+            raise ExpressionError(
+                str(exc), function=exc.function, offset=exc.offset + lead
+            ) from exc
+        raise
 
 
 def references(node: dict[str, Any]) -> set[str]:
