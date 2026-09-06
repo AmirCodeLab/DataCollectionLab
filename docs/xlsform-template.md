@@ -187,7 +187,7 @@ These are the ones your tool should not emit, in order of how often they appear:
 | Your type | Count | What to emit instead |
 |---|---|---|
 | **Custom Multiple Selection** | 88 | `select_multiple`, if "custom" carries no behaviour beyond the list. **We need to see what it does first** |
-| **Person Id** | 73 | **Nothing yet.** It appears to reference a roster member, which is cross-repeat referencing and a genuine feature gap rather than a widget. The single most important thing to tell us about |
+| **Person Id** | 73 | ✅ **Answered 6 September 2026 — emit it as an ordinary question of its underlying type** (`text` / `integer`), and tell us for each whether it is filled from the sample or from an earlier answer. We map the first to a roster's `bind` and the second to `calculate` / `default` |
 | Input Field | 5 | Probably `text` / `integer` / `decimal` — tell us which |
 | Custom Single Selection | 3 | `select_one`, same caveat as above |
 | Time Picker | 2 | **Nothing yet.** `time` is in our specification with no widget |
@@ -197,9 +197,10 @@ These are the ones your tool should not emit, in order of how often they appear:
 Single Selection, Edit Text, Multiple Selection, Date Picker and Note all map
 directly and are in the template.
 
-**The four marked with counts we cannot map are the questions to answer**, and
-`Person Id` is the one that changes scope if it means what it looks like it
-means.
+**The ones marked with counts we cannot map are the questions to answer.**
+`Person Id` was the one that would have changed scope if it meant what it
+looked like it meant. It does not — it is a prefilled question, not a reference
+into a roster — so it needs nothing new and is no longer on this list.
 
 ---
 
@@ -207,8 +208,8 @@ means.
 
 1. One real questionnaire emitted by your tool as XLSForm, with any companion
    CSVs.
-2. What `Custom`, `Input Field`, `Enum Selection` and especially `Person Id` do
-   in your app.
+2. What `Custom`, `Input Field` and `Enum Selection` do in your app.
+   (`Person Id` is answered — a prefilled question.)
 
 We will run it through the importer and send you the report. The report names
 every problem in one pass rather than stopping at the first, so one round trip
