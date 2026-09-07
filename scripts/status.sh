@@ -46,15 +46,17 @@ rm -rf "$KT_DIR_PRE"
 
 KT_OUT=$(./gradlew :shared:form-engine:jvmTest --rerun-tasks 2>&1)
 KT_STATUS=$?
-# Match on the file pattern, not one hardcoded class name: renaming or moving
-# the test class must not make the script report a phantom failure. Sensitivity
-# and document shape are SEPARATE vector sets with their own runners and their
-# own counts below — counting them here would inflate the form-vector total and
-# raise a phantom "engines disagree" alarm. Every new *ConformanceTest over a
-# separate set has to be excluded here too.
+# The evaluation vectors run under the generated per-vector runner,
+# `GeneratedVectorTests` — one JUnit case per file on disk, which is what
+# makes the count below comparable to `find conformance/vectors`. The other
+# vector sets (sensitivity, malformed, functions, reachability) have their own
+# runners and their own counts further down. This pattern matched
+# `*Conformance*` until 7 September 2026, which counted the function matrix
+# (108 cases over 54 vectors) instead of the evaluation runner and reported
+# "engines disagree" against a disk count it was never comparing like with
+# like; `scripts/check_ci_runs_every_suite.py` compares ids and is the guard.
 KT_DIR=shared/form-engine/build/test-results/jvmTest
-KT_XMLS=$(find "$KT_DIR" -name 'TEST-*Conformance*.xml' \
-    ! -name '*Sensitivity*' ! -name '*Malformed*' 2>/dev/null)
+KT_XMLS=$(find "$KT_DIR" -name 'TEST-*GeneratedVector*.xml' 2>/dev/null)
 KT_RAN=0
 KT_FAILED=0
 if [ -n "$KT_XMLS" ]; then
@@ -174,6 +176,43 @@ else
     SENSITIVITY_GREEN=false
 fi
 
+# --- reachability and liveness ----------------------------------------------
+# The publish-time check from Form IR §10.2/§10.3 on both engines: a form must
+# not ship questions it can never ask. Same release-blocker rule as sensitivity.
+
+REACH_VECTORS=$(find conformance/reachability -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+REACHABILITY_GREEN=true
+
+if [ "$REACH_VECTORS" -gt 0 ]; then
+    printf '\n  reachability:     %s vectors\n' "$REACH_VECTORS"
+
+    RPY_OUT=$(cd backend && "$PY" -m pytest tests/test_reachability_conformance.py -q 2>&1)
+    RPY_STATUS=$?
+    if [ "$RPY_STATUS" -eq 0 ]; then
+        printf '  python reachability: PASS\n'
+    else
+        printf '  python reachability: FAIL\n'
+        printf '%s\n' "$RPY_OUT" | tail -4 | sed 's/^/    | /'
+        REACHABILITY_GREEN=false
+    fi
+
+    RKT_XML=shared/form-engine/build/test-results/jvmTest/TEST-com.dcp.form.ReachabilityConformanceTest.xml
+    RKT_RAN=0
+    if [ -f "$RKT_XML" ]; then
+        RKT_RAN=$(grep -ho 'tests="[0-9]*"' "$RKT_XML" | grep -o '[0-9]*' | head -1)
+        RKT_FAILED=$(grep -ho 'failures="[0-9]*"' "$RKT_XML" | grep -o '[0-9]*' | head -1)
+    fi
+    if [ "$RKT_RAN" -eq "$REACH_VECTORS" ] && [ "${RKT_FAILED:-1}" -eq 0 ]; then
+        printf '  kotlin reachability: PASS  (%s/%s vectors)\n' "$RKT_RAN" "$REACH_VECTORS"
+    else
+        printf '  kotlin reachability: FAIL  (%s/%s ran)\n' "$RKT_RAN" "$REACH_VECTORS"
+        REACHABILITY_GREEN=false
+    fi
+else
+    printf '\n  reachability:     none found in conformance/reachability\n'
+    REACHABILITY_GREEN=false
+fi
+
 # --- document shape --------------------------------------------------------
 # Form IR §10.1, on both engines. This is the set conformance/vectors cannot
 # express: every vector there assumes a form that compiled, so "this document
@@ -223,9 +262,9 @@ CONFORMANCE_GREEN=false
 hr "2. Phase 0 deliverables"
 
 # Form IR spec: spec file present and both engines green on every vector.
-if [ -f specs/form-ir-v0.1.md ] && [ "$CONFORMANCE_GREEN" = true ] && [ "$DOCUMENT_GREEN" = true ]; then
+if [ -f specs/form-ir-v0.1.md ] && [ "$CONFORMANCE_GREEN" = true ] && [ "$DOCUMENT_GREEN" = true ] && [ "$REACHABILITY_GREEN" = true ]; then
     item "Form IR spec" "DONE" \
-        "specs/form-ir-v0.1.md, both engines pass $VECTORS/$VECTORS + $DOC_VECTORS document"
+        "specs/form-ir-v0.1.md, both engines pass $VECTORS/$VECTORS + $DOC_VECTORS document + $REACH_VECTORS reachability"
 elif [ -f specs/form-ir-v0.1.md ]; then
     item "Form IR spec" "PARTIAL" "spec exists but conformance is not green"
 else

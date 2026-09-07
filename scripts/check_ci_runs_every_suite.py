@@ -536,6 +536,12 @@ VECTOR_SETS: dict[str, tuple[str, str | tuple[str, ...], str]] = {
         "TEST-com.dcp.form.FunctionConformanceTest.xml",
         "backend/tests/test_function_conformance.py",
     ),
+    "reachability": (
+        "reachability and liveness at the publish gate",
+        "shared/form-engine/build/test-results/jvmTest/"
+        "TEST-com.dcp.form.ReachabilityConformanceTest.xml",
+        "backend/tests/test_reachability_conformance.py",
+    ),
 }
 
 #: Vector ids appear in a JUnit test name as `vector[choice-002][jvm]`, or as
@@ -562,6 +568,18 @@ def kotlin_executed_ids(results: Path) -> set[str] | None:
 
 
 def check_vectors(report: Report, strict: bool) -> None:
+    # A vector set this table does not know is a suite nobody watches, which
+    # is the failure this whole file exists about — and it happened here, on
+    # the day `conformance/reachability` was added: the six vectors ran in CI,
+    # the guard said "every vector on disk was executed", and it had never
+    # looked at them. Enumerate from disk, not from the table.
+    for path in sorted((ROOT / "conformance").iterdir()):
+        if path.is_dir() and any(path.glob("*.json")) and path.name not in VECTOR_SETS:
+            report.fail(
+                f"conformance/{path.name} holds vectors and is not in VECTOR_SETS: "
+                "nothing checks that both engines ran it. Add it, with its Python "
+                "runner and its Kotlin JUnit report."
+            )
     for directory, (label, kotlin_results, python_runner) in VECTOR_SETS.items():
         vector_dir = ROOT / "conformance" / directory
         if not vector_dir.is_dir():
