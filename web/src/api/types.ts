@@ -63,6 +63,20 @@ export interface ContentKeyView {
 }
 
 /**
+ * A form row with nothing in it yet — where a draft can start.
+ *
+ * A draft belongs to a form (`form_draft.form_id` → `form.id`), and until
+ * now a form row only ever came from publishing. The builder starts with
+ * nothing published, so it needs this first. It creates **no version**:
+ * `versions` stays empty until `POST /forms/versions`.
+ */
+export interface CreateFormRequest {
+  projectId: string;
+  formId: string;
+  title: string;
+}
+
+/**
  * What changed between two dataset versions, for one form version.
  *
  * The path that decides field usability. First sync is a one-off at
@@ -350,9 +364,12 @@ export interface FormListResponse {
 export interface FormSummary {
   id: string;
   formId: string;
+  projectId: string;
   title: string;
   versions: number[];
   archivedAt: string | null;
+  hasDraft?: boolean;
+  latestVersionId?: string | null;
 }
 
 /**

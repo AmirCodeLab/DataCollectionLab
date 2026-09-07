@@ -196,3 +196,48 @@ def test_the_draft_survives_and_is_the_later_write(draft_db: str) -> None:
             return draft.ir
 
     assert asyncio.run(run()) == {"a": 2}
+
+
+def test_a_form_can_exist_with_nothing_published(draft_db: str) -> None:
+    """The builder starts before anything is publishable.
+
+    Until `POST /forms` a form row came only from publishing, and a draft
+    cannot be held for a form that is not there — `form_draft.form_id` is a
+    foreign key. So: create the row, save a draft against it, and the listing
+    says which is which — `versions: []` and `hasDraft: true` — because a form
+    that was started and never published must not look like an empty one.
+    """
+    import asyncio
+
+    from app.modules.forms import service
+
+    async def run() -> tuple[dict, dict, str | None]:
+        async with _session(draft_db) as session, session.begin():
+            created = await service.create_form(
+                session, project_id=PROJECT_ID, form_key="started", title="Started"
+            )
+        async with _session(draft_db) as session, session.begin():
+            await service.save_draft(
+                session, form_id=created.id, ir={"formId": "started"}, expected_revision=None
+            )
+        async with _session(draft_db) as session, session.begin():
+            listed = await service.list_forms(session, include_archived=False)
+            mine = next(f for f in listed.forms if f.id == created.id)
+        # The same key in the same project is the UNIQUE constraint on `form`,
+        # reported before the database has to.
+        duplicate: str | None = None
+        async with _session(draft_db) as session, session.begin():
+            try:
+                await service.create_form(
+                    session, project_id=PROJECT_ID, form_key="started", title="Again"
+                )
+            except service.FormExists as exc:
+                duplicate = str(exc)
+        return created.model_dump(), mine.model_dump(), duplicate
+
+    created, mine, duplicate = asyncio.run(run())
+    assert created["versions"] == [] and created["has_draft"] is False
+    assert mine["versions"] == [] and mine["has_draft"] is True
+    assert mine["project_id"] == PROJECT_ID
+    assert mine["latest_version_id"] is None, "nothing is published"
+    assert duplicate is not None and "started" in duplicate

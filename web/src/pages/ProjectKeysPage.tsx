@@ -133,7 +133,9 @@ export function ProjectKeysPage() {
       );
       setLabel("");
       setSaved(false);
-      await queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["project-keys", projectId],
+      });
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: () => setStatus(null),
@@ -153,7 +155,9 @@ export function ProjectKeysPage() {
           "Everything already collected is still encrypted to it and always " +
           "will be — keep that private key file.",
       );
-      await queryClient.invalidateQueries({ queryKey: ["project-keys", projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["project-keys", projectId],
+      });
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
@@ -221,8 +225,8 @@ export function ProjectKeysPage() {
 
       <h2 className="mt-8 text-lg font-semibold">Recipients</h2>
       <p className="text-sm text-slate-600">
-        Every submission&apos;s content key is wrapped once per active key at the
-        moment it is collected, so any one of these private keys opens the
+        Every submission&apos;s content key is wrapped once per active key at
+        the moment it is collected, so any one of these private keys opens the
         submissions collected while it was registered — and no others.
       </p>
 
@@ -257,7 +261,9 @@ export function ProjectKeysPage() {
                     <code>{key.role}</code>
                   </Td>
                   <Td>{key.label}</Td>
-                  <Td className="break-all font-mono text-xs">{key.publicKey}</Td>
+                  <Td className="break-all font-mono text-xs">
+                    {key.publicKey}
+                  </Td>
                   <Td className="whitespace-nowrap text-xs">
                     {formatTimestamp(key.createdAt)}
                   </Td>
@@ -307,12 +313,12 @@ export function ProjectKeysPage() {
           </p>
           <p className="mt-2">
             Devices stop wrapping new submissions to{" "}
-            <code className="text-xs">{confirming}</code> immediately. Everything
-            collected while it was active stays encrypted to it permanently —
-            nothing gets re-wrapped, because the server cannot open it to
-            re-wrap it (envelope §8). If that private key is in the wrong hands,
-            the submissions it opens are already compromised and revoking it
-            here changes nothing about them.
+            <code className="text-xs">{confirming}</code> immediately.
+            Everything collected while it was active stays encrypted to it
+            permanently — nothing gets re-wrapped, because the server cannot
+            open it to re-wrap it (envelope §8). If that private key is in the
+            wrong hands, the submissions it opens are already compromised and
+            revoking it here changes nothing about them.
           </p>
           <p className="mt-2">
             Do not delete the private key file. It is still the only thing that
@@ -342,7 +348,9 @@ export function ProjectKeysPage() {
                       <code>{key.role}</code>
                     </Td>
                     <Td>{key.label}</Td>
-                    <Td className="break-all font-mono text-xs">{key.publicKey}</Td>
+                    <Td className="break-all font-mono text-xs">
+                      {key.publicKey}
+                    </Td>
                     <Td className="whitespace-nowrap text-xs">
                       retired {formatTimestamp(key.revokedAt)}
                     </Td>
@@ -378,8 +386,8 @@ export function ProjectKeysPage() {
           intended, not a gap in it.
         </p>
         <p className="mt-2">
-          Add a <code>backup</code> and a <code>recovery</code> key as well, held
-          by different people in different places.
+          Add a <code>backup</code> and a <code>recovery</code> key as well,
+          held by different people in different places.
         </p>
         {active.length > 0 && (
           <p className="mt-2 border-t border-red-200 pt-2">
@@ -390,8 +398,8 @@ export function ProjectKeysPage() {
             already hold every submission collected so far, and nothing gets
             re-wrapped when a key is added — the server has no way to, since it
             cannot open them either (envelope §8). Adding a key is not a way to
-            regain access to existing data, and rotating away from a key you then
-            discard destroys everything encrypted to it.
+            regain access to existing data, and rotating away from a key you
+            then discard destroys everything encrypted to it.
           </p>
         )}
       </div>

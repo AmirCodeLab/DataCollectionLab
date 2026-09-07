@@ -150,7 +150,13 @@ describe("registering a project key", () => {
     // The public half is registered; the private half is in the file and
     // nowhere else — not in a request, not in storage.
     expect(escapes.all().filter((entry) => entry.includes(scalar))).toEqual([]);
-    expect(window.localStorage.length, "something was written to localStorage").toBe(0);
-    expect(window.sessionStorage.length, "something was written to sessionStorage").toBe(0);
+    expect(
+      window.localStorage.length,
+      "something was written to localStorage",
+    ).toBe(0);
+    expect(
+      window.sessionStorage.length,
+      "something was written to sessionStorage",
+    ).toBe(0);
   });
 });

@@ -3,7 +3,11 @@
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
-import { REFRESH_INTERVAL_MS, formListQuery, submissionListQuery } from "@/api/queries";
+import {
+  REFRESH_INTERVAL_MS,
+  formListQuery,
+  submissionListQuery,
+} from "@/api/queries";
 import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/api/types";
 import { RefreshControls } from "@/components/RefreshControls";
 import { useAutoRefresh } from "@/lib/autoRefresh";
@@ -37,9 +41,10 @@ export function SubmissionsPage() {
       search: {
         formId: "formId" in next ? next.formId : formId,
         status: "status" in next ? next.status : status,
-        offset: next.offset === undefined || next.offset === 0
-          ? undefined
-          : next.offset,
+        offset:
+          next.offset === undefined || next.offset === 0
+            ? undefined
+            : next.offset,
       },
     });
   };
@@ -87,8 +92,7 @@ export function SubmissionsPage() {
             onChange={(event) =>
               setSearch({
                 status: (event.target.value || undefined) as
-                  | SubmissionStatus
-                  | undefined,
+                  SubmissionStatus | undefined,
               })
             }
           >
@@ -161,7 +165,9 @@ export function SubmissionsPage() {
                   <Td>
                     <StatusBadge status={submission.status} />
                   </Td>
-                  <Td className="text-end tabular-nums">{submission.opCount}</Td>
+                  <Td className="text-end tabular-nums">
+                    {submission.opCount}
+                  </Td>
                   <Td className="whitespace-nowrap">
                     {formatTimestamp(submission.receivedAt)}
                   </Td>
@@ -187,9 +193,7 @@ export function SubmissionsPage() {
           type="button"
           className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40"
           disabled={offset === 0}
-          onClick={() =>
-            setSearch({ offset: Math.max(0, offset - PAGE_SIZE) })
-          }
+          onClick={() => setSearch({ offset: Math.max(0, offset - PAGE_SIZE) })}
         >
           Previous
         </button>

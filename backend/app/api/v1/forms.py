@@ -27,6 +27,7 @@ from app.modules.forms.models import FormDraft
 from app.modules.forms.schemas import (
     CompileRequest,
     CompileResponse,
+    CreateFormRequest,
     DraftDocument,
     EvaluateRequest,
     EvaluateResponse,
@@ -34,6 +35,7 @@ from app.modules.forms.schemas import (
     ExpressionResponse,
     FieldSnapshot,
     FormListResponse,
+    FormSummary,
     FormVersionDocument,
     ImportCoverage,
     ImportDataset,
@@ -65,6 +67,35 @@ async def list_forms(
     """Every form and its version numbers — enough to name and filter by one."""
     async with session.begin():
         return await service.list_forms(session, include_archived=include_archived)
+
+
+@router.post(
+    "",
+    response_model=FormSummary,
+    response_model_by_alias=True,
+    status_code=201,
+    responses={409: {"model": MessageError}},
+)
+async def create_form(
+    request: CreateFormRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> FormSummary:
+    """A form with nothing published yet, so the builder has somewhere to start.
+
+    Creates the `form` row and **no version**. A draft is saved against it
+    with `PUT /forms/{id}/draft`, and a version comes only from
+    `POST /forms/versions`, exactly as for an imported form.
+    """
+    async with session.begin():
+        try:
+            return await service.create_form(
+                session,
+                project_id=request.project_id,
+                form_key=request.form_id,
+                title=request.title,
+            )
+        except service.FormExists as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get(

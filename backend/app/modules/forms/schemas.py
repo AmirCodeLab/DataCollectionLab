@@ -28,9 +28,34 @@ class FormSummary(BaseModel):
     # The stable key an op carries as `formId` on the wire (sync §2), not the
     # database id — that is what a submission filter matches on.
     form_id: str = Field(serialization_alias="formId")
+    project_id: str = Field(serialization_alias="projectId")
     title: str
     versions: list[int]
     archived_at: datetime | None = Field(serialization_alias="archivedAt")
+    #: Whether unpublished work exists (`GET /forms/{id}/draft`). A form the
+    #: builder started and never published has `versions: []` and this true;
+    #: without it the console could not tell that form from an empty one.
+    has_draft: bool = Field(default=False, serialization_alias="hasDraft")
+    #: `GET /forms/versions/{id}` for the highest version, so a builder can
+    #: start a draft from what is published. Null when nothing is.
+    latest_version_id: str | None = Field(default=None, serialization_alias="latestVersionId")
+
+
+class CreateFormRequest(BaseModel):
+    """A form row with nothing in it yet — where a draft can start.
+
+    A draft belongs to a form (`form_draft.form_id` → `form.id`), and until
+    now a form row only ever came from publishing. The builder starts with
+    nothing published, so it needs this first. It creates **no version**:
+    `versions` stays empty until `POST /forms/versions`.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId", min_length=1, max_length=64)
+    #: Form IR §1: the document's `formId`, which becomes `form_key`.
+    form_id: str = Field(alias="formId", pattern=r"^[a-z][a-z0-9_]*$", max_length=64)
+    title: str = Field(min_length=1, max_length=200)
 
 
 class FormListResponse(BaseModel):
