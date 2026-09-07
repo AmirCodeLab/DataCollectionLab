@@ -26,6 +26,8 @@ import {
   type EngineModule,
   type EngineValue,
   type PreviewState,
+  type TraceKey,
+  type TraceNode,
 } from "./facade";
 
 export type PreviewStatus = "loading" | "ready" | "unavailable";
@@ -62,6 +64,10 @@ export interface PreviewHandle {
   deleteRow: (repeatId: string, instanceId: string) => void;
   /** Every data-changing step so far, for replay and for recording a test case. */
   steps: () => PreviewStep[];
+  /** The engine's annotated tree for one expression, against the answers so
+   *  far (scope §4, the trace). Throws what the engine refused with; changes
+   *  nothing, so it is safe to call during render. */
+  trace: (path: string, key: TraceKey) => TraceNode;
 }
 
 export const ENGINE_UNAVAILABLE =
@@ -190,6 +196,21 @@ export function usePreviewSession(
     [record],
   );
   const steps = useCallback(() => answers.current, []);
+  const trace = useCallback((path: string, key: TraceKey): TraceNode => {
+    const current = session.current;
+    if (current === null) throw new Error("the preview is not open");
+    return current.trace(path, key);
+  }, []);
 
-  return { status, error, state, act, answer, addRow, deleteRow, steps };
+  return {
+    status,
+    error,
+    state,
+    act,
+    answer,
+    addRow,
+    deleteRow,
+    steps,
+    trace,
+  };
 }

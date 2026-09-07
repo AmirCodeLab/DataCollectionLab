@@ -11,7 +11,7 @@
  * the engine's, from `previewTrace`; this component only lays the tree out.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import clsx from "clsx";
 
 import type { TraceKey, TraceNode } from "@/builder/engine/facade";
@@ -26,73 +26,77 @@ export interface TraceSectionProps {
   preview: PreviewHandle;
 }
 
+/** The trace is asked again for every state the engine returns — an answer
+ *  typed in the preview changes what this question's relevance came to, and
+ *  a tree that stood still would be a verdict on answers that no longer
+ *  exist (the same rule as a publish refusal after an edit). */
 export function TraceSection({ path, keys, preview }: TraceSectionProps) {
-  const [key, setKey] = useState<TraceKey | null>(keys[0] ?? null);
-  const [trace, setTrace] = useState<{
-    key: TraceKey;
+  const [key, setKey] = useState<TraceKey | null>(null);
+  const chosen: TraceKey | null =
+    key !== null && keys.includes(key) ? key : (keys[0] ?? null);
+  const ready = preview.status === "ready" && preview.state !== null;
+  // Re-run when the engine's state changes: `preview.state` is the object the
+  // last operation returned, so it is the right key, and `trace` changes
+  // nothing in the session.
+  const state = preview.state;
+  const trace = useMemo<{
     tree: TraceNode | null;
     error?: string;
-  } | null>(null);
+  } | null>(() => {
+    if (!ready || chosen === null) return null;
+    try {
+      return { tree: preview.trace(path, chosen) };
+    } catch (cause: unknown) {
+      return {
+        tree: null,
+        error: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `state` is the re-run key: a new state may change every result
+  }, [ready, chosen, path, preview.trace, state]);
 
-  if (keys.length === 0) return null;
-  if (preview.status !== "ready") {
+  if (keys.length === 0 || chosen === null) return null;
+  if (!ready) {
     return (
       <p className="text-xs text-slate-500">
-        Open the preview to trace this question against answers.
+        The engine is loading; the trace follows the preview's answers.
       </p>
     );
   }
-  const chosen: TraceKey = key ?? keys[0] ?? "relevant";
-
-  const run = () => {
-    preview.act((s) => {
-      try {
-        setTrace({ key: chosen, tree: s.trace(path, chosen) });
-      } catch (cause: unknown) {
-        setTrace({
-          key: chosen,
-          tree: null,
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-      }
-      return s.state();
-    });
-  };
 
   return (
-    <div className="space-y-2 text-xs">
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1">
-          <span className="text-slate-600">Why is</span>
-          <select
-            aria-label="expression to trace"
-            className="rounded border border-slate-300 px-1 py-0.5"
-            value={chosen}
-            onChange={(e) => setKey(e.target.value as TraceKey)}
-          >
-            {keys.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-          <span className="text-slate-600">what it is?</span>
-        </label>
-        <button
-          type="button"
-          className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50"
-          onClick={run}
+    <div className="space-y-2 text-xs" aria-label="trace">
+      <label className="flex items-center gap-1">
+        <span className="text-slate-600">Why is</span>
+        <select
+          aria-label="expression to trace"
+          className="rounded border border-slate-300 px-1 py-0.5"
+          value={chosen}
+          onChange={(e) => setKey(e.target.value as TraceKey)}
         >
-          Trace
-        </button>
-      </div>
-      {trace !== null && trace.error !== undefined && (
+          {keys.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        <span className="text-slate-600">
+          what it is, against the preview's answers?
+        </span>
+      </label>
+      {path.includes("[") && (
+        <p className="text-slate-500">
+          in row <code>{path}</code> — the one the preview is inside, or the
+          first that exists
+        </p>
+      )}
+      {trace?.error !== undefined && (
         <p className="text-red-700" role="alert">
           {trace.error}
         </p>
       )}
-      {trace !== null && trace.tree !== null && (
-        <ul className="font-mono" aria-label={`trace of ${trace.key}`}>
+      {trace?.tree != null && (
+        <ul className="font-mono" aria-label={`trace of ${chosen}`}>
           <TraceLine node={trace.tree} depth={0} />
         </ul>
       )}

@@ -27,6 +27,7 @@ import { IrMenu } from "@/builder/floor/IrMenu";
 import { asFormIr, emptyForm } from "@/builder/ir";
 import { PlanPane } from "@/builder/plan/PlanPane";
 import { PreviewPane } from "@/builder/preview/PreviewPane";
+import { PreviewProvider } from "@/builder/preview/PreviewProvider";
 import { PreviewToggle } from "@/builder/preview/PreviewToggle";
 import { usePreviewOpen } from "@/builder/preview/previewStore";
 import { PropertiesPane } from "@/builder/properties/PropertiesPane";
@@ -152,36 +153,38 @@ function Editor({ form }: { form: FormSummary }) {
   );
 
   return (
-    <section className="flex h-[calc(100vh-7rem)] flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-2">
-        <Link to="/forms" className="text-sm text-blue-700 hover:underline">
-          Forms
-        </Link>
-        <h1 className="text-lg font-semibold">{title}</h1>
-        <code className="text-xs text-slate-500">{form.formId}</code>
-        <SaveStatus />
-        <span className="ms-auto flex items-center gap-3">
-          <PreviewToggle />
-          <IrMenu />
-          <PublishButton
-            projectId={form.projectId}
-            publishedVersions={form.versions}
-          />
-        </span>
-      </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_22rem] gap-4 pt-3">
-        <aside className="min-h-0 overflow-auto border-e border-slate-200 pe-3">
-          <TreePane />
-        </aside>
-        <div className="min-h-0 overflow-auto">
-          {previewOpen ? <PreviewPane /> : <PropertiesPane />}
+    <PreviewProvider>
+      <section className="flex h-[calc(100vh-7rem)] flex-col">
+        <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-2">
+          <Link to="/forms" className="text-sm text-blue-700 hover:underline">
+            Forms
+          </Link>
+          <h1 className="text-lg font-semibold">{title}</h1>
+          <code className="text-xs text-slate-500">{form.formId}</code>
+          <SaveStatus />
+          <span className="ms-auto flex items-center gap-3">
+            <PreviewToggle />
+            <IrMenu />
+            <PublishButton
+              projectId={form.projectId}
+              publishedVersions={form.versions}
+            />
+          </span>
+        </header>
+        <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_22rem] gap-4 pt-3">
+          <aside className="min-h-0 overflow-auto border-e border-slate-200 pe-3">
+            <TreePane />
+          </aside>
+          <div className="min-h-0 overflow-auto">
+            {previewOpen ? <PreviewPane /> : <PropertiesPane />}
+          </div>
+          <aside className="min-h-0 overflow-auto border-s border-slate-200 ps-3">
+            <PlanPane />
+            <TestModePane />
+          </aside>
         </div>
-        <aside className="min-h-0 overflow-auto border-s border-slate-200 ps-3">
-          <PlanPane />
-          <TestModePane />
-        </aside>
-      </div>
-    </section>
+      </section>
+    </PreviewProvider>
   );
 }
 

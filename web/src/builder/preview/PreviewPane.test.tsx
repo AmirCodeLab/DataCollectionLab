@@ -6,6 +6,7 @@
  */
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -28,6 +29,21 @@ import {
   type FakeEngine,
 } from "./fixture";
 import { PreviewPane } from "./PreviewPane";
+import { PreviewProvider } from "./PreviewProvider";
+import { usePreviewOpen } from "./previewStore";
+
+/** The page's arrangement: the pane comes and goes, the provider stays. */
+function PaneWhenOpen() {
+  const open = usePreviewOpen((s) => s.open);
+  return open ? <PreviewPane /> : null;
+}
+
+const mount = () =>
+  render(
+    <PreviewProvider>
+      <PreviewPane />
+    </PreviewProvider>,
+  );
 
 let engine: FakeEngine;
 
@@ -36,7 +52,7 @@ function open(...states: Parameters<typeof fakeEngine>) {
   installEngine(engine);
   useBuilder.getState().close();
   useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
-  render(<PreviewPane />);
+  mount();
 }
 
 const names = () => engine.calls.map((c) => c.name);
@@ -119,7 +135,7 @@ describe("PreviewPane", () => {
     // No module installed and no bundle to import: loadEngine rejects.
     useBuilder.getState().close();
     useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
-    render(<PreviewPane />);
+    mount();
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         ENGINE_UNAVAILABLE,
@@ -152,6 +168,53 @@ describe("PreviewPane", () => {
     expect(names().indexOf("previewClose")).toBeLessThan(
       names().indexOf("previewOpen"),
     );
+  });
+
+  it("a row added in the preview is replayed on a document change, before its answers", async () => {
+    open(rosterState, insideState, insideState, insideState, insideState);
+    await screen.findByText("Household members");
+    fireEvent.click(screen.getByRole("button", { name: "Add a member" }));
+    await screen.findByText("Row 2 of 2 · screen 1 of 2");
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "uncle" },
+    });
+    engine.calls.length = 0;
+
+    useBuilder
+      .getState()
+      .insert({ parentId: null, index: 0 }, newQuestion("x", "text", "en"));
+    await waitFor(() => expect(names()).toContain("previewOpen"));
+    await waitFor(() =>
+      expect(
+        engine.calls
+          .filter((c) => c.name === "previewAddRow" || c.name === "previewSet")
+          .map((c) => [c.name, ...c.args.slice(1)]),
+      ).toEqual([
+        ["previewAddRow", "members"],
+        ["previewSet", "members[i2].name", '"uncle"'],
+      ]),
+    );
+  });
+
+  it("the answers survive closing the pane: the session is the page's", async () => {
+    engine = fakeEngine(questionsState, questionsState);
+    installEngine(engine);
+    useBuilder.getState().close();
+    useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
+    usePreviewOpen.getState().setOpen(true);
+    render(
+      <PreviewProvider>
+        <PaneWhenOpen />
+      </PreviewProvider>,
+    );
+    await screen.findByText("Consent");
+    fireEvent.change(screen.getByLabelText("Age"), { target: { value: "42" } });
+    act(() => usePreviewOpen.getState().setOpen(false));
+    expect(screen.queryByText("Consent")).not.toBeInTheDocument();
+    act(() => usePreviewOpen.getState().setOpen(true));
+    await screen.findByText("Consent");
+    expect(names().filter((n) => n === "previewOpen")).toHaveLength(1);
+    expect(names().filter((n) => n === "previewSet")).toHaveLength(1);
   });
 
   it("selecting a question in the preview selects it in the tree", async () => {

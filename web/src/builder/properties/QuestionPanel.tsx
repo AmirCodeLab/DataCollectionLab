@@ -10,6 +10,7 @@ import {
   type FormIr,
   type QuestionNode,
 } from "@/builder/ir";
+import { QuestionTrace } from "@/builder/preview/QuestionTrace";
 import { useBuilder } from "@/builder/store";
 import { ChoicesEditor } from "./ChoicesEditor";
 import {
@@ -110,6 +111,7 @@ export function QuestionPanel({
         ir={ir}
         nodeId={node.id}
       />
+      <QuestionTrace ir={ir} node={node} />
       <ExpressionEditor
         label="relevant"
         value={node.relevant}

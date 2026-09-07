@@ -20,13 +20,17 @@ import type {
   PreviewRoster,
   PreviewState,
 } from "@/builder/engine/facade";
-import { todayIso, usePreviewSession } from "@/builder/engine/session";
+import type { PreviewHandle } from "@/builder/engine/session";
 import { useBuilder } from "@/builder/store";
+import { usePreview } from "./previewContext";
 
 export function PreviewPane() {
-  const ir = useBuilder((s) => s.ir);
-  const preview = usePreviewSession(ir, todayIso());
+  const preview = usePreview();
+  if (preview === null) return null;
+  return <OpenPreview preview={preview} />;
+}
 
+function OpenPreview({ preview }: { preview: PreviewHandle }) {
   if (preview.status === "unavailable") {
     return (
       <section aria-label="preview" className="text-sm">
@@ -68,7 +72,7 @@ export function PreviewPane() {
   );
 }
 
-type Handle = ReturnType<typeof usePreviewSession>;
+type Handle = PreviewHandle;
 
 function Screen({ state, preview }: { state: PreviewState; preview: Handle }) {
   const inside = state.inside;
