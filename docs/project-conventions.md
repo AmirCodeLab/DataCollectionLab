@@ -856,9 +856,11 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    `POST /forms/compile` and `POST /forms/expressions`, holding no form logic
    (every screen number, diagnostic and parsed expression on that page is
    the server's answer, and `docs/known-breaks.md` 122–132 are the guards).
-   Step 2 (reachability and liveness in `check_publishable`) is still open
-   and is the gap under the publish gate the scope doc's §0 describes; step 7
-   (preview, trace, test mode) is not started
+   Step 2 (reachability and liveness in `check_publishable`) landed the day
+   after, closing the gap under the publish gate the scope doc's §0 describes
+   — `conformance/reachability` is the six shapes it probed, and
+   `docs/known-breaks.md` 133–136 the guards; step 7 (preview, trace, test
+   mode) is not started
 1. **Login and permissions.** Everything below depends on it. A user belongs to
    the organization, not to a project; a role is a set of permissions plus a
    scope, never a hard-coded branch, and every console screen checks a permission

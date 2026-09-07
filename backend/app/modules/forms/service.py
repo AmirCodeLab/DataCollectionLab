@@ -25,6 +25,7 @@ from app.core.ulid import new_ulid
 from app.modules.crypto.envelope import check_sensitivity_propagation
 from app.modules.entities.models import Dataset, DatasetVersion, FormVersionDataset
 from app.modules.form_engine.expression import forbidden_regex_feature
+from app.modules.form_engine.reachability import check_reachability
 from app.modules.form_engine.runtime import CompiledForm
 from app.modules.forms.models import Form, FormDeployment, FormDraft, FormVersion
 from app.modules.forms.schemas import (
@@ -132,6 +133,12 @@ def check_publishable(ir: dict[str, Any]) -> CompiledForm:
         for field_id, pattern, feature in _forbidden_patterns(compiled)
     ]
     violations += check_sensitivity_propagation(compiled)
+    # §10.2/§10.3: questions the form can never ask — on no screen, or inside
+    # a container that provably never appears. The importer's own diagnostic
+    # for the first (`questions_cannot_be_asked`) reached this gate only as an
+    # import record, which a builder structurally cannot supply; here every
+    # caller gets both (docs/phase3-item0-builder-scope.md §0).
+    violations += check_reachability(ir)
     if violations:
         raise PublishRefused(violations)
     return compiled

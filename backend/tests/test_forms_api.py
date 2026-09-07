@@ -66,6 +66,7 @@ def test_compile_reports_the_evaluation_order(form: dict[str, Any]) -> None:
         "fieldCount",
         "evaluationOrder",
         "warnings",
+        "neverShown",
         "screens",
         "instancePlans",
     }
@@ -449,3 +450,66 @@ def test_an_ast_with_no_surface_says_so_rather_than_inventing_one() -> None:
     body = response.json()
     assert body["text"] is None
     assert "no surface syntax" in body["error"]
+
+
+def test_compile_reports_which_questions_are_never_shown() -> None:
+    """`neverShown` is the finding behind the §10.3 warning, structured.
+
+    A builder's badge reads ids from it rather than parsing the warning's
+    prose — the console renders diagnostics, it never composes or parses them.
+    Reachability vector 004 is the same shape.
+    """
+    form = {
+        "irVersion": "0.1",
+        "formId": "staged",
+        "version": 1,
+        "title": {"en": "Staged"},
+        "defaultLanguage": "en",
+        "languages": ["en"],
+        "children": [
+            {
+                "type": "question",
+                "id": "later",
+                "dataType": "text",
+                "label": {"en": "Later"},
+                "relevant": {"op": "lit", "value": False},
+            },
+            {"type": "question", "id": "now", "dataType": "text", "label": {"en": "Now"}},
+        ],
+    }
+    response = call("POST", "/api/v1/forms/compile", json={"form": form})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["neverShown"] == ["later"]
+    assert body["warnings"] == ["later: unreachable relevance (statically false)"]
+
+
+def test_compile_refuses_a_container_that_never_appears() -> None:
+    """The same gate publish runs, so the builder learns while editing.
+    Reachability vector 003 is the shape."""
+    form = {
+        "irVersion": "0.1",
+        "formId": "dead",
+        "version": 1,
+        "title": {"en": "Dead"},
+        "defaultLanguage": "en",
+        "languages": ["en"],
+        "children": [
+            {
+                "type": "group",
+                "id": "g",
+                "label": {"en": "G"},
+                "relevant": {"op": "lit", "value": False},
+                "children": [
+                    {"type": "question", "id": "a", "dataType": "text", "label": {"en": "A"}}
+                ],
+            },
+            {"type": "question", "id": "q", "dataType": "text", "label": {"en": "Q"}},
+        ],
+    }
+    response = call("POST", "/api/v1/forms/compile", json={"form": form})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == [
+        "'g' is never shown: its relevant is statically false, so 1 question(s) inside it "
+        "would never be asked: 'a' (Form IR §10.3)."
+    ]

@@ -13,7 +13,7 @@ import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 INT_MIN = -(2**63)
@@ -813,6 +813,59 @@ def evaluate(expr: Any, ctx: EvalContext) -> Any:
         return impl(ctx, args)
 
     raise CompileError(f"unknown operator: {op}")
+
+
+def is_static(expr: Any) -> bool:
+    """§10.3: decidable without answers and without a clock.
+
+    No `ref`, no `today()`, no `now()`. An expression that reads an answer is
+    not static however plainly it fails — deciding *that* would be a data-flow
+    analysis, and two engines performing one independently is two definitions
+    of which forms publish.
+    """
+    if not isinstance(expr, dict):
+        return False  # absent, or not an expression at all
+    if collect_refs(expr) or _paths_any(expr):
+        return False
+    return not _calls_clock(expr)
+
+
+def _paths_any(expr: Any) -> bool:
+    """Any `ref` at all, including the `$row.` ones `collect_refs` drops."""
+    if not isinstance(expr, dict):
+        return False
+    if expr.get("op") == "ref":
+        return True
+    return any(_paths_any(a) for a in expr.get("args") or [])
+
+
+def _calls_clock(expr: Any) -> bool:
+    if not isinstance(expr, dict):
+        return False
+    if expr.get("op") == "call" and expr.get("fn") in ("today", "now"):
+        return True
+    return any(_calls_clock(a) for a in expr.get("args") or [])
+
+
+def static_value(expr: Any) -> Any:
+    """The value of a static expression, by §4.7 over an empty context.
+
+    Callers check `is_static` first; the clock passed here is never read.
+    """
+    return evaluate(
+        expr,
+        EvalContext(values={}, today=date(2000, 1, 1), now=datetime(2000, 1, 1, tzinfo=UTC)),
+    )
+
+
+def statically_false(expr: Any) -> bool:
+    """§10.3's "statically false": static, and evaluating to exactly `false`.
+
+    Exactly `false` — a static expression that evaluates to null is not false
+    (§4.4 coerces null to *true* at the relevance boundary), and `0` is not
+    false either under §4.7's no-coercion rule.
+    """
+    return is_static(expr) and static_value(expr) is False
 
 
 def collect_refs(expr: Any, out: set[str] | None = None) -> set[str]:

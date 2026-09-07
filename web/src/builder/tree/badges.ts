@@ -4,16 +4,17 @@
  * renders it. So every badge here is a lookup into `CompileResponse.screens`
  * and `instancePlans` — which screen holds this question, how many others
  * are on it — and nothing is counted, numbered or inferred from the document.
- * When there is no answer for a node there is no badge, including the one
- * case the scope names ("never shown"): that check does not exist server-side
- * yet, and a console that guessed it would be the third implementation of
- * §11.1 the scope warns about.
+ * When there is no answer for a node there is no badge. "Never shown" is the
+ * server's `neverShown` list (Form IR §10.3, `reachability.py`) — an id is in
+ * it or it is not, and this file does not look at the node's `relevant` to
+ * decide, because a console that guessed would be the third implementation of
+ * §10.3 the scope warns about.
  */
 
 import type { CompileResponse, ScreenSummary } from "@/api/types";
 import { isQuestion, isRepeat, type IrNode, type NodePath } from "@/builder/ir";
 
-export type BadgeTone = "screen" | "computed" | "roster";
+export type BadgeTone = "screen" | "computed" | "roster" | "never";
 
 export interface Badge {
   text: string;
@@ -45,6 +46,13 @@ export function badgeFor(
     return { text: "roster — 1 screen, any number of rows", tone: "roster" };
   }
   if (!isQuestion(node) || result === null) return null;
+
+  // §10.3: the document itself says this question is never shown. The
+  // server decided; the plan may still list the question on a screen, and
+  // the badge that matters is this one.
+  if (result.neverShown?.includes(node.id)) {
+    return { text: "never shown", tone: "never" };
+  }
 
   const found =
     path.repeat !== null

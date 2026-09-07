@@ -437,6 +437,13 @@ class CompiledForm(val ir: FormIr) {
             if (f.dataType == "decimal" && (f.node.constraint as? Expr.Op)?.op == "eq") {
                 warnings.add("${f.fieldId}: direct equality comparison on a decimal field")
             }
+            // §10.3: a statically-false relevant on a question is a warning —
+            // staging is real work. On a container it is a §10.2 error, checked
+            // by `checkReachability`, because nobody writes questions in order
+            // to guarantee they are never asked.
+            if (staticallyFalse(f.node.relevant)) {
+                warnings.add("${f.fieldId}: unreachable relevance (statically false)")
+            }
         }
     }
 }

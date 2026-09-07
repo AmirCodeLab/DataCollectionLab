@@ -1,0 +1,59 @@
+{
+  "id": "reachability-001",
+  "type": "reachability",
+  "description": "An inline row source with no rows and no add never holds an instance; the question inside is refused, not lost",
+  "shape": "empty inline roster, no add",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p1",
+    "version": 1,
+    "title": {
+      "en": "p1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "r1",
+        "label": {
+          "en": "r1"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "a1",
+            "dataType": "text",
+            "label": {
+              "en": "a1"
+            }
+          }
+        ],
+        "rowSource": {
+          "kind": "inline",
+          "items": [],
+          "allowAdd": false,
+          "allowDelete": false
+        }
+      },
+      {
+        "type": "question",
+        "id": "q1",
+        "dataType": "text",
+        "label": {
+          "en": "q1"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'r1' never holds an instance: its fixed list is empty and rows cannot be added, so 1 question(s) inside it would never be asked: 'a1' (Form IR §10.3)."
+  ],
+  "expectedWarnings": [],
+  "expectedNeverShown": [
+    "a1"
+  ]
+}

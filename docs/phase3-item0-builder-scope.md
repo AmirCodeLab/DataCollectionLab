@@ -153,6 +153,17 @@ None of this is builder work. It is the floor the builder stands on, and if it
 is built after the editor it will be built against forms people have already
 published.
 
+> **Done 7 September 2026, after the editor** — the order this section
+> warned against, and by one day. All three: reachability and liveness in
+> `check_publishable` (`app/modules/form_engine/reachability.py`, matched by
+> `Reachability.kt`), the error/warning split in §10.3 with the three repeat
+> shapes added in a spec commit of its own, and the six shapes above as
+> `conformance/reachability` 001–006 verbatim. Four of the six are refused,
+> the leaf publishes with the §10.3 warning, the empty field-list publishes
+> clean. `POST /forms/compile` returns the finding structured as `neverShown`,
+> which is the tree's "never shown" badge in §3's table. Between the editor
+> merging and this landing, nothing was published through it.
+
 ---
 
 ## 1. What v1 can express, and what it deliberately cannot
@@ -760,10 +771,9 @@ Not the form model, not compilation, not publishing. §2.2 was right about that.
 1. `wasmJs()` spike — decide the preview host before designing around it.
    **Done**: O-3 closed for option (a), `docs/wasm-spike.md`.
 2. Reachability + liveness into `check_publishable`, both engines, matched pair,
-   known-breaks row. **Before any editor.** **Not done** — §10.3 has the
-   definition; neither engine implements it. The editor was built without it
-   (below), which is the order this list warned against, and the "never shown"
-   badge in §3's table has no server field behind it until this lands.
+   known-breaks row. **Before any editor.** **Done 2026-09-07, one day after
+   the editor** — the order this list warned against. §0.4 has the record;
+   breaks 133–136.
 3. `addLabel` / `summaryLabel` on both engines with vectors — shared with
    item 3. **Done 2026-09-06.**
 4. `screens` on `CompileResponse`; collectable types over the API;

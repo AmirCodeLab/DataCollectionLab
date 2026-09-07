@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.form_engine.expression import CompileError
+from app.modules.form_engine.reachability import never_shown_questions
 from app.modules.form_engine.runtime import CompiledForm, FormInstance
 from app.modules.form_engine.screens import FormScreen, build_screen_plan
 from app.modules.forms import service
@@ -297,6 +298,7 @@ async def compile_form(request: CompileRequest) -> CompileResponse:
         field_count=len(compiled.fields),
         evaluation_order=compiled.topo_order,
         warnings=compiled.warnings,
+        never_shown=never_shown_questions(request.form),
         screens=[_screen(s) for s in plan.screens],
         instance_plans={
             repeat_id: [_screen(s) for s in screens]

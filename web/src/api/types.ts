@@ -39,6 +39,7 @@ export interface CompileResponse {
   fieldCount: number;
   evaluationOrder: string[];
   warnings: string[];
+  neverShown?: string[];
   screens?: ScreenSummary[];
   instancePlans?: Record<string, ScreenSummary[]>;
 }

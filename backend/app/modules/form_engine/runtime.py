@@ -21,6 +21,7 @@ from .expression import (
     coerce_boolean,
     collect_refs,
     evaluate,
+    statically_false,
 )
 from .text import render_field_text, slot_indices
 
@@ -410,6 +411,12 @@ class CompiledForm:
                     self.warnings.append(
                         f"{f.field_id}: direct equality comparison on a decimal field"
                     )
+            # §10.3: a statically-false relevant on a question is a warning —
+            # staging is real work. On a container it is a §10.2 error, checked
+            # at the publish gate (`reachability.check_reachability`), because
+            # nobody writes questions in order to guarantee they are never asked.
+            if statically_false(f.node.get("relevant")):
+                self.warnings.append(f"{f.field_id}: unreachable relevance (statically false)")
 
 
 def _paths(expr: Any) -> set[str]:

@@ -1,0 +1,48 @@
+{
+  "id": "reachability-004",
+  "type": "reachability",
+  "description": "A statically-false relevant on a question is a §10.3 warning: staging is real work",
+  "shape": "statically false relevant (question)",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p4",
+    "version": 1,
+    "title": {
+      "en": "p4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "a4",
+        "dataType": "text",
+        "label": {
+          "en": "a4"
+        },
+        "relevant": {
+          "op": "lit",
+          "value": false
+        }
+      },
+      {
+        "type": "question",
+        "id": "q4",
+        "dataType": "text",
+        "label": {
+          "en": "q4"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [],
+  "expectedWarnings": [
+    "a4: unreachable relevance (statically false)"
+  ],
+  "expectedNeverShown": [
+    "a4"
+  ]
+}

@@ -577,7 +577,7 @@ the same mistake would make a fix look complete when only one half of it was.
 | | |
 |---|---|
 | **Where** | `specs/form-ir-v0.1.md` §10.3; `shared/form-engine/.../Runtime.kt` `lint()`; `backend/app/modules/form_engine/runtime.py` `_lint` |
-| **Status** | Open. Read from both engines 6 September 2026 |
+| **Status** | Open, narrowed. Read from both engines 6 September 2026; `unreachable relevance (statically false)` implemented on both engines 7 September 2026 with `conformance/reachability` 004 asserting it — the first vector in the repository to assert a compile warning. Two of the five remain unimplemented |
 | **Why not fixed** | Two of the three missing warnings need a definition before they can be written, and until this commit the third did too. `unreachable relevance (statically false)` had no definition of *statically false* anywhere in the specification; §10.3 now has one, and the container case it separates out is a §10.2 error rather than a warning. `repeat with no bound` and `unused calculate` are still one line of prose each with no rule under them. Implementing any of the three ahead of its definition is how the two engines come to disagree |
 | **Blocks** | Phase 3 item 0. A visual builder's whole value over a spreadsheet is telling an author what is wrong while they are still looking at it, and the warnings are most of what there is to tell them |
 
@@ -599,7 +599,7 @@ Three named warnings have no implementation on either engine:
 |---|---|
 | missing translation | both engines |
 | decimal equality comparison | both engines |
-| unreachable relevance (statically false) | **neither** |
+| unreachable relevance (statically false) | both engines, since 2026-09-07 (`reachability-004`) |
 | repeat with no bound | **neither** |
 | unused calculate | **neither** |
 
