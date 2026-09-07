@@ -215,6 +215,33 @@ of form behaviour, everywhere** — not a second one for the web.
     nothing. A finding not written down is the only one that cannot be
     recovered.
 
+13. **A step meant to check state must not contain a command that changes
+    it.** A diagnostic that mutates is not a diagnostic. The shape to refuse is
+    a listing pipeline with a mutating command inside it — `git branch -d` in
+    a loop written to *show* which branches are merged, a `rm` in a script
+    written to *count* files, an `UPDATE` in a query written to *see* a row.
+    Check first, in a command that can only read; act second, in a command
+    that only acts; never both in one.
+
+    It happened on 2026-09-07, during the branch cleanup after PRs #33 and
+    #34. The first pass refused two merged branches (`git branch -d` compares
+    against a gone upstream and says "not fully merged"), and the rule for a
+    refusal is to stop. The next step was meant to *explain* the refusal —
+    show the message, count the commits not on `main` — and was written with
+    `-d` as its first line. It deleted both branches. Both were at zero
+    commits ahead of `main`, so nothing was lost, which is exactly why this is
+    written down now: the next time the check says "not fully merged" it may
+    be telling the truth, and a check that deletes what it is checking would
+    have destroyed the evidence along with the work.
+
+    The tell is grammatical. A step described as "show", "list", "count",
+    "confirm" or "see why" must be built only from commands that read. If a
+    mutating command is in it, the description is wrong or the command is,
+    and either way the step is not run until they agree. Rule 12's cousin:
+    that one is about work that vanishes because nobody wrote it down; this
+    one is about work that vanishes because the person looking at it was
+    holding the wrong tool.
+
 ## The API contract
 
 The app is the source of truth. Everything downstream is generated from it:
