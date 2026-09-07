@@ -673,6 +673,55 @@ small; the runner is the cost, and it is a budget decision rather than an
 engineering one. Until then this row stays open and says so.
 
 
+## 20. The handset shows a blank screen for a roster
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp` — the screen for a `repeat`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
+| **Status** | Open |
+| **Why not fixed** | The roster UI is the half of phase 3 item 3 that was left after the engines landed (§11.3, `screens-012`…`025`): the engine has the instance list, the add rule and the row labels, and the shared UI does not render them yet |
+| **Blocks** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
+
+A form authored in the builder with a repeat over a fixed list of two rows
+(`rowSource.kind: "inline"`, `allowAdd: false`, one question bound to the
+row's value) reached the emulator and showed, at screen 5 of 7, nothing: no
+row list, no "Mother" or "Father", no control to enter an instance. Previous
+and Next worked; the two questions inside the repeat could not be answered,
+and the submission finalized and synced without them.
+
+The engine is right about the screen — it is one screen, the plan names it,
+the row screens exist beneath it — and the publish gate is right to have let
+the form through, since the rows are there. What is missing is the view. It is
+the same shape as defect 14 one level up: the questions are in the document,
+they survive publish, and on the phone nothing asks them.
+
+## 21. A device with a cursor from another database pulls nothing and calls itself synced
+
+| | |
+|---|---|
+| **Where** | `shared/core/.../SyncClient.kt` (the pull loop), `backend/app/modules/sync/service.py` `pull`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
+| **Status** | Open |
+| **Why not fixed** | Needs a decision about what a server *is* to a device: the pull cursor is a position in one server's op log, and nothing identifies the log. A cursor is only meaningful against the database that minted it, and the protocol carries no way to say which one that was |
+| **Blocks** | Any rebuild or restore of a server, and any test environment recreated beside a device that has synced before — which is every emulator on every developer's machine |
+
+The device had synced against an earlier database and kept `pull_cursor =
+287`. The database was recreated, the seed ran, a form was published and
+deployed. The device pulled with `cursor=287`, the new log had fewer entries
+than that, the server answered 200 with nothing, and the app wrote "All
+changes synced" — with a form deployed to its environment that it would never
+receive. It was not an error; it was a success with nothing in it.
+
+That is the "0 ops waiting" shape one layer down: a state that reads as
+finished and is not, with nothing on screen to say so. A device that
+**failed** to sync would have been noticed. This one reported done.
+
+The fix is not "reset the cursor on error" — there was no error. The pull
+response needs to name the log it is a position in (a server or database
+identity the device stores beside its cursor), and a device whose stored
+identity does not match must treat its cursor as void and start from zero,
+saying so. Until then, `pm clear` on the device is the only remedy, and it is
+one nobody will know to apply.
+
 ## Closed
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
