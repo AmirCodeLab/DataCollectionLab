@@ -7,7 +7,7 @@
  * one violation per line, never rephrased and never composed here.
  */
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/api/client";
@@ -18,20 +18,29 @@ import {
   type PublishVersionResponse,
 } from "@/api/types";
 import { refusalsFrom } from "@/builder/compile";
+import { useDismiss } from "@/builder/dismiss";
+import type { FormIr } from "@/builder/ir";
 import { useBuilder } from "@/builder/store";
+import { nextVersion } from "./version";
 
 export interface PublishButtonProps {
   projectId: string;
+  /** The version numbers already published for this form, from the list. */
+  publishedVersions?: number[];
 }
 
 type Outcome =
   | { state: "idle" }
   | { state: "publishing" }
   | { state: "published"; response: PublishVersionResponse }
-  | { state: "refused"; violations: string[] }
-  | { state: "failed"; message: string };
+  /** A refusal is of one document; once that document changes it is history. */
+  | { state: "refused"; violations: string[]; forIr: FormIr }
+  | { state: "failed"; message: string; forIr: FormIr };
 
-export function PublishButton({ projectId }: PublishButtonProps) {
+export function PublishButton({
+  projectId,
+  publishedVersions = [],
+}: PublishButtonProps) {
   const ir = useBuilder((s) => s.ir);
   const saveStatus = useBuilder((s) => s.save.status);
   const queryClient = useQueryClient();
@@ -39,8 +48,20 @@ export function PublishButton({ projectId }: PublishButtonProps) {
   const [deployTo, setDeployTo] = useState<EnvironmentKind[]>([]);
   const [publishedBy, setPublishedBy] = useState("");
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
+  const container = useRef<HTMLSpanElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, container, close);
 
   if (ir === null) return null;
+  // A refusal or failure shown against a document the author has since
+  // edited would be a verdict on a form that no longer exists.
+  const current: Outcome =
+    (outcome.state === "refused" || outcome.state === "failed") &&
+    outcome.forIr !== ir
+      ? { state: "idle" }
+      : outcome;
+  const version = nextVersion(ir.version, publishedVersions);
+  const form = version === ir.version ? ir : { ...ir, version };
 
   const toggleEnvironment = (kind: EnvironmentKind) =>
     setDeployTo((current) =>
@@ -54,28 +75,36 @@ export function PublishButton({ projectId }: PublishButtonProps) {
     try {
       const response = await publishVersion({
         projectId,
-        form: ir,
+        form,
         deployTo,
         ...(publishedBy.trim() === ""
           ? {}
           : { publishedBy: publishedBy.trim() }),
       });
       setOutcome({ state: "published", response });
+      // The draft carries the number it became, so the next publish counts
+      // on from here and a reopen shows what is out there.
+      if (form !== ir) useBuilder.getState().editForm({ version });
       await queryClient.invalidateQueries({ queryKey: ["forms"] });
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 422) {
-        setOutcome({ state: "refused", violations: refusalsFrom(error) });
+        setOutcome({
+          state: "refused",
+          violations: refusalsFrom(error),
+          forIr: form,
+        });
       } else {
         setOutcome({
           state: "failed",
           message: error instanceof Error ? error.message : String(error),
+          forIr: form,
         });
       }
     }
   };
 
   return (
-    <span className="relative inline-block text-xs">
+    <span ref={container} className="relative inline-block text-xs">
       <button
         type="button"
         className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700"
@@ -90,8 +119,9 @@ export function PublishButton({ projectId }: PublishButtonProps) {
           className="absolute end-0 top-full z-10 mt-1 w-[26rem] max-w-[90vw] rounded border border-slate-300 bg-white p-3 text-start shadow-lg"
         >
           <p className="text-slate-600">
-            Publishes the form as it is in this editor as the next numbered
-            version, through the same checks an import runs.
+            Publishes the form as it is in this editor as{" "}
+            <strong>version {version}</strong>, through the same checks an
+            import runs.
           </p>
           {saveStatus !== "clean" && (
             <p className="mt-2 text-amber-700" role="note">
@@ -137,7 +167,7 @@ export function PublishButton({ projectId }: PublishButtonProps) {
               Close
             </button>
           </div>
-          <Result outcome={outcome} />
+          <Result outcome={current} />
         </div>
       )}
     </span>

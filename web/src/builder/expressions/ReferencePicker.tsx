@@ -1,7 +1,9 @@
 /** The reference picker, as a disclosure and as a `<select>`. The grouping
  *  and the three decisions behind it live in `picker.ts`. */
 
-import { useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
+
+import { useDismiss } from "@/builder/dismiss";
 
 import type { FormIr } from "@/builder/ir";
 import { pickerGroups, type PickerEntry } from "./picker";
@@ -32,6 +34,9 @@ export function ReferencePicker({
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState(false);
   const filterId = useId();
+  const container = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, container, close);
   const groups = pickerGroups(ir, nodeId);
   const needle = filter.trim().toLowerCase();
   const matches = (entry: PickerEntry): boolean =>
@@ -40,7 +45,7 @@ export function ReferencePicker({
     entry.label.toLowerCase().includes(needle);
 
   return (
-    <div className="relative inline-block text-xs">
+    <div ref={container} className="relative inline-block text-xs">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

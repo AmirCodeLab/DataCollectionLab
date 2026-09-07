@@ -23,6 +23,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Card
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -111,6 +112,24 @@ fun CollectionScreen(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 )
             }
+            if (state.loadError != null) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "This submission cannot be opened",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        modifier = Modifier.padding(top = 8.dp),
+                        text = state.loadError,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                return@Scaffold
+            }
             if (state.missingFormVersion != null) {
                 // Reachable only if form retention failed (Form IR §9): the
                 // store keeps every version a submission refers to. Rendering
@@ -152,6 +171,22 @@ fun CollectionScreen(
                         )
                     }
                 }
+                val openRow = state.openRow
+                if (openRow != null) {
+                    // Inside a row (§11.3): which row, and the two pairs the
+                    // engine reports for it. The form-level pair in the bar
+                    // below does not move while here — the enumerator has not
+                    // left the roster screen.
+                    item(key = "open_row") {
+                        OpenRowHeader(openRow, state.language, onAction)
+                    }
+                }
+                val roster = state.roster
+                if (roster != null) {
+                    item(key = "roster_${roster.repeatId}") {
+                        RosterList(roster, state.language, !state.finalized, onAction)
+                    }
+                }
                 if (state.captureMessage != null) {
                     // A refusal worth explaining — a GPS fix too imprecise to
                     // keep, a camera permission denied. Above the questions
@@ -176,6 +211,133 @@ fun CollectionScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * A repeat screen (Form IR §11.3): the rows in their current order, a way into
+ * each, an add control where §2.3 permits adding and a delete control on each
+ * row where it permits deleting. It asks nothing itself.
+ *
+ * All four row sources render through this one composable, identically. The
+ * source decided where the rows came from; it decides nothing about how they
+ * look, and nothing here can tell a sampled member from an added one.
+ */
+@Composable
+private fun RosterList(
+    roster: RosterUi,
+    language: String,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = roster.title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        if (roster.rows.isEmpty()) {
+            Text(
+                text = if (roster.canAdd) UiStrings.noRowsYet(language)
+                else UiStrings.noRowsAndNoAdd(language),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        roster.rows.forEach { row ->
+            RosterRow(roster.repeatId, row, language, enabled, onAction)
+        }
+        if (roster.canAdd) {
+            Button(
+                onClick = { onAction(CollectionAction.OnAddRow(roster.repeatId)) },
+                enabled = enabled,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text(roster.addLabel ?: UiStrings.addRow(language))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RosterRow(
+    repeatId: String,
+    row: RowUi,
+    language: String,
+    enabled: Boolean,
+    onAction: (CollectionAction) -> Unit,
+) {
+    // A delete asks once, inline, and never through a platform dialog.
+    var confirmingDelete by remember(row.instanceId) { mutableStateOf(false) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = false, role = Role.Button) {
+                onAction(CollectionAction.OnEnterRow(repeatId, row.instanceId))
+            },
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = row.label,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            if (row.canDelete && enabled) {
+                if (confirmingDelete) {
+                    TextButton(onClick = { confirmingDelete = false }) {
+                        Text(UiStrings.cancel(language))
+                    }
+                    TextButton(onClick = {
+                        confirmingDelete = false
+                        onAction(CollectionAction.OnDeleteRow(repeatId, row.instanceId))
+                    }) {
+                        Text(UiStrings.deleteRow(language), color = MaterialTheme.colorScheme.error)
+                    }
+                } else {
+                    TextButton(onClick = { confirmingDelete = true }) {
+                        Text(UiStrings.deleteRow(language))
+                    }
+                }
+            }
+            TextButton(onClick = { onAction(CollectionAction.OnEnterRow(repeatId, row.instanceId)) }) {
+                Text(UiStrings.openRow(language))
+            }
+        }
+    }
+}
+
+/** Which row is open and where in it the enumerator is (§11.3's two pairs). */
+@Composable
+private fun OpenRowHeader(
+    row: InstanceUi,
+    language: String,
+    onAction: (CollectionAction) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = row.rowLabel,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { onAction(CollectionAction.OnLeaveRow) }) {
+                Text(UiStrings.backToList(language))
+            }
+        }
+        Text(
+            text = UiStrings.rowProgress(
+                language,
+                row.acrossPosition, row.acrossTotal,
+                row.withinPosition, row.withinTotal,
+            ),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

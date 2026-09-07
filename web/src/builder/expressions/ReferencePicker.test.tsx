@@ -82,3 +82,32 @@ describe("ReferencePicker", () => {
     expect(screen.queryByText("age")).toBeNull();
   });
 });
+
+describe("the picker closes the way people expect", () => {
+  it("closes on Escape and on a pointer going down outside it", () => {
+    render(
+      <ReferencePicker
+        ir={fixture()}
+        nodeId="income"
+        onPick={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /insert field/i }));
+    expect(screen.getByRole("dialog", { name: "Fields" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "Fields" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /insert field/i }));
+    expect(screen.getByRole("dialog", { name: "Fields" })).toBeInTheDocument();
+    // Inside: stays. Outside: closes — the first end-to-end run typed a whole
+    // expression into the filter box because it did not.
+    fireEvent.pointerDown(screen.getByPlaceholderText("filter…"));
+    expect(screen.getByRole("dialog", { name: "Fields" })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(
+      screen.queryByRole("dialog", { name: "Fields" }),
+    ).not.toBeInTheDocument();
+  });
+});

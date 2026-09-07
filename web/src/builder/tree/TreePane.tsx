@@ -286,37 +286,46 @@ function NodeRow({
       ref={setNodeRef}
       style={{ marginInlineStart: `${String(depth)}rem` }}
       className={clsx(
-        "group flex items-center gap-2 rounded px-1.5 py-0.5",
+        "group rounded px-1.5 py-0.5",
         selected ? "bg-slate-100" : "hover:bg-slate-50",
         isDragging && "opacity-40",
       )}
       data-node-id={node.id}
     >
-      <button
-        type="button"
-        className="cursor-grab touch-none text-slate-400"
-        aria-label={`drag ${node.id}`}
-        {...attributes}
-        {...listeners}
-      >
-        ⋮⋮
-      </button>
-      <button
-        type="button"
-        onClick={() => select(node.id)}
-        aria-current={selected ? "true" : undefined}
-        className="flex min-w-0 flex-1 items-baseline gap-2 text-start"
-      >
-        <span className={clsx("truncate", !known && "italic text-slate-500")}>
-          {known ? displayLabel(node, ir) : "unrecognised node"}
-        </span>
-        <code className="text-xs text-slate-500">{node.id}</code>
-        <span className="text-[11px] text-slate-400">{typeMarker(node)}</span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="shrink-0 cursor-grab touch-none text-slate-400"
+          aria-label={`drag ${node.id}`}
+          {...attributes}
+          {...listeners}
+        >
+          ⋮⋮
+        </button>
+        <button
+          type="button"
+          onClick={() => select(node.id)}
+          aria-current={selected ? "true" : undefined}
+          aria-label={`${known ? displayLabel(node, ir) : "unrecognised node"} (${node.id})`}
+          className="flex min-w-0 flex-1 items-baseline gap-2 text-start"
+        >
+          <span className={clsx("truncate", !known && "italic text-slate-500")}>
+            {known ? displayLabel(node, ir) : "unrecognised node"}
+          </span>
+          <code className="shrink-0 text-xs text-slate-500">{node.id}</code>
+          <span className="hidden shrink-0 text-[11px] text-slate-400 xl:inline">
+            {typeMarker(node)}
+          </span>
+        </button>
+        {selected && path !== null && <RowActions ir={ir} path={path} />}
+      </div>
       {badge !== null && (
+        // Its own line, under the label: a badge beside the label sat over it
+        // as soon as either grew, which the first end-to-end run showed on
+        // every stale row. Nothing overlaps a line of its own.
         <span
           className={clsx(
-            "inline-block whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px]",
+            "ms-6 mt-0.5 inline-block rounded border px-1.5 py-0.5 text-[11px] leading-tight",
             TONE[badge.tone],
             freshness === "stale" && "opacity-50",
           )}
@@ -330,7 +339,6 @@ function NodeRow({
           {freshness === "stale" && <span className="ms-1">(stale)</span>}
         </span>
       )}
-      {selected && path !== null && <RowActions ir={ir} path={path} />}
     </div>
   );
 }

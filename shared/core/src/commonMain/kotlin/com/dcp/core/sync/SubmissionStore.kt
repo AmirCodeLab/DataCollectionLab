@@ -22,6 +22,14 @@ import kotlinx.serialization.json.Json
 object OpKind {
     const val SET = "set"
     const val UNSET = "unset"
+    /**
+     * A repeat instance created or deleted (sync §2). `path` names the instance
+     * — `members[i3]` — and there is no value. An instance with no answered
+     * field still exists, and a roster row of blanks is a different fact from
+     * a member nobody recorded; the server's fold reads it the same way.
+     */
+    const val REPEAT_ADD = "repeat_add"
+    const val REPEAT_DELETE = "repeat_delete"
     const val FINALIZE = "finalize"
     const val REOPEN = "reopen"
 }
