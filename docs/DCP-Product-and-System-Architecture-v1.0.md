@@ -711,7 +711,7 @@ The critical expertise is form engineering, offline synchronisation, data modell
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
-| O-2 | **Server-side evaluation** | JVM engine sidecar vs Python port | JVM sidecar |
+| O-2 | **Server-side evaluation** | JVM engine sidecar vs Python port | JVM sidecar. **Still open as of 7 September 2026, and item 0 did not close it.** The builder's preview (§18.4, `docs/phase3-item0-builder-scope.md` §4) settled the *console's* engine — the Kotlin engine compiled to Wasm, in the browser, with no route from the console to `POST /forms/evaluate` at all (`scripts/generate_api_contract.py`, `CONSOLE_UNREACHABLE_ROUTES`). It settled nothing about the *server's*: the Python reference in `backend/app/modules/form_engine` is still production for `/forms/evaluate` and for the publish gate (`check_publishable`, compile, reachability), held to the Kotlin engine only by `conformance/`. "Preview uses Wasm" is not this decision. |
 | O-4 | **Pricing model** | Per-seat vs per-submission vs flat tiers | Per-seat — attacks the competitor's weakness directly; but it dictates whether metering and quotas are core |
 | O-5 | **Open-core** | Fully proprietary vs open-source engine only | Open-source the form engine only: drives adoption and standards credibility, keeps the moat in the server |
 | O-6 | **Extensibility** | No plugins vs constrained custom widgets | Constrained widget SDK by V1.5 — without it, every edge case becomes a feature request |

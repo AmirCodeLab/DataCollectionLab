@@ -71,13 +71,16 @@ an approximation — the engine. A form cannot behave one way in preview and
 another in the field, and the only way to guarantee that is to have one
 implementation of the behaviour.
 
-**The engine does not compile to Wasm today.** An earlier version of this
-paragraph said it already did, "for exactly this reason". That was false: no
-Gradle file in this repository declares a `wasmJs` target, and
-`shared/form-engine` has one test source set, `jvmTest`. What is true is the
-property the false sentence was reaching for — the module is dependency-free of
-UI and Android framework code, which is what would make a browser build
-possible. Nothing has shown that it works.
+**The engine compiles to Wasm since 6 September 2026, and the preview runs
+it.** An earlier version of this paragraph said it already did, "for exactly
+this reason", six weeks before any Gradle file declared a `wasmJs` target; the
+correction stood here until the spike (`docs/wasm-spike.md`) made the sentence
+true and step 7 of item 0 built the preview on it. The claim is now held
+structurally rather than by this paragraph: the console has no route to
+server-side evaluation (`scripts/generate_api_contract.py`,
+`CONSOLE_UNREACHABLE_ROUTES`), and a page test fails if the preview path ever
+issues one (known break 149). What the preview settled is the console's engine;
+the server's (O-2) is still open.
 
 The distinction matters because this was load-bearing for a decision. Preview
 in the browser is the only unknown in item 0; everything else is a UI over

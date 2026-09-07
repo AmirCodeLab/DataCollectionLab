@@ -2890,6 +2890,13 @@
               }
             ],
             "title": "Updatedby"
+          },
+          "testCases": {
+            "items": {
+              "$ref": "#/components/schemas/TestCase"
+            },
+            "type": "array",
+            "title": "Testcases"
           }
         },
         "type": "object",
@@ -2956,6 +2963,50 @@
           "answers"
         ],
         "title": "EvaluateResponse"
+      },
+      "Expectation": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "relevant": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevant"
+          },
+          "valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "checkValue": {
+            "type": "boolean",
+            "title": "Checkvalue",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "Expectation",
+        "description": "What the author expects to be true of one path after the steps.\n\nEach field is optional and only the ones present are checked, so a case\ncan say \"hidden\" without saying what the value is."
       },
       "ExportFormat": {
         "type": "string",
@@ -5261,6 +5312,20 @@
               }
             ],
             "title": "Updatedby"
+          },
+          "testCases": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TestCase"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Testcases"
           }
         },
         "type": "object",
@@ -5753,6 +5818,96 @@
         ],
         "title": "SubmissionSummary",
         "description": "One row of the submission list."
+      },
+      "TestCase": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/TestStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "expectations": {
+            "items": {
+              "$ref": "#/components/schemas/Expectation"
+            },
+            "type": "array",
+            "title": "Expectations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TestCase",
+        "description": "An author's test case (builder scope §4, \"Test mode\").\n\nOwned by the author, about one form, and supposed to change when the form\nchanges. **Not a conformance vector and never stored as one** — see\n`migrations/schema/007_form_draft_test_cases.sql`. The server stores and\nreturns these; the builder runs them through the engine."
+      },
+      "TestStep": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/TestStepKind"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "repeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeatid"
+          },
+          "instanceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instanceid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "TestStep",
+        "description": "One step of an author's test case: what the enumerator would do."
+      },
+      "TestStepKind": {
+        "type": "string",
+        "enum": [
+          "set",
+          "addRow",
+          "deleteRow"
+        ]
       },
       "TombstoneSubject": {
         "type": "string",

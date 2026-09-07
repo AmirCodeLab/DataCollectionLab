@@ -10,7 +10,7 @@
  * the revision it loaded, and stop on a conflict rather than merge.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,11 +23,17 @@ import {
 } from "@/api/queries";
 import type { FormSummary } from "@/api/types";
 import { useAutoCompile } from "@/builder/compile";
+import { loadWasmEngine } from "@/builder/engine/wasm";
 import { IrMenu } from "@/builder/floor/IrMenu";
 import { asFormIr, emptyForm } from "@/builder/ir";
 import { PlanPane } from "@/builder/plan/PlanPane";
+import { PreviewPane } from "@/builder/preview/PreviewPane";
+import { PreviewProvider } from "@/builder/preview/PreviewProvider";
+import { PreviewToggle } from "@/builder/preview/PreviewToggle";
+import { usePreviewOpen } from "@/builder/preview/previewStore";
 import { PropertiesPane } from "@/builder/properties/PropertiesPane";
 import { PublishButton } from "@/builder/publish/PublishButton";
+import { TestModePane } from "@/builder/tests/TestModePane";
 import { useBuilder } from "@/builder/store";
 import { TreePane } from "@/builder/tree/TreePane";
 
@@ -80,7 +86,13 @@ function Opener({ form }: { form: FormSummary }) {
     if (opened === form.id || draft.data === undefined) return;
     if (draft.data !== null) {
       const parsed = asFormIr(draft.data.ir);
-      if ("ir" in parsed) open(form.id, parsed.ir, draft.data.revision);
+      if ("ir" in parsed)
+        open(
+          form.id,
+          parsed.ir,
+          draft.data.revision,
+          draft.data.testCases ?? [],
+        );
       return;
     }
     if (startFrom === null) {
@@ -136,39 +148,47 @@ function Opener({ form }: { form: FormSummary }) {
 function Editor({ form }: { form: FormSummary }) {
   useAutoSave(form.id);
   useAutoCompile();
+  const previewOpen = usePreviewOpen((s) => s.open);
+  // The engine, constructed here and nowhere else, and handed down: the
+  // preview, the trace and test mode all read this one (scope §2.1).
+  const [engine] = useState(() => loadWasmEngine());
   const title = useBuilder(
     (s) => s.ir?.title[s.ir.defaultLanguage] ?? form.title,
   );
 
   return (
-    <section className="flex h-[calc(100vh-7rem)] flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-2">
-        <Link to="/forms" className="text-sm text-blue-700 hover:underline">
-          Forms
-        </Link>
-        <h1 className="text-lg font-semibold">{title}</h1>
-        <code className="text-xs text-slate-500">{form.formId}</code>
-        <SaveStatus />
-        <span className="ms-auto flex items-center gap-3">
-          <IrMenu />
-          <PublishButton
-            projectId={form.projectId}
-            publishedVersions={form.versions}
-          />
-        </span>
-      </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_22rem] gap-4 pt-3">
-        <aside className="min-h-0 overflow-auto border-e border-slate-200 pe-3">
-          <TreePane />
-        </aside>
-        <div className="min-h-0 overflow-auto">
-          <PropertiesPane />
+    <PreviewProvider engine={engine}>
+      <section className="flex h-[calc(100vh-7rem)] flex-col">
+        <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-2">
+          <Link to="/forms" className="text-sm text-blue-700 hover:underline">
+            Forms
+          </Link>
+          <h1 className="text-lg font-semibold">{title}</h1>
+          <code className="text-xs text-slate-500">{form.formId}</code>
+          <SaveStatus />
+          <span className="ms-auto flex items-center gap-3">
+            <PreviewToggle />
+            <IrMenu />
+            <PublishButton
+              projectId={form.projectId}
+              publishedVersions={form.versions}
+            />
+          </span>
+        </header>
+        <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_22rem] gap-4 pt-3">
+          <aside className="min-h-0 overflow-auto border-e border-slate-200 pe-3">
+            <TreePane />
+          </aside>
+          <div className="min-h-0 overflow-auto">
+            {previewOpen ? <PreviewPane /> : <PropertiesPane />}
+          </div>
+          <aside className="min-h-0 overflow-auto border-s border-slate-200 ps-3">
+            <PlanPane />
+            <TestModePane />
+          </aside>
         </div>
-        <aside className="min-h-0 overflow-auto border-s border-slate-200 ps-3">
-          <PlanPane />
-        </aside>
-      </div>
-    </section>
+      </section>
+    </PreviewProvider>
   );
 }
 
@@ -215,24 +235,35 @@ function useAutoSave(formId: string) {
   const ir = useBuilder((s) => s.ir);
   const saved = useBuilder((s) => s.saved);
   const status = useBuilder((s) => s.save.status);
+  const testCases = useBuilder((s) => s.testCases);
   const inFlight = useRef(false);
 
   useEffect(() => {
-    if (ir === null || ir === saved) return;
+    // Dirty means the document changed (by identity) or a test case did
+    // (the store marks the status); either way the whole draft goes out.
+    if (ir === null || (ir === saved && status !== "dirty")) return;
     if (status === "conflict" || status === "saving" || inFlight.current)
       return;
     const handle = setTimeout(() => {
       const current = useBuilder.getState();
-      if (current.ir === null || current.ir === current.saved) return;
+      if (current.ir === null) return;
+      if (current.ir === current.saved && current.save.status !== "dirty")
+        return;
       const sent = current.ir;
       inFlight.current = true;
       current.saveStarted();
       // Omitted, not null, for a draft that does not exist yet: the schema
       // reads an absent revision as "I am starting this draft".
+      // The cases travel with every save: they are part of the draft, and a
+      // save that omitted them would leave the server holding yesterday's.
       const request =
         current.revision === null
-          ? { ir: sent }
-          : { ir: sent, expectedRevision: current.revision };
+          ? { ir: sent, testCases: current.testCases }
+          : {
+              ir: sent,
+              expectedRevision: current.revision,
+              testCases: current.testCases,
+            };
       saveDraft(formId, request)
         .then((doc) => {
           useBuilder.getState().saveSucceeded(sent, doc.revision);
@@ -251,5 +282,5 @@ function useAutoSave(formId: string) {
         });
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [formId, ir, saved, status]);
+  }, [formId, ir, saved, status, testCases]);
 }

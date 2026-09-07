@@ -1025,6 +1025,46 @@ class FormInstance(
     }
 
     /** The repeat instance a field id belongs to, for building a context. */
+    /**
+     * The annotated evaluation of one of a field's expressions, against the
+     * current answers (builder scope §4, "the trace").
+     *
+     * [path] is a state path — `age`, or `members[i3].age` — and the scope is
+     * read off it, so a question inside a row is traced in that row and not in
+     * the first one. [key] names the expression: `relevant`, `constraint`,
+     * `calculate`, `required`, `readOnly` or `default` on a question, or
+     * `countExpr` with a repeat id as [path]. Null when there is no such
+     * expression, or none of that kind on it.
+     *
+     * The only public way at the evaluation context, and deliberately narrow:
+     * it evaluates with [Evaluator], nothing else, and hands back a view.
+     */
+    fun trace(path: String, key: String): TraceNode? {
+        val open = path.indexOf('[')
+        val close = path.indexOf(']')
+        val scope: Pair<String, String>? =
+            if (open >= 0 && close > open) path.substring(0, open) to path.substring(open + 1, close)
+            else null
+        if (key == "countExpr") {
+            val repeat = form.repeats[path] ?: return null
+            val expr = repeat.countExpr ?: return null
+            return traceExpression(expr, context(null))
+        }
+        val fieldId = if (path.contains("].")) path.substringAfterLast("].") else path
+        val field = form.fields[fieldId] ?: return null
+        val node = field.node
+        val expr: Expr = when (key) {
+            "relevant" -> node.relevant
+            "constraint" -> node.constraint
+            "calculate" -> node.calculate
+            "required" -> node.required
+            "readOnly" -> node.readOnly
+            "default" -> node.default
+            else -> null
+        } ?: return null
+        return traceExpression(expr, context(scope ?: scopeOf(fieldId)))
+    }
+
     private fun scopeOf(fieldId: String): Pair<String, String>? {
         val repeat = form.fields.getValue(fieldId).repeat ?: return null
         // Resolution inside a repeat is the instance currently being evaluated;

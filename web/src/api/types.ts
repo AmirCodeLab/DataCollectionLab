@@ -253,21 +253,25 @@ export interface DraftDocument {
   revision: number;
   updatedAt: string;
   updatedBy?: string | null;
+  testCases?: TestCase[];
 }
 
 export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
 
 export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
 
-export interface EvaluateRequest {
-  form: Record<string, unknown>;
-  answers?: Record<string, unknown>;
-}
-
-export interface EvaluateResponse {
-  valid: boolean;
-  fields: Record<string, FieldSnapshot>;
-  answers: Record<string, unknown>;
+/**
+ * What the author expects to be true of one path after the steps.
+ *
+ * Each field is optional and only the ones present are checked, so a case
+ * can say "hidden" without saying what the value is.
+ */
+export interface Expectation {
+  path: string;
+  relevant?: boolean | null;
+  valid?: boolean | null;
+  value?: unknown;
+  checkValue?: boolean;
 }
 
 export const EXPORT_FORMATS = ["csv", "xlsx", "dta", "sav"] as const;
@@ -338,24 +342,6 @@ export interface ExpressionResponse {
   text?: string | null;
   error?: string | null;
   offset?: number | null;
-}
-
-/**
- * One field after recalculation — `FieldState.to_dict()` in the engine.
- *
- * Written out rather than left as a free-form object because this is the
- * shape a form builder renders: `relevant` and `valid` decide whether a
- * question is on screen and whether it is in error, and a client that has to
- * guess at them is reimplementing the engine to read its output.
- */
-export interface FieldSnapshot {
-  path: string;
-  relevant: boolean;
-  required: boolean;
-  readOnly: boolean;
-  value: unknown;
-  valid: boolean;
-  errors: string[];
 }
 
 export interface FormListResponse {
@@ -947,6 +933,7 @@ export interface SaveDraftRequest {
   ir: Record<string, unknown>;
   expectedRevision?: number | null;
   updatedBy?: string | null;
+  testCases?: TestCase[] | null;
 }
 
 /**
@@ -1066,6 +1053,34 @@ export interface SubmissionSummary {
   opCount: number;
   receivedAt: string;
 }
+
+/**
+ * An author's test case (builder scope §4, "Test mode").
+ *
+ * Owned by the author, about one form, and supposed to change when the form
+ * changes. **Not a conformance vector and never stored as one** — see
+ * `migrations/schema/007_form_draft_test_cases.sql`. The server stores and
+ * returns these; the builder runs them through the engine.
+ */
+export interface TestCase {
+  id: string;
+  name: string;
+  steps?: TestStep[];
+  expectations?: Expectation[];
+}
+
+/** One step of an author's test case: what the enumerator would do. */
+export interface TestStep {
+  kind: TestStepKind;
+  path?: string | null;
+  value?: unknown;
+  repeatId?: string | null;
+  instanceId?: string | null;
+}
+
+export const TEST_STEP_KINDS = ["set", "addRow", "deleteRow"] as const;
+
+export type TestStepKind = (typeof TEST_STEP_KINDS)[number];
 
 export const TOMBSTONE_SUBJECTS = [
   "submission",

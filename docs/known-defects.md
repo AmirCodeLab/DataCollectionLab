@@ -678,9 +678,8 @@ engineering one. Until then this row stays open and says so.
 | | |
 |---|---|
 | **Where** | `clients/composeApp` — the screen for a `repeat`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
-| **Status** | Open |
-| **Why not fixed** | The roster UI is the half of phase 3 item 3 that was left after the engines landed (§11.3, `screens-012`…`025`): the engine has the instance list, the add rule and the row labels, and the shared UI does not render them yet |
-| **Blocks** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
+| **Status** | **Closed 7 September 2026** (PR #34): `Roster.kt` renders §11.3 — the rows by their source labels, add and delete only where §2.3 permits, the row's own pair inside an instance — and `RosterTest` holds the claim that mattered most: finalisation is refused while a row's required question is unanswered. Verified on the emulator against the same form, second run in `docs/e2e-run-2026-09-07.md` |
+| **Blocked** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
 
 A form authored in the builder with a repeat over a fixed list of two rows
 (`rowSource.kind: "inline"`, `allowAdd: false`, one question bound to the

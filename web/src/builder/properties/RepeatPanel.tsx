@@ -19,6 +19,7 @@ import {
   type RepeatNode,
   type RowItem,
 } from "@/builder/ir";
+import { RepeatTrace } from "@/builder/preview/QuestionTrace";
 import { useBuilder } from "@/builder/store";
 import {
   Checkbox,
@@ -94,13 +95,18 @@ export function RepeatPanel({ ir, node }: { ir: FormIr; node: RepeatNode }) {
       )}
 
       {kind === "count" && (
-        <ExpressionEditor
-          label="count"
-          value={node.countExpr}
-          onChange={(next) => set("countExpr", next ?? { op: "lit", value: 1 })}
-          ir={ir}
-          nodeId={node.id}
-        />
+        <>
+          <RepeatTrace node={node} />
+          <ExpressionEditor
+            label="count"
+            value={node.countExpr}
+            onChange={(next) =>
+              set("countExpr", next ?? { op: "lit", value: 1 })
+            }
+            ir={ir}
+            nodeId={node.id}
+          />
+        </>
       )}
       {kind === "enumerator" && (
         <div className="grid grid-cols-2 gap-2">

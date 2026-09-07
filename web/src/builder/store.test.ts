@@ -103,3 +103,31 @@ describe("saving", () => {
     expect(useBuilder.getState().selectedId).toBeNull();
   });
 });
+
+describe("test cases live with the draft", () => {
+  beforeEach(() => {
+    useBuilder.getState().close();
+    useBuilder
+      .getState()
+      .open("01FORM", emptyForm("f", "F"), 1, [
+        { id: "tc1", name: "one", steps: [], expectations: [] },
+      ]);
+  });
+
+  it("are loaded with the draft, and an edit dirties the draft without touching the compile answer", () => {
+    const s = useBuilder.getState();
+    expect(s.testCases.map((c) => c.id)).toEqual(["tc1"]);
+    expect(s.save.status).toBe("clean");
+    s.compileStarted(s.ir!);
+    s.compileSucceeded(s.ir!, answer);
+    s.renameTestCase("tc1", "renamed");
+    const after = useBuilder.getState();
+    expect(after.testCases[0]?.name).toBe("renamed");
+    expect(after.save.status).toBe("dirty");
+    expect(after.compile.status).toBe("current");
+    expect(after.ir).toBe(s.ir);
+    s.addTestCase({ id: "tc2", name: "two", steps: [], expectations: [] });
+    s.removeTestCase("tc1");
+    expect(useBuilder.getState().testCases.map((c) => c.id)).toEqual(["tc2"]);
+  });
+});

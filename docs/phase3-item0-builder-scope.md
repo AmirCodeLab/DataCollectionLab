@@ -752,6 +752,24 @@ proposal, everything else is a known quantity, and if it fails the whole preview
 and test-mode design changes shape. But it touches an open decision, so I am not
 choosing it on my own.
 
+**Resolved: (a), 6–7 September 2026.** The spike (`docs/wasm-spike.md`) closed
+O-3 and step 7 built on it. Two consequences are worth stating because they are
+structural, not policy:
+
+- The console has **no route to (b)**. `POST /forms/evaluate` is outside the
+  console's generated surface (`CONSOLE_UNREACHABLE_ROUTES` in
+  `scripts/generate_api_contract.py`, held by `test_openapi_contract.py`, which
+  also reads the console's sources for the path), the engine is a constructed
+  dependency the page hands to one provider (`web/src/builder/engine/wasm.ts`,
+  `PreviewProvider`) rather than anything the preview could look up, and a
+  page test in the private-key test's shape fails if the preview path issues a
+  request to that route or lets an answer leave the page (break 149). A
+  "temporary" fallback to the reference for when Wasm will not load is the §2.1
+  sentence with a timer attached, and it has nowhere to attach.
+- **This settles the console's engine, not the server's.** O-2 is still open:
+  the Python reference remains production for `/forms/evaluate` and the publish
+  gate. The architecture doc's O-2 row says so.
+
 ---
 
 ## What is genuinely new work
@@ -785,7 +803,12 @@ Not the form model, not compilation, not publishing. §2.2 was right about that.
    and `/forms/{id}` in the console, plus `POST /forms` and three fields on
    `FormSummary` so a draft has a form row to belong to and a version to
    start from.
-7. Preview, then the trace, then test mode. **Not started.**
+7. Preview, then the trace, then test mode. **Done 2026-09-07**, in that
+   order, each verified in a browser against a real backend before the next
+   started: the handset's engine compiled to Wasm (`scripts/build_engine_wasm.sh`,
+   `web/src/builder/engine/facade.ts` is the contract), one session per page
+   that the preview, the trace and test mode all read; `form_draft.test_cases`
+   (migration 0007). Breaks 137–148.
 
 Steps 2 and 3 are the ones most likely to be pushed behind the editor and are
 the two that get more expensive for it — 2 because forms will already have been

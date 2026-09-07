@@ -12,13 +12,30 @@
  * one path every pane uses.
  */
 
-import { cleanup, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PROJECT_ID } from "@/test/vectors";
 import { renderAt, reply, watchForEscapes, type Escapes } from "@/test/harness";
 import { newQuestion } from "@/builder/ir";
+import { fakeEngine, questionsState } from "@/builder/preview/fixture";
+import { usePreviewOpen } from "@/builder/preview/previewStore";
 import { useBuilder } from "@/builder/store";
+
+// The page constructs its engine from `wasm.ts` and nowhere else; under test
+// that constructor hands back a fake, and the fake is then the only engine
+// the preview, the trace and test mode can reach.
+const fakeWasm = vi.hoisted(() => ({
+  engine: null as ReturnType<
+    typeof import("@/builder/preview/fixture").fakeEngine
+  > | null,
+}));
+vi.mock("@/builder/engine/wasm", () => ({
+  loadWasmEngine: () =>
+    fakeWasm.engine === null
+      ? Promise.reject(new Error("no engine for this test"))
+      : Promise.resolve(fakeWasm.engine),
+}));
 
 let escapes: Escapes;
 
@@ -66,6 +83,7 @@ interface Scenario {
   versions: number[];
   latestVersionId: string | null;
   draftIr?: unknown;
+  draftTestCases?: unknown[];
   putReply?: (body: unknown) => unknown;
 }
 
@@ -110,6 +128,7 @@ function serve(scenario: Scenario) {
         revision: 7,
         updatedAt: "2026-09-07T00:00:00Z",
         updatedBy: "someone",
+        testCases: scenario.draftTestCases ?? [],
       };
     }
     if (url === `/api/v1/forms/versions/${VERSION_ROW}`) {
@@ -142,6 +161,51 @@ afterEach(() => {
   cleanup();
   escapes.restore();
   useBuilder.getState().close();
+});
+
+describe("the preview path", () => {
+  afterEach(() => {
+    usePreviewOpen.getState().setOpen(false);
+    fakeWasm.engine = null;
+  });
+
+  it("asks nothing of the server: no answer leaves the page, and /forms/evaluate is never called", async () => {
+    fakeWasm.engine = fakeEngine(
+      questionsState,
+      questionsState,
+      questionsState,
+    );
+    const { handle } = serve({
+      hasDraft: true,
+      versions: [1],
+      latestVersionId: VERSION_ROW,
+    });
+    escapes = watchForEscapes(handle);
+    renderAt(`/forms/${FORM_ROW}`);
+    await opened();
+
+    // The walk: open the preview, answer, move on, trace the answered question.
+    usePreviewOpen.getState().setOpen(true);
+    await screen.findByText("Consent");
+    const answer = "7413";
+    fireEvent.change(screen.getByLabelText("Age"), {
+      target: { value: answer },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    usePreviewOpen.getState().setOpen(false);
+    useBuilder.getState().select("consent");
+    await screen.findByRole("heading", { name: /Question/ });
+
+    // The engine answered; the server was not asked. Same shape as the
+    // private-key test: every sink is watched, and the answer is in none.
+    expect(
+      fakeWasm.engine.calls.filter((c) => c.name === "previewSet"),
+    ).toHaveLength(1);
+    const evaluate = escapes.all().filter((e) => e.includes("forms/evaluate"));
+    expect(evaluate, "the preview reached server-side evaluation").toEqual([]);
+    const carried = escapes.all().filter((e) => e.includes(answer));
+    expect(carried, "an answer typed in the preview left the page").toEqual([]);
+  });
 });
 
 describe("an existing draft", () => {
@@ -178,6 +242,31 @@ describe("an existing draft", () => {
     });
     await waitFor(() => expect(useBuilder.getState().revision).toBe(8));
     expect(useBuilder.getState().save.status).toBe("clean");
+  });
+
+  it("the test cases load with the draft and go back with every save, as they are", async () => {
+    const testCase = {
+      id: "tc1",
+      name: "consent hides the page",
+      steps: [{ kind: "set", path: "consent", value: "no" }],
+      expectations: [{ path: "consent", relevant: true, checkValue: false }],
+    };
+    const { handle, puts } = serve({
+      hasDraft: true,
+      versions: [1],
+      latestVersionId: VERSION_ROW,
+      draftTestCases: [testCase],
+    });
+    escapes = watchForEscapes(handle);
+    renderAt(`/forms/${FORM_ROW}`);
+    await opened();
+    expect(useBuilder.getState().testCases).toEqual([testCase]);
+
+    useBuilder.getState().renameTestCase("tc1", "renamed");
+    await waitFor(() => expect(puts).toHaveLength(1), { timeout: 4_000 });
+    const sent = puts[0] as { ir: unknown; testCases: unknown[] };
+    expect(sent.ir).toEqual(useBuilder.getState().saved);
+    expect(sent.testCases).toEqual([{ ...testCase, name: "renamed" }]);
   });
 
   it("stops on a conflict rather than merging, and sends nothing more", async () => {

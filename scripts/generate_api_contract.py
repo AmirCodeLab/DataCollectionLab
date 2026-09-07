@@ -233,8 +233,66 @@ HEADER = f"""/* GENERATED FILE — DO NOT EDIT.
 """
 
 
-def render_types(schema: dict[str, Any]) -> str:
+# Routes the console has no way to reach. The types a route needs are what a
+# client is built from, and a type that exists is a call somebody will write.
+#
+# `/forms/evaluate` runs the Python reference. The console's preview runs the
+# handset's engine in the browser (builder scope §2.1, architecture §18.4),
+# and it must be unable to obtain a result from anywhere else — a "temporary"
+# fallback to this route for when Wasm will not load is a second definition of
+# what a form means, with a timer attached. So the route is not in the
+# console's surface at all: no request type, no response type, nothing to
+# import. `test_openapi_contract.py` holds the claim, and reads the console's
+# sources for the path as well.
+CONSOLE_UNREACHABLE_ROUTES = frozenset({"/api/v1/forms/evaluate"})
+
+
+def schema_refs(node: Any, into: set[str]) -> None:
+    """Every `#/components/schemas/<name>` referenced under `node`."""
+    if isinstance(node, dict):
+        if "$ref" in node:
+            into.add(ref_name(node["$ref"], where="components"))
+        for value in node.values():
+            schema_refs(value, into)
+    elif isinstance(node, list):
+        for value in node:
+            schema_refs(value, into)
+
+
+def console_schemas(schema: dict[str, Any]) -> set[str]:
+    """The named schemas reachable from a route the console may call.
+
+    Transitive: a response names a schema, which names another. A schema only
+    an unreachable route needs is not emitted, so the console cannot import it.
+    """
+    missing = CONSOLE_UNREACHABLE_ROUTES - set(schema["paths"])
+    if missing:
+        raise UnsupportedSchema(
+            f"CONSOLE_UNREACHABLE_ROUTES names a route the app does not serve: "
+            f"{sorted(missing)}. If it moved, move the exclusion with it."
+        )
     schemas: dict[str, Any] = schema["components"]["schemas"]
+    todo: set[str] = set()
+    for path, operations in schema["paths"].items():
+        if path not in CONSOLE_UNREACHABLE_ROUTES:
+            schema_refs(operations, todo)
+    reachable: set[str] = set()
+    while todo:
+        name = todo.pop()
+        if name in reachable:
+            continue
+        reachable.add(name)
+        schema_refs(schemas[name], todo)
+    return reachable
+
+
+def render_types(schema: dict[str, Any]) -> str:
+    reachable = console_schemas(schema)
+    schemas: dict[str, Any] = {
+        name: node
+        for name, node in schema["components"]["schemas"].items()
+        if name in reachable
+    }
     blocks: list[str] = []
 
     # Alphabetical. Component order in the document follows whichever route

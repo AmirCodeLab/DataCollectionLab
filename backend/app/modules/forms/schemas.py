@@ -107,6 +107,60 @@ class PaletteResponse(BaseModel):
     choice_sources: list[PaletteType] = Field(serialization_alias="choiceSources")
 
 
+type TestStepKind = Literal["set", "addRow", "deleteRow"]
+
+
+class TestStep(BaseModel):
+    """One step of an author's test case: what the enumerator would do."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: TestStepKind
+    #: `set`: the path answered, e.g. `age` or `members[i3].age`.
+    path: str | None = None
+    #: `set`: the value, as `formValueToJson` writes it.
+    value: Any = None
+    #: `addRow` / `deleteRow`: which repeat.
+    repeat_id: str | None = Field(default=None, alias="repeatId")
+    #: `deleteRow`: which row.
+    instance_id: str | None = Field(default=None, alias="instanceId")
+
+
+class Expectation(BaseModel):
+    """What the author expects to be true of one path after the steps.
+
+    Each field is optional and only the ones present are checked, so a case
+    can say "hidden" without saying what the value is.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    path: str
+    relevant: bool | None = None
+    valid: bool | None = None
+    value: Any = None
+    #: Distinguishes "expect the value to be null" from "no expectation about
+    #: the value": JSON has one null.
+    check_value: bool = Field(default=False, alias="checkValue")
+
+
+class TestCase(BaseModel):
+    """An author's test case (builder scope §4, "Test mode").
+
+    Owned by the author, about one form, and supposed to change when the form
+    changes. **Not a conformance vector and never stored as one** — see
+    `migrations/schema/007_form_draft_test_cases.sql`. The server stores and
+    returns these; the builder runs them through the engine.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str
+    steps: list[TestStep] = Field(default_factory=list)
+    expectations: list[Expectation] = Field(default_factory=list)
+
+
 class DraftDocument(BaseModel):
     """A form's unpublished IR.
 
@@ -121,6 +175,8 @@ class DraftDocument(BaseModel):
     revision: int
     updated_at: datetime = Field(serialization_alias="updatedAt")
     updated_by: str | None = Field(default=None, serialization_alias="updatedBy")
+    #: The author's test cases, saved with the draft (§6: "IR + test cases").
+    test_cases: list[TestCase] = Field(default_factory=list, serialization_alias="testCases")
 
 
 class SaveDraftRequest(BaseModel):
@@ -131,6 +187,8 @@ class SaveDraftRequest(BaseModel):
     #: mismatch is a 409 rather than a merge.
     expected_revision: int | None = Field(default=None, alias="expectedRevision")
     updated_by: str | None = Field(default=None, alias="updatedBy")
+    #: Omitted leaves the stored cases as they are; a list replaces them.
+    test_cases: list[TestCase] | None = Field(default=None, alias="testCases")
 
 
 class ExpressionRequest(BaseModel):

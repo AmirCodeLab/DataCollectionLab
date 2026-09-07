@@ -97,6 +97,12 @@ class FormDraft(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_by: Mapped[str | None] = mapped_column(Text)
+    #: The author's test cases — steps and expectations the builder replays
+    #: after every edit. Stored and returned, never run here; never a
+    #: conformance vector (`migrations/schema/007_form_draft_test_cases.sql`).
+    test_cases: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
 
 
 class FormDeployment(Base):

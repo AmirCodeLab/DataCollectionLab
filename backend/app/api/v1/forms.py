@@ -50,6 +50,7 @@ from app.modules.forms.schemas import (
     PublishVersionResponse,
     SaveDraftRequest,
     ScreenSummary,
+    TestCase,
 )
 from app.modules.forms.xlsform import datatypes
 from app.modules.forms.xlsform.datatypes import SpecsUnavailable
@@ -148,6 +149,11 @@ async def save_draft(
                 ir=request.ir,
                 expected_revision=request.expected_revision,
                 updated_by=request.updated_by,
+                test_cases=(
+                    None
+                    if request.test_cases is None
+                    else [case.model_dump(by_alias=True) for case in request.test_cases]
+                ),
             )
         except service.DraftConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -161,6 +167,7 @@ def _draft(draft: FormDraft) -> DraftDocument:
         revision=draft.revision,
         updated_at=draft.updated_at,
         updated_by=draft.updated_by,
+        test_cases=[TestCase.model_validate(case) for case in draft.test_cases],
     )
 
 
