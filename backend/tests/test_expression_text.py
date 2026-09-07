@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from app.modules.forms.expression_text import RenderError, parse, render
+from app.modules.forms.expression_text import ExpressionError, RenderError, parse, render
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -432,3 +432,286 @@ def test_every_generated_tree_survives_a_round_trip() -> None:
             f"seed {_SEED} tree {index}: {tree!r}\nrendered {text!r}\ncame back {back!r}"
         )
         assert render(back) == text
+
+
+# --- The parser proper -------------------------------------------------------
+#
+# The tree property above renders, parses, and renders again, so it covers the
+# parser on the printer's own text. An author's text is not the printer's:
+# extra whitespace, redundant parentheses, `==`, `ROUND`. Appendix A.5 says
+# all of that reads as the same AST, and this is the property for it.
+
+
+def _noisy(rng: random.Random, tree: dict[str, Any]) -> str:
+    """The tree as text an author might have typed.
+
+    Fully parenthesised — every binary and unary wrapped — so this needs no
+    precedence ladder of its own and cannot share a mistake with the printer.
+    Random whitespace between tokens, `==` for `=` sometimes, keywords and
+    function names in random case, and a curly-quoted string where the value
+    holds no curly quote.
+    """
+    from app.modules.forms.expression_text import _BINARY
+
+    def ws() -> str:
+        return rng.choice(("", " ", "  ", "\t", "\n "))
+
+    def word(text: str) -> str:
+        return rng.choice((text, text.upper(), text.capitalize()))
+
+    op = tree["op"]
+    args = tree.get("args") or []
+    if op == "lit":
+        value = tree["value"]
+        if value is True:
+            return word("true") + ws() + "(" + ws() + ")"
+        if value is False:
+            return word("false") + "()"
+        if value is None:
+            return word("null") + "()"
+        if isinstance(value, int | float):
+            return render(tree)
+        if (
+            "'" not in value
+            and "\u2018" not in value
+            and "\u2019" not in value
+            and rng.random() < 0.5
+        ):
+            return "\u2018" + value + "\u2019"
+        return render(tree)
+    if op == "ref":
+        path = tree["path"]
+        if path.startswith("$row."):
+            return path.removeprefix("$row.")
+        return "${" + ws() + path + ws() + "}"
+    if op in _BINARY:
+        symbol = _BINARY[op][1]
+        if op == "eq" and rng.random() < 0.5:
+            symbol = "=="
+        if symbol.isalpha():
+            # A word operator needs separating from a name or number on either
+            # side, as in any grammar: `${a} andnot(${b})` is one name.
+            symbol = " " + word(symbol) + " "
+        elif symbol == "-":
+            # A name may contain `-` (A.5), so in a filter `code-1` is the
+            # column `code-1` and subtraction needs the space.
+            symbol = " - "
+        joined = (ws() + symbol + ws()).join(_noisy(rng, a) for a in args)
+        return "(" + ws() + joined + ws() + ")"
+    if op == "neg":
+        return "(" + ws() + "-" + ws() + _noisy(rng, args[0]) + ")"
+    if op == "not":
+        return word("not") + ws() + "(" + _noisy(rng, args[0]) + ")"
+    if op == "selected":
+        return word("selected") + "(" + (ws() + "," + ws()).join(_noisy(rng, a) for a in args) + ")"
+    if op == "if":
+        return word("if") + "(" + ", ".join(_noisy(rng, a) for a in args) + ")"
+    if op == "call":
+        return (
+            word(tree["fn"])
+            + ws()
+            + "("
+            + (ws() + "," + ws()).join(_noisy(rng, a) for a in args)
+            + ws()
+            + ")"
+        )
+    raise AssertionError(op)
+
+
+def test_an_authors_text_reads_as_the_same_tree() -> None:
+    """A.5: whitespace, redundant parentheses, `==`, and case do not change
+    what an expression means, and the canonical text is the printer's."""
+    rng = random.Random(_SEED)
+    numbers = _random_numbers(rng, 200)
+    for index in range(1500):
+        tree = _random_tree(rng, depth=rng.randint(1, 5), numbers=numbers)
+        text = _noisy(rng, tree)
+        row_scope = "$row." in json.dumps(tree)
+        try:
+            back = parse(text, row_scope=row_scope)
+        except Exception as exc:
+            raise AssertionError(
+                f"seed {_SEED} tree {index}: {text!r} does not parse: {exc}"
+            ) from exc
+        assert _same(back, tree), f"seed {_SEED} tree {index}: {text!r}\n{tree!r}\n{back!r}"
+        assert render(back) == render(tree)
+
+
+_A5_CLAIMS: list[tuple[str, dict[str, Any], Any, str]] = [
+    # text, parse kwargs, the AST, the canonical text
+    (".5", {}, {"op": "lit", "value": 0.5}, "0.5"),
+    (
+        "${a} AND ${b} Or ${c}",
+        {},
+        {
+            "op": "or",
+            "args": [
+                {"op": "and", "args": [{"op": "ref", "path": "a"}, {"op": "ref", "path": "b"}]},
+                {"op": "ref", "path": "c"},
+            ],
+        },
+        "${a} and ${b} or ${c}",
+    ),
+    (
+        "ROUND( ${ a } ,2 )",
+        {},
+        {
+            "op": "call",
+            "fn": "round",
+            "args": [{"op": "ref", "path": "a"}, {"op": "lit", "value": 2}],
+        },
+        "round(${a}, 2)",
+    ),
+    (
+        "${a} == 1",
+        {},
+        {"op": "eq", "args": [{"op": "ref", "path": "a"}, {"op": "lit", "value": 1}]},
+        "${a} = 1",
+    ),
+    ("((${a}))", {}, {"op": "ref", "path": "a"}, "${a}"),
+    (
+        "${a} DIV 2",
+        {},
+        {"op": "div", "args": [{"op": "ref", "path": "a"}, {"op": "lit", "value": 2}]},
+        "${a} div 2",
+    ),
+    (
+        "1 + 2 * 3 div 4",
+        {},
+        {
+            "op": "div",
+            "args": [
+                {
+                    "op": "add",
+                    "args": [
+                        {"op": "lit", "value": 1},
+                        {
+                            "op": "mul",
+                            "args": [{"op": "lit", "value": 2}, {"op": "lit", "value": 3}],
+                        },
+                    ],
+                },
+                {"op": "lit", "value": 4},
+            ],
+        },
+        "1 + 2 * 3 div 4",
+    ),
+    (
+        "${a}-1",
+        {},
+        {"op": "sub", "args": [{"op": "ref", "path": "a"}, {"op": "lit", "value": 1}]},
+        "${a} - 1",
+    ),
+    ("--5", {}, {"op": "neg", "args": [{"op": "neg", "args": [{"op": "lit", "value": 5}]}]}, "--5"),
+    # Names may contain `-` because XPath function names do, so in a filter
+    # `x-1` is a column and subtraction needs the spaces.
+    ("x-1", {"row_scope": True}, {"op": "ref", "path": "$row.x-1"}, "x-1"),
+    (
+        "x - 1",
+        {"row_scope": True},
+        {"op": "sub", "args": [{"op": "ref", "path": "$row.x"}, {"op": "lit", "value": 1}]},
+        "x - 1",
+    ),
+    # Quotes: straight and curly are read; a string may hold the other kind;
+    # canonical text is straight, single unless the value holds one.
+    ("'it\u2019s'", {}, {"op": "lit", "value": "it\u2019s"}, "'it\u2019s'"),
+    ("\u2018it's\u2019", {}, {"op": "lit", "value": "it's"}, '"it\'s"'),
+    (
+        "\u201ca\u201d = 'b'",
+        {},
+        {"op": "eq", "args": [{"op": "lit", "value": "a"}, {"op": "lit", "value": "b"}]},
+        "'a' = 'b'",
+    ),
+    ("''", {}, {"op": "lit", "value": ""}, "''"),
+    (
+        ". > 3",
+        {"self_path": "age"},
+        {"op": "gt", "args": [{"op": "ref", "path": "age"}, {"op": "lit", "value": 3}]},
+        "${age} > 3",
+    ),
+    ("${members[0].name}", {}, {"op": "ref", "path": "members[0].name"}, "${members[0].name}"),
+    (
+        "count(${members[].income})",
+        {},
+        {"op": "call", "fn": "count", "args": [{"op": "ref", "path": "members[].income"}]},
+        "count(${members[].income})",
+    ),
+    (
+        "string-length(${a})",
+        {},
+        {"op": "call", "fn": "len", "args": [{"op": "ref", "path": "a"}]},
+        "len(${a})",
+    ),
+    ("TRUE()", {}, {"op": "lit", "value": True}, "true()"),
+    ("Null()", {}, {"op": "lit", "value": None}, "null()"),
+    ("today()", {}, {"op": "call", "fn": "today", "args": []}, "today()"),
+    # Arity of a §4.3 function is compile's to check, not the surface's.
+    (
+        "substr(${a}, 1, 2, 3)",
+        {},
+        {
+            "op": "call",
+            "fn": "substr",
+            "args": [
+                {"op": "ref", "path": "a"},
+                {"op": "lit", "value": 1},
+                {"op": "lit", "value": 2},
+                {"op": "lit", "value": 3},
+            ],
+        },
+        "substr(${a}, 1, 2, 3)",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "kwargs", "tree", "canonical"),
+    _A5_CLAIMS,
+    ids=lambda v: repr(v) if isinstance(v, str) else "",
+)
+def test_every_claim_in_a5_holds(
+    text: str, kwargs: dict[str, Any], tree: Any, canonical: str
+) -> None:
+    back = parse(text, **kwargs)
+    assert _same(back, tree), back
+    assert render(back) == canonical
+
+
+_A5_REFUSALS: list[tuple[str, dict[str, Any], str, int | None]] = [
+    # text, kwargs, a fragment of the message, the offset the caret goes under
+    ("", {}, "empty", None),
+    ("1.5.2", {}, "trailing '.2'", 3),
+    ("${a} = ${b} = ${c}", {}, "trailing '='", 12),
+    ("1 2", {}, "trailing '2'", 2),
+    ("${a} +", {}, "ends sooner", 6),
+    ("(${a}", {}, "expected ')'", 5),
+    ("${a", {}, "closing brace", 0),
+    ("'abc", {}, "closing quote", 0),
+    ("${a} ! ${b}", {}, "unexpected character '!'", 5),
+    ("$row.code = 1", {"row_scope": True}, "unexpected character '$'", 0),
+    ("true", {}, "bare name", 0),
+    ("${a} = today", {}, "bare name", 7),
+    (". > 3", {}, "no current question", 0),
+    ("foo(1)", {}, "foo() is not a function", 0),
+    ("${a} + bar(1)", {}, "bar() is not a function", 7),
+    ("not(1, 2)", {}, "not() takes one", 0),
+    ("selected(${a})", {}, "selected() takes two", 0),
+    ("1 + if(1, 2)", {}, "if() takes three", 4),
+    ("null(1)", {}, "null() takes no", 0),
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "kwargs", "fragment", "offset"),
+    _A5_REFUSALS,
+    ids=lambda v: repr(v) if isinstance(v, str) else "",
+)
+def test_every_refusal_in_a5_names_its_character(
+    text: str, kwargs: dict[str, Any], fragment: str, offset: int | None
+) -> None:
+    """A.3: an error carries the offset of the character it is about, and
+    only the empty expression has none."""
+    with pytest.raises(ExpressionError) as caught:
+        parse(text, **kwargs)
+    assert fragment in str(caught.value), str(caught.value)
+    assert caught.value.offset == offset
