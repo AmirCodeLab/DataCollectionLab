@@ -673,6 +673,28 @@ small; the runner is the cost, and it is a budget decision rather than an
 engineering one. Until then this row stays open and says so.
 
 
+## 20. The handset shows a blank screen for a roster
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp` — the screen for a `repeat`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
+| **Status** | Open |
+| **Why not fixed** | The roster UI is the half of phase 3 item 3 that was left after the engines landed (§11.3, `screens-012`…`025`): the engine has the instance list, the add rule and the row labels, and the shared UI does not render them yet |
+| **Blocks** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
+
+A form authored in the builder with a repeat over a fixed list of two rows
+(`rowSource.kind: "inline"`, `allowAdd: false`, one question bound to the
+row's value) reached the emulator and showed, at screen 5 of 7, nothing: no
+row list, no "Mother" or "Father", no control to enter an instance. Previous
+and Next worked; the two questions inside the repeat could not be answered,
+and the submission finalized and synced without them.
+
+The engine is right about the screen — it is one screen, the plan names it,
+the row screens exist beneath it — and the publish gate is right to have let
+the form through, since the rows are there. What is missing is the view. It is
+the same shape as defect 14 one level up: the questions are in the document,
+they survive publish, and on the phone nothing asks them.
+
 ## Closed
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
