@@ -27,6 +27,9 @@ describe("TraceSection", () => {
         fn(session);
       },
       answer: () => undefined,
+      addRow: () => undefined,
+      deleteRow: () => undefined,
+      steps: () => [],
     };
     render(
       <TraceSection
@@ -58,6 +61,9 @@ describe("TraceSection", () => {
       state: null,
       act: () => undefined,
       answer: () => undefined,
+      addRow: () => undefined,
+      deleteRow: () => undefined,
+      steps: () => [],
     };
     render(<TraceSection path="age" keys={["constraint"]} preview={preview} />);
     expect(screen.getByText(/Open the preview/)).toBeInTheDocument();

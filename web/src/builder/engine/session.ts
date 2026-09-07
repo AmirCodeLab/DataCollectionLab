@@ -9,6 +9,12 @@
  * is what makes the preview honest after an edit: the engine compiled the new
  * document, and the answers were re-applied to it, so a path the edit removed
  * is dropped — the engine reports the error and the answer is forgotten.
+ *
+ * "Answers" means every step that changes the form's data, not only `set`:
+ * a row the author added in the preview is data too (§11.3), and a preview
+ * that forgot it on every edit — and with it every answer inside it — would
+ * be the blank roster one more time. The recorded steps are also what a test
+ * case is made from (scope §4, test mode).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -24,6 +30,23 @@ import {
 
 export type PreviewStatus = "loading" | "ready" | "unavailable";
 
+/** One data-changing step the preview took, in the order it took them. */
+export type PreviewStep =
+  | { kind: "set"; path: string; value: EngineValue }
+  | { kind: "addRow"; repeatId: string }
+  | { kind: "deleteRow"; repeatId: string; instanceId: string };
+
+function replay(session: PreviewSession, step: PreviewStep): PreviewState {
+  switch (step.kind) {
+    case "set":
+      return session.set(step.path, step.value);
+    case "addRow":
+      return session.addRow(step.repeatId);
+    case "deleteRow":
+      return session.deleteRow(step.repeatId, step.instanceId);
+  }
+}
+
 export interface PreviewHandle {
   status: PreviewStatus;
   /** Why the engine is unavailable, when it is. */
@@ -33,6 +56,12 @@ export interface PreviewHandle {
   act: (fn: (session: PreviewSession) => PreviewState) => void;
   /** An answer, recorded so it survives the next reopen. */
   answer: (path: string, value: EngineValue) => void;
+  /** A row added, recorded likewise (§11.3: the new row is entered). */
+  addRow: (repeatId: string) => void;
+  /** A row deleted, recorded likewise. */
+  deleteRow: (repeatId: string, instanceId: string) => void;
+  /** Every data-changing step so far, for replay and for recording a test case. */
+  steps: () => PreviewStep[];
 }
 
 export const ENGINE_UNAVAILABLE =
@@ -52,8 +81,8 @@ export function usePreviewSession(
   const [error, setError] = useState<string | undefined>(undefined);
   const [state, setState] = useState<PreviewState | null>(null);
   const session = useRef<PreviewSession | null>(null);
-  /** Every answer the preview entered, in order, for replay on reopen. */
-  const answers = useRef<{ path: string; value: EngineValue }[]>([]);
+  /** Every data-changing step the preview took, in order, for replay on reopen. */
+  const answers = useRef<PreviewStep[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,13 +125,14 @@ export function usePreviewSession(
         return;
       }
       let latest = opened.state();
-      const kept: { path: string; value: EngineValue }[] = [];
+      const kept: PreviewStep[] = [];
       for (const entry of answers.current) {
         try {
-          latest = opened.set(entry.path, entry.value);
+          latest = replay(opened, entry);
           kept.push(entry);
         } catch {
-          // The path is no longer in the form; the answer goes with it.
+          // The path or the repeat is no longer in the form; the step goes
+          // with it, and so does everything that depended on it.
         }
       }
       answers.current = kept;
@@ -133,13 +163,33 @@ export function usePreviewSession(
     }
   }, []);
 
+  /** Run a step and, if the engine took it, remember it for replay. */
+  const record = useCallback((step: PreviewStep) => {
+    const current = session.current;
+    if (current === null) return;
+    try {
+      setState(replay(current, step));
+      answers.current = [...answers.current, step];
+    } catch (cause: unknown) {
+      // Refused (§2.3, §11.3): not recorded, position unchanged, message shown.
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setState(current.state());
+    }
+  }, []);
   const answer = useCallback(
-    (path: string, value: EngineValue) => {
-      answers.current = [...answers.current, { path, value }];
-      act((s) => s.set(path, value));
-    },
-    [act],
+    (path: string, value: EngineValue) => record({ kind: "set", path, value }),
+    [record],
   );
+  const addRow = useCallback(
+    (repeatId: string) => record({ kind: "addRow", repeatId }),
+    [record],
+  );
+  const deleteRow = useCallback(
+    (repeatId: string, instanceId: string) =>
+      record({ kind: "deleteRow", repeatId, instanceId }),
+    [record],
+  );
+  const steps = useCallback(() => answers.current, []);
 
-  return { status, error, state, act, answer };
+  return { status, error, state, act, answer, addRow, deleteRow, steps };
 }

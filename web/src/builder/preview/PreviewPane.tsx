@@ -142,9 +142,7 @@ function Roster({
               type="button"
               className="text-xs text-red-700 hover:underline"
               aria-label={`delete ${row.label}`}
-              onClick={() =>
-                preview.act((s) => s.deleteRow(roster.repeatId, row.instanceId))
-              }
+              onClick={() => preview.deleteRow(roster.repeatId, row.instanceId)}
             >
               Delete
             </button>
@@ -165,7 +163,7 @@ function Roster({
         <button
           type="button"
           className="rounded bg-slate-900 px-3 py-1 text-xs text-white"
-          onClick={() => preview.act((s) => s.addRow(roster.repeatId))}
+          onClick={() => preview.addRow(roster.repeatId)}
         >
           {roster.addLabel ?? "Add a row"}
         </button>

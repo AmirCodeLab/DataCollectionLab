@@ -157,10 +157,17 @@ export const ENGINE_MODULE_URL =
 let loading: Promise<EngineModule> | null = null;
 
 /** The engine, loaded once per page. Rejects when the bundle is not there —
- *  the preview says so rather than pretending. */
+ *  the preview says so rather than pretending.
+ *
+ * The URL is made absolute first. A bare `/engine/…mjs` is a path Vite's dev
+ * server treats as source and refuses to serve from `public/` ("should not be
+ * imported from source code"); an absolute URL is fetched by the browser
+ * itself, which is what a static bundle wants in development and in the
+ * built site alike. The module then finds its `.wasm` beside itself. */
 export function loadEngine(): Promise<EngineModule> {
   if (loading === null) {
-    loading = import(/* @vite-ignore */ ENGINE_MODULE_URL).then(
+    const url = new URL(ENGINE_MODULE_URL, globalThis.location.href).href;
+    loading = import(/* @vite-ignore */ url).then(
       (mod: unknown) => mod as EngineModule,
     );
   }
