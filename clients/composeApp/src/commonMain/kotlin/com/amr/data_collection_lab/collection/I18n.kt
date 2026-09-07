@@ -61,6 +61,22 @@ object UiStrings {
     fun noOptionsMatch(l: String) =
         if (ar(l)) "لا يوجد خيار مطابق" else "No option matches what you typed"
     fun finalize(l: String) = if (ar(l)) "إنهاء الاستمارة" else "Finalize"
+
+    // -- rosters (Form IR §11.3) -------------------------------------------
+
+    /** The client's wording for the add control when the form names none (§2.3). */
+    fun addRow(l: String) = if (ar(l)) "إضافة صف" else "Add a row"
+    fun deleteRow(l: String) = if (ar(l)) "حذف" else "Delete"
+    fun openRow(l: String) = if (ar(l)) "فتح" else "Open"
+    fun noRowsYet(l: String) =
+        if (ar(l)) "لا توجد صفوف بعد" else "No rows yet"
+    fun noRowsAndNoAdd(l: String) =
+        if (ar(l)) "لا توجد صفوف في هذه القائمة" else "This list has no rows"
+    fun backToList(l: String) = if (ar(l)) "العودة إلى القائمة" else "Back to the list"
+    /** "Row 2 of 5 · screen 1 of 3" — the two pairs §11.3 specifies. */
+    fun rowProgress(l: String, row: Int, rows: Int, screen: Int, screens: Int) =
+        if (ar(l)) "الصف $row من $rows · الشاشة $screen من $screens"
+        else "Row $row of $rows · screen $screen of $screens"
     fun finalized(l: String) = if (ar(l)) "منتهية" else "Finalized"
     /**
      * The last line of defence, and the reason the `else` branch exists at all.

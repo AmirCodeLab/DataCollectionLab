@@ -9,6 +9,7 @@ import com.dcp.core.media.MediaStore
 import com.dcp.core.sync.OpKind
 import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.SubmissionStore
+import com.dcp.form.CompileException
 import com.dcp.form.CompiledForm
 import com.dcp.form.FormInstance
 import com.dcp.form.InMemoryDatasetSource
@@ -144,9 +145,28 @@ data class CollectionState(
      * nothing, and only one of those is theirs to fix.
      */
     val missingReferenceData: List<String> = emptyList(),
+    /**
+     * The repeat screen the enumerator is on (Form IR §11.3): its rows and the
+     * controls §2.3 permits. Null on any other screen, and null inside a row.
+     */
+    val roster: RosterUi? = null,
+    /** The row the enumerator is inside, with §11.3's two pairs. */
+    val openRow: InstanceUi? = null,
+    /**
+     * The op log described rows this engine could not rebuild — an instance
+     * id that replayed differently. Shown instead of the form, because the
+     * answers keyed on that id would otherwise land on the wrong row silently.
+     */
+    val loadError: String? = null,
 )
 
 sealed interface CollectionAction {
+    /** Open a row of the roster (§11.3): the only way into an instance. */
+    data class OnEnterRow(val repeatId: String, val instanceId: String) : CollectionAction
+    /** Leave the open row for its roster. */
+    data object OnLeaveRow : CollectionAction
+    data class OnAddRow(val repeatId: String) : CollectionAction
+    data class OnDeleteRow(val repeatId: String, val instanceId: String) : CollectionAction
     data class OnTextChange(val path: String, val text: String) : CollectionAction
     /** Open the viewfinder for this question. */
     data class OnOpenCamera(val path: String) : CollectionAction
@@ -257,10 +277,31 @@ class CollectionViewModel(
                     today = todayIsoDate(),
                     datasets = datasets ?: InMemoryDatasetSource(emptyMap()),
                 )
+                // Rows first, answers second: an answer inside a row the
+                // enumerator added is keyed on that row's id, and the id has
+                // to exist before the value can be placed (§11.3, sync §2).
+                try {
+                    replayInstanceOps(inst, store.opsFor(submissionId))
+                } catch (refused: CompileException) {
+                    return@withContext null to summaryFirst
+                }
                 val stored = store.materialisedAnswers(submissionId)
                     .filterKeys { it in inst.values }
                 if (stored.isNotEmpty()) inst.setMany(stored)
                 inst to summaryFirst
+            }
+            if (loadedInstance == null) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        formTitle = compiled.ir.title.resolve(compiled.ir.defaultLanguage ?: "en")
+                            ?: compiled.formId,
+                        loadError = "This submission's rows could not be rebuilt from its " +
+                            "record on this device. The answers are safe and will still " +
+                            "sync; report this.",
+                    )
+                }
+                return@launch
             }
             form = compiled
             instance = loadedInstance
@@ -291,6 +332,10 @@ class CollectionViewModel(
                     debounce = false)
             CollectionAction.OnNextClick -> move { navigator.next() }
             CollectionAction.OnPreviousClick -> move { navigator.previous() }
+            is CollectionAction.OnEnterRow -> enterRow(action.repeatId, action.instanceId)
+            CollectionAction.OnLeaveRow -> move { navigator.leave(); true }
+            is CollectionAction.OnAddRow -> addRow(action.repeatId)
+            is CollectionAction.OnDeleteRow -> deleteRow(action.repeatId, action.instanceId)
             CollectionAction.OnLanguageToggle -> toggleLanguage()
             CollectionAction.OnFinalizeClick -> finalize()
             is CollectionAction.OnOpenCamera ->
@@ -318,14 +363,94 @@ class CollectionViewModel(
     private fun move(step: () -> Boolean) {
         if (!ready()) return
         // leaving a screen marks its questions touched so errors show on return
-        navigator.currentScreen?.questionIds?.let(touched::addAll)
+        touched.addAll(currentQuestionPaths())
         if (step()) rebuild()
+    }
+
+    /** The paths of the questions on screen — instance paths inside a row. */
+    private fun currentQuestionPaths(): List<String> {
+        val position = navigator.position
+        val screen = if (position.inside) navigator.currentInstanceScreen else navigator.currentScreen
+        val ids = screen?.questionIds.orEmpty()
+        val repeatId = navigator.currentScreen?.repeatId
+        val instanceId = position.instanceId
+        return if (position.inside && repeatId != null && instanceId != null) {
+            ids.map { instancePath(repeatId, instanceId, it) }
+        } else ids
+    }
+
+    // -- rosters (Form IR §11.3) -------------------------------------------
+    //
+    // Every rule below is the engine's: which rows exist, what they are called,
+    // whether adding or deleting is permitted, where the position goes. This
+    // class records the op and renders the answer.
+
+    private fun enterRow(repeatId: String, instanceId: String) {
+        if (!ready()) return
+        if (navigator.enter(repeatId, instanceId)) rebuild()
+    }
+
+    /**
+     * Adds a row where §2.3 permits, records it (sync §2 `repeat_add`), and
+     * enters it: §11.3 says the new instance becomes the open one, on its first
+     * relevant screen or on the roster if it has none.
+     */
+    private fun addRow(repeatId: String) {
+        if (!ready() || _state.value.finalized) return
+        val instanceId = try {
+            instance.addInstance(repeatId)
+        } catch (refused: CompileException) {
+            _state.update { it.copy(captureMessage = refused.message) }
+            return
+        }
+        store.appendOp(
+            submissionId = submissionId,
+            formId = form.formId,
+            formVersion = form.version,
+            kind = OpKind.REPEAT_ADD,
+            path = "$repeatId[$instanceId]",
+        )
+        navigator.enter(repeatId, instanceId)
+        rebuild()
+    }
+
+    /**
+     * Deletes a row where §2.3 permits and records it (`repeat_delete`).
+     *
+     * Pending answer ops are flushed first, so nothing keyed on the row can
+     * follow its deletion into the log — the server's fold would read a later
+     * `set` as the row coming back. The position drops to the roster if it was
+     * inside the deleted row (§11.3, `refresh`).
+     */
+    private fun deleteRow(repeatId: String, instanceId: String) {
+        if (!ready() || _state.value.finalized) return
+        val index = instance.instances[repeatId]?.indexOf(instanceId) ?: -1
+        if (index < 0) return
+        flushAllOps()
+        try {
+            instance.deleteInstance(repeatId, index)
+        } catch (refused: CompileException) {
+            _state.update { it.copy(captureMessage = refused.message) }
+            return
+        }
+        store.appendOp(
+            submissionId = submissionId,
+            formId = form.formId,
+            formVersion = form.version,
+            kind = OpKind.REPEAT_DELETE,
+            path = "$repeatId[$instanceId]",
+        )
+        val prefix = "$repeatId[$instanceId]."
+        drafts.keys.removeAll { it.startsWith(prefix) }
+        touched.removeAll { it.startsWith(prefix) }
+        navigator.refresh()
+        rebuild()
     }
 
     // -- answering ---------------------------------------------------------
 
     private fun onTextChange(path: String, text: String) {
-        val dataType = form.fields[path]?.dataType ?: return
+        val dataType = form.fields[fieldIdOf(path)]?.dataType ?: return
         drafts[path] = text
         val trimmed = text.trim()
         val value = when {
@@ -376,7 +501,7 @@ class CollectionViewModel(
 
     /** The question's choice values, in document order. */
     private fun choiceOrderFor(path: String): List<String> =
-        instance.form.fields[path]?.node?.choices?.items.orEmpty().map { it.value }
+        instance.form.fields[fieldIdOf(path)]?.node?.choices?.items.orEmpty().map { it.value }
 
     private fun commit(path: String, value: FormValue, debounce: Boolean) {
         if (!ready() || _state.value.finalized) return
@@ -635,20 +760,28 @@ class CollectionViewModel(
         val lang = _state.value.language
         val showErrors = _state.value.showErrors
 
-        val screen = navigator.currentScreen
+        val position = navigator.position
+        val screen = if (position.inside) navigator.currentInstanceScreen else navigator.currentScreen
+        val repeatId = navigator.currentScreen?.repeatId
+        val instanceId = position.instanceId
         val questions = screen?.questionIds.orEmpty().mapNotNull { qid ->
-            form.fields[qid]?.node?.let { questionUi(it, lang, showErrors) }
+            val path = if (position.inside && repeatId != null && instanceId != null) {
+                instancePath(repeatId, instanceId, qid)
+            } else qid
+            form.fields[qid]?.node?.let { questionUi(it, path, lang, showErrors) }
         }
         val titleGroupId = screen?.groupId ?: screen?.sectionId
-        val (position, total) = navigator.progress()
+        val (progressPosition, total) = navigator.progress()
 
         _state.update {
             it.copy(
                 questions = questions,
+                roster = rosterUi(navigator, instance, lang),
+                openRow = instanceUi(navigator, instance, lang),
                 screenTitle = titleGroupId?.let { gid ->
                     form.containers[gid]?.label.resolve(lang)
                 },
-                progressPosition = position,
+                progressPosition = progressPosition,
                 progressTotal = total,
                 hasPrevious = navigator.hasPrevious,
                 hasNext = navigator.hasNext,
@@ -658,13 +791,24 @@ class CollectionViewModel(
         }
     }
 
-    private fun questionUi(node: QuestionNode, lang: String, showErrors: Boolean): QuestionUi? {
+    /**
+     * One question as the widget shows it. [path] is where the engine keeps
+     * its state — the field id at the top level, `repeat[i3].field` inside a
+     * row — and everything about the answer is read from that path.
+     */
+    private fun questionUi(
+        node: QuestionNode,
+        path: String,
+        lang: String,
+        showErrors: Boolean,
+    ): QuestionUi? {
         if (node.dataType !in SUPPORTED_TYPES) return null
-        val fieldState = instance.states[node.id] ?: return null
+        val fieldState = instance.states[path] ?: return null
         if (!fieldState.relevant) return null
+        val inside = path != node.id
 
         val textValue = (fieldState.value as? FormValue.Text)?.value
-        val error = if (showErrors || node.id in touched) {
+        val error = if (showErrors || path in touched) {
             fieldState.errors.firstOrNull()?.let { err ->
                 when (err.kind) {
                     "required" -> UiStrings.requiredAnswer(lang)
@@ -680,19 +824,22 @@ class CollectionViewModel(
         } else null
 
         return QuestionUi(
-            path = node.id,
+            path = path,
             dataType = node.dataType,
             // Through the engine, so a label that inserts an answer shows the
             // answer (§7.1) — and shows it isolated, so a Latin number inside
             // Arabic text stays where it was written. `resolve` is the fallback
-            // for a language the engine has no string for.
-            label = instance.renderedLabel(node.id, lang)
+            // for a language the engine has no string for. Inside a row the
+            // engine's renderer scopes to the FIRST instance, which would show
+            // another row's answers in this row's label, so the plain label is
+            // used there until the renderer takes a scope.
+            label = (if (inside) null else instance.renderedLabel(node.id, lang))
                 ?: node.label.resolve(lang)
                 ?: node.id,
             hint = node.hint.resolve(lang),
             required = fieldState.required,
             readOnly = fieldState.readOnly,
-            displayText = drafts[node.id] ?: formatValue(fieldState.value),
+            displayText = drafts[path] ?: formatValue(fieldState.value),
             selectedValue = textValue,
             selectedValues = (fieldState.value as? FormValue.Sequence)
                 ?.items.orEmpty()
@@ -709,7 +856,7 @@ class CollectionViewModel(
             error = error,
             media = mediaUi(node, fieldState.value, lang),
             geo = geoUi(fieldState.value, lang),
-            capturing = node.id in capturingPaths,
+            capturing = path in capturingPaths,
         )
     }
 
