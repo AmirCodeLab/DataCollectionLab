@@ -13,6 +13,24 @@
 
 import type { Expectation, TestCase, TestStep } from "@/api/types";
 import type { PreviewState } from "@/builder/engine/facade";
+import type { PreviewStep } from "@/builder/engine/session";
+
+/** The preview's recorded step, in the shape the draft stores (schemas.py
+ *  `TestStep`): the same three kinds, nothing inferred. */
+export function toTestStep(step: PreviewStep): TestStep {
+  switch (step.kind) {
+    case "set":
+      return { kind: "set", path: step.path, value: step.value };
+    case "addRow":
+      return { kind: "addRow", repeatId: step.repeatId };
+    case "deleteRow":
+      return {
+        kind: "deleteRow",
+        repeatId: step.repeatId,
+        instanceId: step.instanceId,
+      };
+  }
+}
 
 export function recordFromState(
   name: string,

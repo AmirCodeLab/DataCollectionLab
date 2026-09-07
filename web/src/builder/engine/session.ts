@@ -49,6 +49,25 @@ function replay(session: PreviewSession, step: PreviewStep): PreviewState {
   }
 }
 
+/** Typing is one answer, not one per keystroke: a `set` on the path the last
+ *  step set replaces it. The engine saw every keystroke; the record keeps the
+ *  answer, which is what a test case is made from and what an author reads. */
+export function appendStep(
+  steps: PreviewStep[],
+  step: PreviewStep,
+): PreviewStep[] {
+  const last = steps.at(-1);
+  if (
+    last !== undefined &&
+    last.kind === "set" &&
+    step.kind === "set" &&
+    last.path === step.path
+  ) {
+    return [...steps.slice(0, -1), step];
+  }
+  return [...steps, step];
+}
+
 export interface PreviewHandle {
   status: PreviewStatus;
   /** Why the engine is unavailable, when it is. */
@@ -175,7 +194,7 @@ export function usePreviewSession(
     if (current === null) return;
     try {
       setState(replay(current, step));
-      answers.current = [...answers.current, step];
+      answers.current = appendStep(answers.current, step);
     } catch (cause: unknown) {
       // Refused (§2.3, §11.3): not recorded, position unchanged, message shown.
       setError(cause instanceof Error ? cause.message : String(cause));

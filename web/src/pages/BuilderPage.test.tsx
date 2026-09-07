@@ -66,6 +66,7 @@ interface Scenario {
   versions: number[];
   latestVersionId: string | null;
   draftIr?: unknown;
+  draftTestCases?: unknown[];
   putReply?: (body: unknown) => unknown;
 }
 
@@ -110,6 +111,7 @@ function serve(scenario: Scenario) {
         revision: 7,
         updatedAt: "2026-09-07T00:00:00Z",
         updatedBy: "someone",
+        testCases: scenario.draftTestCases ?? [],
       };
     }
     if (url === `/api/v1/forms/versions/${VERSION_ROW}`) {
@@ -178,6 +180,31 @@ describe("an existing draft", () => {
     });
     await waitFor(() => expect(useBuilder.getState().revision).toBe(8));
     expect(useBuilder.getState().save.status).toBe("clean");
+  });
+
+  it("the test cases load with the draft and go back with every save, as they are", async () => {
+    const testCase = {
+      id: "tc1",
+      name: "consent hides the page",
+      steps: [{ kind: "set", path: "consent", value: "no" }],
+      expectations: [{ path: "consent", relevant: true, checkValue: false }],
+    };
+    const { handle, puts } = serve({
+      hasDraft: true,
+      versions: [1],
+      latestVersionId: VERSION_ROW,
+      draftTestCases: [testCase],
+    });
+    escapes = watchForEscapes(handle);
+    renderAt(`/forms/${FORM_ROW}`);
+    await opened();
+    expect(useBuilder.getState().testCases).toEqual([testCase]);
+
+    useBuilder.getState().renameTestCase("tc1", "renamed");
+    await waitFor(() => expect(puts).toHaveLength(1), { timeout: 4_000 });
+    const sent = puts[0] as { ir: unknown; testCases: unknown[] };
+    expect(sent.ir).toEqual(useBuilder.getState().saved);
+    expect(sent.testCases).toEqual([{ ...testCase, name: "renamed" }]);
   });
 
   it("stops on a conflict rather than merging, and sends nothing more", async () => {

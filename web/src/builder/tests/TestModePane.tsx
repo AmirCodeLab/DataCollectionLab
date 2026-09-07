@@ -18,8 +18,9 @@ import {
   type EngineModule,
   type PreviewState,
 } from "@/builder/engine/facade";
+import { usePreview } from "@/builder/preview/previewContext";
 import { useBuilder } from "@/builder/store";
-import { newCaseId, recordFromState } from "./record";
+import { newCaseId, recordFromState, toTestStep } from "./record";
 import { runCase, type CaseResult } from "./runner";
 
 /** What the preview hands over when a case is recorded from it. */
@@ -28,21 +29,23 @@ export interface Recording {
   state: PreviewState;
 }
 
-export interface TestModePaneProps {
-  /**
-   * Where a new case's steps and state come from: the preview's recorded
-   * answers. Optional until the preview exposes them; without it the pane
-   * can run and remove cases but not record one.
-   */
-  recorder?: () => Recording | null;
-}
-
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function TestModePane({ recorder }: TestModePaneProps) {
+export function TestModePane() {
   const ir = useBuilder((s) => s.ir);
+  // A new case is the preview's walk so far: its recorded steps, and the
+  // engine's state after them. The page's one session (previewContext.ts),
+  // so what is recorded is exactly what the author has been looking at.
+  const preview = usePreview();
+  const recorder: (() => Recording | null) | undefined =
+    preview === null
+      ? undefined
+      : () =>
+          preview.status === "ready" && preview.state !== null
+            ? { steps: preview.steps().map(toTestStep), state: preview.state }
+            : null;
   const compileStatus = useBuilder((s) => s.compile.status);
   const testCases = useBuilder((s) => s.testCases);
   const addTestCase = useBuilder((s) => s.addTestCase);
@@ -119,9 +122,10 @@ export function TestModePane({ recorder }: TestModePaneProps) {
             <button
               type="button"
               onClick={record}
-              className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50"
+              disabled={preview?.status !== "ready"}
+              className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50 disabled:opacity-50"
             >
-              New from current answers
+              New from the preview's answers
             </button>
           )}
           <button

@@ -170,6 +170,31 @@ describe("PreviewPane", () => {
     );
   });
 
+  it("typing into one answer is recorded as one step, the last value", async () => {
+    open(questionsState, questionsState, questionsState, questionsState);
+    await screen.findByText("Consent");
+    for (const value of ["4", "42"]) {
+      fireEvent.change(screen.getByLabelText("Age"), { target: { value } });
+    }
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    expect(names().filter((n) => n === "previewSet")).toHaveLength(3);
+    engine.calls.length = 0;
+    useBuilder
+      .getState()
+      .insert({ parentId: null, index: 0 }, newQuestion("x", "text", "en"));
+    await waitFor(() => expect(names()).toContain("previewOpen"));
+    await waitFor(() =>
+      expect(
+        engine.calls
+          .filter((c) => c.name === "previewSet")
+          .map((c) => c.args.slice(1)),
+      ).toEqual([
+        ["age", "42"],
+        ["consent", '"yes"'],
+      ]),
+    );
+  });
+
   it("a row added in the preview is replayed on a document change, before its answers", async () => {
     open(rosterState, insideState, insideState, insideState, insideState);
     await screen.findByText("Household members");
