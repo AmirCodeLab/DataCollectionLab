@@ -23,14 +23,46 @@ Two table families remain:
 
 **Isolation is a policy in the database, not a filter in a query.** Every
 table in the schema has row-level security *enabled and forced*, with at least
-one policy. `project.organization_id` is the one discriminator: it is the only
-operational column that names an organisation, and every other operational
-table resolves its organisation through its project (`form → project`,
-`submission → project`, `submission_op → submission → project`, …), so a
-policy on a child table reads `project_id IN (SELECT id FROM project)` and
-inherits the project policy. A test enforces both halves: exactly `project`
-carries `organization_id` among non-platform tables, and no table lacks
-row-level security, FORCE, or a policy.
+one policy. Three tables carry `organization_id` and are the roots every
+policy resolves through: `project` for everything operational
+(`form → project`, `submission → project`, `submission_op → submission →
+project`, …; a child's policy reads `project_id IN (SELECT id FROM project)`
+and inherits), `platform_user` — **a user belongs to one organisation**
+(pilot scope §3.1) and is as tenant-scoped as a submission — and `role`,
+because a custom role is an organisation's own (pilot scope §3.5) and a
+system-role table shared across tenants would be a second isolation model
+living beside the first, one of which gets forgotten; the standard roles are
+seeded per organisation at its creation, six rows duplicated being cheaper
+than an exception to the rule. A test enforces both halves: exactly those
+three carry `organization_id`, and no table lacks row-level security, FORCE,
+or a policy.
+
+**The coverage test fails closed.** It enumerates `pg_tables`; a table it
+does not know with no policy is a failure, not a skip. The one exemption is
+`alembic_version`, named in the test with the reason: Alembic owns it, it
+holds no tenant data, and the application never reads it.
+
+**There is one connection factory** (`app/infrastructure/database.py`), and
+an AST lint in the shape of `test_form_version_has_one_writer.py` fails on
+any `create_async_engine`, `asyncpg.connect` or `postgresql://` literal
+outside it, naming the file and line. A second connection is a route around
+every policy above — an export script with its own engine is exactly the
+"one report nobody thought of" — so it is refused where it is written, not
+found where it leaks. `migrations/env.py` is the named exemption: migrations
+run as the owner, by design.
+
+**Cross-organisation login is resolved before authentication, never by an
+unrestricted table.** With a principal of nothing the application role can
+see no user, so the login flow must know the organisation before it reads
+`platform_user`: from the hostname (per-customer hostnames, as SurveyCTO
+does) or from an organisation identifier in the login form, set on the
+connection as `app.org_slug` so that one organisation row becomes visible and
+its id becomes `app.org_id`. This deployment is single-tenant with
+provisioning deliberately unbuilt, so the slug is the deployment's one
+organisation; **multi-tenant provisioning has to deliver the resolution, and
+nothing may be built in the meantime that reads a user without an
+organisation** — an unrestricted table "temporarily" is the shape the
+private-key fallback would have shipped in.
 
 The policies read the principal from the connection:
 
