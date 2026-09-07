@@ -151,7 +151,10 @@ function Editor({ form }: { form: FormSummary }) {
         <SaveStatus />
         <span className="ms-auto flex items-center gap-3">
           <IrMenu />
-          <PublishButton projectId={form.projectId} />
+          <PublishButton
+            projectId={form.projectId}
+            publishedVersions={form.versions}
+          />
         </span>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_22rem] gap-4 pt-3">

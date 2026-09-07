@@ -19,9 +19,12 @@ import {
 } from "@/api/types";
 import { refusalsFrom } from "@/builder/compile";
 import { useBuilder } from "@/builder/store";
+import { nextVersion } from "./version";
 
 export interface PublishButtonProps {
   projectId: string;
+  /** The version numbers already published for this form, from the list. */
+  publishedVersions?: number[];
 }
 
 type Outcome =
@@ -31,7 +34,10 @@ type Outcome =
   | { state: "refused"; violations: string[] }
   | { state: "failed"; message: string };
 
-export function PublishButton({ projectId }: PublishButtonProps) {
+export function PublishButton({
+  projectId,
+  publishedVersions = [],
+}: PublishButtonProps) {
   const ir = useBuilder((s) => s.ir);
   const saveStatus = useBuilder((s) => s.save.status);
   const queryClient = useQueryClient();
@@ -41,6 +47,8 @@ export function PublishButton({ projectId }: PublishButtonProps) {
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
 
   if (ir === null) return null;
+  const version = nextVersion(ir.version, publishedVersions);
+  const form = version === ir.version ? ir : { ...ir, version };
 
   const toggleEnvironment = (kind: EnvironmentKind) =>
     setDeployTo((current) =>
@@ -54,13 +62,16 @@ export function PublishButton({ projectId }: PublishButtonProps) {
     try {
       const response = await publishVersion({
         projectId,
-        form: ir,
+        form,
         deployTo,
         ...(publishedBy.trim() === ""
           ? {}
           : { publishedBy: publishedBy.trim() }),
       });
       setOutcome({ state: "published", response });
+      // The draft carries the number it became, so the next publish counts
+      // on from here and a reopen shows what is out there.
+      if (form !== ir) useBuilder.getState().editForm({ version });
       await queryClient.invalidateQueries({ queryKey: ["forms"] });
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 422) {
@@ -90,8 +101,9 @@ export function PublishButton({ projectId }: PublishButtonProps) {
           className="absolute end-0 top-full z-10 mt-1 w-[26rem] max-w-[90vw] rounded border border-slate-300 bg-white p-3 text-start shadow-lg"
         >
           <p className="text-slate-600">
-            Publishes the form as it is in this editor as the next numbered
-            version, through the same checks an import runs.
+            Publishes the form as it is in this editor as{" "}
+            <strong>version {version}</strong>, through the same checks an
+            import runs.
           </p>
           {saveStatus !== "clean" && (
             <p className="mt-2 text-amber-700" role="note">

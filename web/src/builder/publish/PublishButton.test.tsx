@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/queries", () => ({ publishVersion: mocks.publishVersion }));
 
 import { PublishButton } from "./PublishButton";
+import { nextVersion } from "./version";
 
 function mount() {
   const client = new QueryClient({
@@ -155,5 +156,50 @@ describe("PublishButton", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Could not publish: API unreachable (x)",
     );
+  });
+});
+
+describe("the next numbered version", () => {
+  beforeEach(() => {
+    mocks.publishVersion.mockReset();
+    useBuilder.getState().close();
+    useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
+  });
+  afterEach(cleanup);
+
+  it("is the draft's own number until that number is published, then one past the highest", () => {
+    expect(nextVersion(1, [])).toBe(1);
+    expect(nextVersion(1, [1])).toBe(2);
+    expect(nextVersion(1, [1, 2])).toBe(3);
+    expect(nextVersion(5, [1, 2])).toBe(5);
+  });
+
+  it("publishes an already-published draft as the next version and tells the draft", async () => {
+    const ir = useBuilder.getState().ir!;
+    expect(ir.version).toBe(1);
+    mocks.publishVersion.mockResolvedValueOnce({
+      id: "01V2",
+      formId: "f",
+      version: 2,
+      irChecksum: "sha256:x",
+      publishedAt: "2026-09-07T00:00:00Z",
+      created: true,
+      warnings: [],
+      deployments: ["production"],
+      datasets: [],
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PublishButton projectId="01PROJ" publishedVersions={[1]} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    expect(screen.getByText(/version 2/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(mocks.publishVersion).toHaveBeenCalledTimes(1));
+    const sent = mocks.publishVersion.mock.calls[0]?.[0];
+    expect(sent?.form.version).toBe(2);
+    expect(sent?.form).not.toBe(ir);
+    await waitFor(() => expect(useBuilder.getState().ir?.version).toBe(2));
   });
 });
