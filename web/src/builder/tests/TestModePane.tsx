@@ -10,14 +10,10 @@
  * supposed to change when the form changes; they are not conformance vectors.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { TestCase, TestStep } from "@/api/types";
-import {
-  loadEngine,
-  type EngineModule,
-  type PreviewState,
-} from "@/builder/engine/facade";
+import type { PreviewState } from "@/builder/engine/facade";
 import { usePreview } from "@/builder/preview/previewContext";
 import { useBuilder } from "@/builder/store";
 import { newCaseId, recordFromState, toTestStep } from "./record";
@@ -52,28 +48,17 @@ export function TestModePane() {
   const removeTestCase = useBuilder((s) => s.removeTestCase);
   const renameTestCase = useBuilder((s) => s.renameTestCase);
 
-  const [engine, setEngine] = useState<EngineModule | null>(null);
-  const [engineError, setEngineError] = useState<string | null>(null);
+  // The engine is the page's (previewContext.ts): the one the preview runs,
+  // handed to the provider by whoever mounted it. Cases open their own
+  // sessions on it, and there is no other engine here to open them on.
+  const engine = preview?.engine ?? null;
+  const engineError =
+    preview === null
+      ? "no engine session on this page"
+      : preview.status === "unavailable"
+        ? (preview.error ?? "unavailable")
+        : null;
   const [runNonce, setRunNonce] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadEngine().then(
-      (mod) => {
-        if (!cancelled) setEngine(mod);
-      },
-      (error: unknown) => {
-        if (!cancelled) {
-          setEngineError(
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Derived, not stored: the cases run against the document the server has
   // answered for. While the answer is stale the results are too, and say so,

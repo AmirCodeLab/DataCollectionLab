@@ -81,7 +81,7 @@ preview needs the engine the handset runs, and shipping the engine to a browser
 for preview is the same shipping this decision is about. **One implementation
 of form behaviour, everywhere** — not a second one for the web.
 
-- **O-2** Server-side form evaluation: JVM engine sidecar vs Python port
+- **O-2** Server-side form evaluation: JVM engine sidecar vs Python port. Not closed by item 0's preview, which settled the console's engine (Wasm, no route to `/forms/evaluate`) and nothing about the server's — the Python reference is still production for `/forms/evaluate` and the publish gate
 - **O-4** Pricing model (affects whether metering is core)
 - **O-5** Open-core: open-source the engine only?
 - **O-6** Extensibility: constrained custom widget SDK

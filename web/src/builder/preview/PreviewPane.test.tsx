@@ -13,9 +13,9 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { useEngineModule as installEngine } from "@/builder/engine/facade";
+import type { EngineModule } from "@/builder/engine/facade";
 import { ENGINE_UNAVAILABLE } from "@/builder/engine/session";
 import { emptyForm, newQuestion } from "@/builder/ir";
 import { useBuilder } from "@/builder/store";
@@ -38,9 +38,9 @@ function PaneWhenOpen() {
   return open ? <PreviewPane /> : null;
 }
 
-const mount = () =>
+const mount = (loaded: Promise<EngineModule> = Promise.resolve(engine)) =>
   render(
-    <PreviewProvider>
+    <PreviewProvider engine={loaded}>
       <PreviewPane />
     </PreviewProvider>,
   );
@@ -49,7 +49,6 @@ let engine: FakeEngine;
 
 function open(...states: Parameters<typeof fakeEngine>) {
   engine = fakeEngine(...states);
-  installEngine(engine);
   useBuilder.getState().close();
   useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
   mount();
@@ -57,13 +56,7 @@ function open(...states: Parameters<typeof fakeEngine>) {
 
 const names = () => engine.calls.map((c) => c.name);
 
-beforeEach(() => {
-  installEngine(null);
-});
-afterEach(() => {
-  cleanup();
-  installEngine(null);
-});
+afterEach(cleanup);
 
 describe("PreviewPane", () => {
   it("renders the questions the engine says are relevant, and nothing else", async () => {
@@ -131,11 +124,10 @@ describe("PreviewPane", () => {
   });
 
   it("says plainly when the engine bundle is not there", async () => {
-    installEngine(null);
-    // No module installed and no bundle to import: loadEngine rejects.
+    // The page's loader rejects when the bundle is missing; the pane shows why.
     useBuilder.getState().close();
     useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
-    mount();
+    mount(Promise.reject(new Error("no bundle")));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         ENGINE_UNAVAILABLE,
@@ -223,12 +215,11 @@ describe("PreviewPane", () => {
 
   it("the answers survive closing the pane: the session is the page's", async () => {
     engine = fakeEngine(questionsState, questionsState);
-    installEngine(engine);
     useBuilder.getState().close();
     useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
     usePreviewOpen.getState().setOpen(true);
     render(
-      <PreviewProvider>
+      <PreviewProvider engine={Promise.resolve(engine)}>
         <PaneWhenOpen />
       </PreviewProvider>,
     );

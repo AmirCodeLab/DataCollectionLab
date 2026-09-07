@@ -47,6 +47,7 @@ function handle(state: PreviewHandle["state"]): PreviewHandle & {
   const traced: string[] = [];
   return {
     status: "ready",
+    engine: null,
     state,
     act: () => undefined,
     answer: () => undefined,

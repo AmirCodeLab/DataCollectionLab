@@ -10,7 +10,7 @@
  * the revision it loaded, and stop on a conflict rather than merge.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,6 +23,7 @@ import {
 } from "@/api/queries";
 import type { FormSummary } from "@/api/types";
 import { useAutoCompile } from "@/builder/compile";
+import { loadWasmEngine } from "@/builder/engine/wasm";
 import { IrMenu } from "@/builder/floor/IrMenu";
 import { asFormIr, emptyForm } from "@/builder/ir";
 import { PlanPane } from "@/builder/plan/PlanPane";
@@ -148,12 +149,15 @@ function Editor({ form }: { form: FormSummary }) {
   useAutoSave(form.id);
   useAutoCompile();
   const previewOpen = usePreviewOpen((s) => s.open);
+  // The engine, constructed here and nowhere else, and handed down: the
+  // preview, the trace and test mode all read this one (scope §2.1).
+  const [engine] = useState(() => loadWasmEngine());
   const title = useBuilder(
     (s) => s.ir?.title[s.ir.defaultLanguage] ?? form.title,
   );
 
   return (
-    <PreviewProvider>
+    <PreviewProvider engine={engine}>
       <section className="flex h-[calc(100vh-7rem)] flex-col">
         <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-2">
           <Link to="/forms" className="text-sm text-blue-700 hover:underline">

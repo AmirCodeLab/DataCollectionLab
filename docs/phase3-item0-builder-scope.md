@@ -752,6 +752,24 @@ proposal, everything else is a known quantity, and if it fails the whole preview
 and test-mode design changes shape. But it touches an open decision, so I am not
 choosing it on my own.
 
+**Resolved: (a), 6–7 September 2026.** The spike (`docs/wasm-spike.md`) closed
+O-3 and step 7 built on it. Two consequences are worth stating because they are
+structural, not policy:
+
+- The console has **no route to (b)**. `POST /forms/evaluate` is outside the
+  console's generated surface (`CONSOLE_UNREACHABLE_ROUTES` in
+  `scripts/generate_api_contract.py`, held by `test_openapi_contract.py`, which
+  also reads the console's sources for the path), the engine is a constructed
+  dependency the page hands to one provider (`web/src/builder/engine/wasm.ts`,
+  `PreviewProvider`) rather than anything the preview could look up, and a
+  page test in the private-key test's shape fails if the preview path issues a
+  request to that route or lets an answer leave the page (break 149). A
+  "temporary" fallback to the reference for when Wasm will not load is the §2.1
+  sentence with a timer attached, and it has nowhere to attach.
+- **This settles the console's engine, not the server's.** O-2 is still open:
+  the Python reference remains production for `/forms/evaluate` and the publish
+  gate. The architecture doc's O-2 row says so.
+
 ---
 
 ## What is genuinely new work

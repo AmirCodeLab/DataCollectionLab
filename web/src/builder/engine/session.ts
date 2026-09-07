@@ -21,7 +21,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { FormIr } from "@/builder/ir";
 import {
-  loadEngine,
   PreviewSession,
   type EngineModule,
   type EngineValue,
@@ -70,6 +69,9 @@ export function appendStep(
 
 export interface PreviewHandle {
   status: PreviewStatus;
+  /** The engine this session runs on, once it has loaded; the only engine
+   *  test mode may open cases on. */
+  engine: EngineModule | null;
   /** Why the engine is unavailable, when it is. */
   error?: string;
   state: PreviewState | null;
@@ -97,7 +99,11 @@ export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** `engine` is the page's: constructed once by whoever mounts the provider
+ *  (`wasm.ts` in the app, a fake in tests) and passed in. This hook looks
+ *  nothing up. */
 export function usePreviewSession(
+  loaded: Promise<EngineModule>,
   ir: FormIr | null,
   today: string,
 ): PreviewHandle {
@@ -111,7 +117,7 @@ export function usePreviewSession(
 
   useEffect(() => {
     let cancelled = false;
-    loadEngine().then(
+    loaded.then(
       (mod) => {
         if (cancelled) return;
         setEngine(mod);
@@ -127,7 +133,7 @@ export function usePreviewSession(
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loaded]);
 
   // Open a session for this document, replaying the answers so far. The old
   // session is closed first: the engine holds it, and a handle nobody can
@@ -223,6 +229,7 @@ export function usePreviewSession(
 
   return {
     status,
+    engine,
     error,
     state,
     act,

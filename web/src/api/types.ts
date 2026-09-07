@@ -260,17 +260,6 @@ export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as con
 
 export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
 
-export interface EvaluateRequest {
-  form: Record<string, unknown>;
-  answers?: Record<string, unknown>;
-}
-
-export interface EvaluateResponse {
-  valid: boolean;
-  fields: Record<string, FieldSnapshot>;
-  answers: Record<string, unknown>;
-}
-
 /**
  * What the author expects to be true of one path after the steps.
  *
@@ -353,24 +342,6 @@ export interface ExpressionResponse {
   text?: string | null;
   error?: string | null;
   offset?: number | null;
-}
-
-/**
- * One field after recalculation — `FieldState.to_dict()` in the engine.
- *
- * Written out rather than left as a free-form object because this is the
- * shape a form builder renders: `relevant` and `valid` decide whether a
- * question is on screen and whether it is in error, and a client that has to
- * guess at them is reimplementing the engine to read its output.
- */
-export interface FieldSnapshot {
-  path: string;
-  relevant: boolean;
-  required: boolean;
-  readOnly: boolean;
-  value: unknown;
-  valid: boolean;
-  errors: string[];
 }
 
 export interface FormListResponse {

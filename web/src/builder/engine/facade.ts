@@ -150,35 +150,6 @@ export interface EngineModule {
   previewTrace(handle: string, path: string, key: string): string;
 }
 
-/** Where `scripts/build_engine_wasm.sh` puts the module; served from `public/`. */
-export const ENGINE_MODULE_URL =
-  "/engine/DataCollectionLab-shared-form-engine.mjs";
-
-let loading: Promise<EngineModule> | null = null;
-
-/** The engine, loaded once per page. Rejects when the bundle is not there —
- *  the preview says so rather than pretending.
- *
- * The URL is made absolute first. A bare `/engine/…mjs` is a path Vite's dev
- * server treats as source and refuses to serve from `public/` ("should not be
- * imported from source code"); an absolute URL is fetched by the browser
- * itself, which is what a static bundle wants in development and in the
- * built site alike. The module then finds its `.wasm` beside itself. */
-export function loadEngine(): Promise<EngineModule> {
-  if (loading === null) {
-    const url = new URL(ENGINE_MODULE_URL, globalThis.location.href).href;
-    loading = import(/* @vite-ignore */ url).then(
-      (mod: unknown) => mod as EngineModule,
-    );
-  }
-  return loading;
-}
-
-/** For tests: hand the loader a module rather than fetching one. */
-export function useEngineModule(module: EngineModule | null): void {
-  loading = module === null ? null : Promise.resolve(module);
-}
-
 function parse<T>(raw: string): T {
   const value: unknown = JSON.parse(raw);
   if (value && typeof value === "object" && "error" in value) {

@@ -12,14 +12,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { TestCase } from "@/api/types";
-import {
-  useEngineModule,
-  type EngineModule,
-  type PreviewState,
-} from "@/builder/engine/facade";
+import type { EngineModule, PreviewState } from "@/builder/engine/facade";
 import type { PreviewHandle } from "@/builder/engine/session";
 import { emptyForm, newQuestion } from "@/builder/ir";
 import { PreviewContext } from "@/builder/preview/previewContext";
+import { PreviewProvider } from "@/builder/preview/PreviewProvider";
 import { useBuilder } from "@/builder/store";
 import { TestModePane } from "./TestModePane";
 
@@ -67,21 +64,25 @@ const failing: TestCase = {
   expectations: [{ path: "a", relevant: false }],
 };
 
+/** The page's arrangement: the pane under a provider holding the engine. */
+const mount = (loaded: Promise<EngineModule> = Promise.resolve(engine)) =>
+  render(
+    <PreviewProvider engine={loaded}>
+      <TestModePane />
+    </PreviewProvider>,
+  );
+
 describe("TestModePane", () => {
   beforeEach(() => {
-    useEngineModule(engine);
     useBuilder.getState().close();
     useBuilder
       .getState()
       .open("01FORM", emptyForm("f", "F"), 1, [passing, failing]);
   });
-  afterEach(() => {
-    cleanup();
-    useEngineModule(null);
-  });
+  afterEach(cleanup);
 
   it("runs every case once the compile answer is current and shows the first failure", async () => {
-    render(<TestModePane />);
+    mount();
     expect(screen.getAllByText(/not run/)).toHaveLength(2);
     const s = useBuilder.getState();
     s.compileStarted(s.ir!);
@@ -111,9 +112,7 @@ describe("TestModePane", () => {
   });
 
   it("says the engine is unavailable rather than pretending", async () => {
-    useEngineModule(null);
-    // A loader with no module rejects the import of the real bundle in jsdom.
-    render(<TestModePane />);
+    mount(Promise.reject(new Error("no bundle")));
     await waitFor(() =>
       expect(screen.getByRole("note")).toHaveTextContent(
         /engine is unavailable/,
@@ -124,6 +123,7 @@ describe("TestModePane", () => {
   it("records a case from the preview's steps and the engine's state, in order", () => {
     const preview: PreviewHandle = {
       status: "ready",
+      engine,
       state: {
         ...state,
         values: { a: "x", "r[i1].b": null },
@@ -179,6 +179,7 @@ describe("TestModePane", () => {
     unmount();
     const loading: PreviewHandle = {
       status: "loading",
+      engine: null,
       state: null,
       act: () => undefined,
       answer: () => undefined,
@@ -200,7 +201,7 @@ describe("TestModePane", () => {
   });
 
   it("removing a case dirties the draft and drops it from the list", async () => {
-    render(<TestModePane />);
+    mount();
     expect(useBuilder.getState().save.status).toBe("clean");
     screen.getByRole("button", { name: "remove a is hidden" }).click();
     await waitFor(() =>

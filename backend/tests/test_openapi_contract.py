@@ -89,6 +89,37 @@ def test_committed_console_types_match_the_contract(generator, schema):
     )
 
 
+def test_the_console_surface_has_no_route_to_server_side_evaluation(generator, schema):
+    """The console cannot reach `POST /forms/evaluate`, by construction.
+
+    The preview runs the handset's engine in the browser (builder scope §2.1);
+    `/forms/evaluate` runs the Python reference. A console that could call it
+    is a console someone will point at it the night the Wasm bundle will not
+    load, and from then on preview and handset have two definitions of what a
+    form means. So the route is outside the generated surface — no request
+    type, no response type — and no console source names the path. The
+    exclusion is checked against a route the app actually serves, so a rename
+    fails here rather than quietly re-admitting it.
+    """
+    assert "/api/v1/forms/evaluate" in schema["paths"], "the server route moved"
+    assert "/api/v1/forms/evaluate" in generator.CONSOLE_UNREACHABLE_ROUTES
+
+    rendered = generator.render_types(schema)
+    for name in ("EvaluateRequest", "EvaluateResponse", "FieldSnapshot"):
+        assert name not in rendered, f"{name} is in the console's generated surface"
+
+    # Sources, not tests: the page test that watches for this very request
+    # names the path in order to refuse it.
+    web_src = REPO / "web" / "src"
+    naming = sorted(
+        str(path.relative_to(REPO))
+        for path in web_src.rglob("*.ts*")
+        if ".test." not in path.name
+        and "forms/evaluate" in path.read_text(encoding="utf-8")
+    )
+    assert naming == [], f"console sources name the evaluate route: {naming}"
+
+
 def operations(schema):
     """(method, path, operation) for every route in the document."""
     for path, methods in schema["paths"].items():

@@ -18,6 +18,7 @@ function handle(
   const traced: [string, TraceKey][] = [];
   return {
     status: "ready",
+    engine: null,
     state: questionsState,
     act: () => undefined,
     answer: () => undefined,
