@@ -785,7 +785,12 @@ Not the form model, not compilation, not publishing. §2.2 was right about that.
    and `/forms/{id}` in the console, plus `POST /forms` and three fields on
    `FormSummary` so a draft has a form row to belong to and a version to
    start from.
-7. Preview, then the trace, then test mode. **Not started.**
+7. Preview, then the trace, then test mode. **Done 2026-09-07**, in that
+   order, each verified in a browser against a real backend before the next
+   started: the handset's engine compiled to Wasm (`scripts/build_engine_wasm.sh`,
+   `web/src/builder/engine/facade.ts` is the contract), one session per page
+   that the preview, the trace and test mode all read; `form_draft.test_cases`
+   (migration 0007). Breaks 137–148.
 
 Steps 2 and 3 are the ones most likely to be pushed behind the editor and are
 the two that get more expensive for it — 2 because forms will already have been
