@@ -45,6 +45,7 @@ const TONE: Record<BadgeTone, string> = {
   screen: "bg-blue-50 text-blue-800 border-blue-200",
   computed: "bg-slate-100 text-slate-700 border-slate-300",
   roster: "bg-violet-50 text-violet-800 border-violet-200",
+  never: "bg-amber-50 text-amber-800 border-amber-200",
 };
 
 /** Whether the plan the store holds describes the current document. */

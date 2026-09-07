@@ -211,6 +211,12 @@ class CompileResponse(BaseModel):
     # Warnings do not block a publish (Form IR §10).
     warnings: list[str]
     #: The screen plan (§11.1), top level.
+    #: Answerable questions the document itself says are never shown — a
+    #: statically-false `relevant` (§10.3). Structured, so a builder's "never
+    #: shown" badge reads a list of ids rather than parsing a warning. On a
+    #: compiled form this holds the warning-level cases only: a container
+    #: that never appears is a refusal, and a refused form has no response.
+    never_shown: list[str] = Field(default_factory=list, serialization_alias="neverShown")
     screens: list[ScreenSummary] = []
     #: One plan per repeat, keyed by repeat id, rendered once per instance
     #: (§11.3). Separate from `screens` because it is a different axis and not

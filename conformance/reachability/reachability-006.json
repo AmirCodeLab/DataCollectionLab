@@ -1,0 +1,54 @@
+{
+  "id": "reachability-006",
+  "type": "reachability",
+  "description": "An enumerator repeat capped at zero never holds an instance",
+  "shape": "maxInstances 0, enumerator repeat",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p6",
+    "version": 1,
+    "title": {
+      "en": "p6"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "r6",
+        "label": {
+          "en": "r6"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "a6",
+            "dataType": "text",
+            "label": {
+              "en": "a6"
+            }
+          }
+        ],
+        "maxInstances": 0
+      },
+      {
+        "type": "question",
+        "id": "q6",
+        "dataType": "text",
+        "label": {
+          "en": "q6"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'r6' never holds an instance: maxInstances is 0, so 1 question(s) inside it would never be asked: 'a6' (Form IR §10.3)."
+  ],
+  "expectedWarnings": [],
+  "expectedNeverShown": [
+    "a6"
+  ]
+}

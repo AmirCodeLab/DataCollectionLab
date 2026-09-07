@@ -151,6 +151,28 @@ describe("badges come from the plan", () => {
     expect(screen.getAllByText("(stale)").length).toBeGreaterThan(0);
   });
 
+  it("badges 'never shown' from the server's list, not from the document", () => {
+    const s = useBuilder.getState();
+    // "consent" carries a literal-false relevant in the document, and is NOT
+    // in the server's list; "a" is in the list and carries no relevant at
+    // all. The badge follows the list: the server decided, the tree renders.
+    s.editNode("consent", (n) => ({
+      ...n,
+      relevant: { op: "lit", value: false },
+    }));
+    const current = useBuilder.getState().ir!;
+    s.compileStarted(current);
+    s.compileSucceeded(current, { ...plan, neverShown: ["a"] });
+    mount();
+    const badges = screen.getAllByText("never shown");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]!.closest("li")?.textContent).toContain("a");
+    expect(badges[0]!.closest("li")?.textContent).not.toContain("consent");
+    // A question in the list is badged this way even though the plan also
+    // lists it on a screen.
+    expect(screen.getAllByText("screen 2, with 1 others")).toHaveLength(1);
+  });
+
   it("shows nothing before a compile, and nothing for a question the plan omits", () => {
     mount();
     expect(screen.queryByText(/screen/)).not.toBeInTheDocument();

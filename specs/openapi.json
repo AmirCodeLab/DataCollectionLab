@@ -2324,6 +2324,13 @@
             "type": "array",
             "title": "Warnings"
           },
+          "neverShown": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Nevershown"
+          },
           "screens": {
             "items": {
               "$ref": "#/components/schemas/ScreenSummary"

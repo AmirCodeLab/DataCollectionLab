@@ -1,0 +1,57 @@
+{
+  "id": "reachability-003",
+  "type": "reachability",
+  "description": "A group whose relevant is statically false is a §10.2 error, not a warning, because it holds an answerable question",
+  "shape": "statically false relevant (group)",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p3",
+    "version": 1,
+    "title": {
+      "en": "p3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "group",
+        "id": "g3",
+        "label": {
+          "en": "g3"
+        },
+        "relevant": {
+          "op": "lit",
+          "value": false
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "a3",
+            "dataType": "text",
+            "label": {
+              "en": "a3"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "q3",
+        "dataType": "text",
+        "label": {
+          "en": "q3"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'g3' is never shown: its relevant is statically false, so 1 question(s) inside it would never be asked: 'a3' (Form IR §10.3)."
+  ],
+  "expectedWarnings": [],
+  "expectedNeverShown": [
+    "a3"
+  ]
+}

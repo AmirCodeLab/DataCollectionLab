@@ -121,6 +121,7 @@ cannot express, each with its own README and its own runner on both engines:
 |---|---|
 | `crypto/` | Envelope bytes are identical across engines |
 | `sensitivity/` | Which forms the publish gate refuses, and with which message (§10.2) |
+| `reachability/` | Which forms can never ask a question they hold — refused, warned, or clean — and the "never shown" list a builder badges (§10.2, §10.3) |
 | `malformed/` | Which documents are refused before compilation, and why (§10.1) |
 | `functions/` | Every §4.3 function against every value shape (§4.7) |
 

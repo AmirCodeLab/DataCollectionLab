@@ -1,0 +1,57 @@
+{
+  "id": "reachability-002",
+  "type": "reachability",
+  "description": "A countExpr that is statically zero never holds an instance",
+  "shape": "countExpr = 0",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p2",
+    "version": 1,
+    "title": {
+      "en": "p2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "r2",
+        "label": {
+          "en": "r2"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "a2",
+            "dataType": "text",
+            "label": {
+              "en": "a2"
+            }
+          }
+        ],
+        "countExpr": {
+          "op": "lit",
+          "value": 0
+        }
+      },
+      {
+        "type": "question",
+        "id": "q2",
+        "dataType": "text",
+        "label": {
+          "en": "q2"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'r2' never holds an instance: its countExpr is statically 0, so 1 question(s) inside it would never be asked: 'a2' (Form IR §10.3)."
+  ],
+  "expectedWarnings": [],
+  "expectedNeverShown": [
+    "a2"
+  ]
+}

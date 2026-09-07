@@ -1,0 +1,41 @@
+{
+  "id": "reachability-005",
+  "type": "reachability",
+  "description": "An empty container loses nothing, so it is neither an error nor a warning",
+  "shape": "empty field-list group",
+  "spec": "form-ir 10.2, 10.3, 11.1",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p5",
+    "version": 1,
+    "title": {
+      "en": "p5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "group",
+        "id": "g5",
+        "label": {
+          "en": "g5"
+        },
+        "appearance": "field-list",
+        "children": []
+      },
+      {
+        "type": "question",
+        "id": "q5",
+        "dataType": "text",
+        "label": {
+          "en": "q5"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [],
+  "expectedWarnings": [],
+  "expectedNeverShown": []
+}

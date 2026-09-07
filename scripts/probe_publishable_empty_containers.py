@@ -5,17 +5,19 @@
 
 Backs `docs/phase3-item0-builder-scope.md` §0.2. Each shape puts a question
 inside a container that can never yield a screen, plus one ordinary question
-outside it. Every one compiles, passes `check_publishable`, and is reported
-askable by `askable_question_ids()` — so the reachability refusal written for
-defect 14 would pass all six even if it were moved onto the publish path.
-`screen_relevant` then returns False for the container at runtime and the
-question inside it is never asked. That is defect 14's symptom with nothing
-between the author and the handset to catch it.
+outside it. On 6 September 2026 every one compiled, passed `check_publishable`,
+and was reported askable by `askable_question_ids()` — so the reachability
+refusal written for defect 14 would have passed all six even if it had been
+moved onto the publish path. `screen_relevant` then returned False for the
+container at runtime and the question inside it was never asked: defect 14's
+symptom with nothing between the author and the handset to catch it.
 
-`warnings` is empty on every row, and that is the second finding rather than a
-detail of the first: Form IR §10.3 names a warning that would flag shapes 2, 3
-and 4 — unreachable relevance — and neither engine implements it. Known
-defect 17.
+Since build-order step 2 (`app/modules/form_engine/reachability.py`) four of
+the six are REFUSED, the statically-false leaf publishes with the §10.3
+warning, and the empty field-list group publishes clean — nothing inside,
+nothing lost. These six shapes are `conformance/reachability` 001–006,
+verbatim and in this order, and `test_the_six_shapes_are_the_probe_s_own`
+fails if the two drift apart. Run this to see the gate's current answer.
 
 The original probe was lost with the analysis it backed (rule 12). This script
 was rewritten on 6 September 2026 from the recorded output and reproduces it

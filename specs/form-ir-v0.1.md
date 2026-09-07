@@ -1346,6 +1346,31 @@ holds at least one `question` that is not a `calculate`, is a **semantic error**
 (§10.2). It blocks publish. A statically-false `relevant` on a question is a
 warning, as above.
 
+**A repeat that can never hold an instance is unreachable in the same sense**,
+and the same rule applies to it. Three shapes are statically decidable, and
+each is one of §2.3's four row sources with its door shut:
+
+- `countExpr` that is static — no `ref`, no `today()`, no `now()` — and
+  evaluates by §4.7 to a number that is not greater than zero;
+- `maxInstances: 0`;
+- an inline `rowSource` with no `items` and `allowAdd` false (or absent).
+
+The engine is right to yield no instance for each (`_can_add`, §11.3), which
+is exactly why the document must not ship: the questions inside survive
+import, list in a builder's tree, and reach no screen on any path.
+
+A container that holds **no** answerable question is not this case. An empty
+`field-list` group, or a group of calculates, loses nothing by never
+appearing, so it is neither an error nor a warning; a form with such a
+container publishes clean. Nested unreachable containers are reported once,
+by the outermost.
+
+The refusal names the container, the reason, and the questions that would be
+lost; the warning names the question. Both engines produce the same text —
+`conformance/reachability` pins it — because an author reads it, and a form
+one builder refuses with one sentence and another with a different one is two
+rules.
+
 The engine's finding is identical in the two cases — this node can never appear
 — so what separates them is the author's intent, and on that they are not close.
 
