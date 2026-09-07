@@ -25,6 +25,13 @@ every test?* — has its own section, §5, because the honest answer is a
 permission check in the API layer, which passes every screen test and fails
 the first export.
 
+**Revised again the same evening**, after the answer that tenancy and scope
+are one mechanism asked twice — set something on the connection, let the
+database enforce it — with three things to hold to: FORCE on every table and
+a test for it; the pool-return evidence in the spec, not only the register;
+and a test that enumerates every table so a later migration cannot add an
+open one. §5 is rewritten around the three probes that were run to write it.
+
 ## 1. What exists today, plainly
 
 | | Today |
@@ -94,6 +101,22 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA tenant_dev GRANT SELECT, INSERT, UPDATE, DELE
 
 `role` and `user_role` (§6) are tenant tables and are created in `tenant_dev`
 by the same migration.
+
+And, in the same migration, **every table in both schemas** gets row-level
+security enabled *and forced*, with at least one policy (§5.3). Not only the
+tables items 2, 5 and 6 will scope: a table with no policy is open to every
+connection that can name it, and the migration is where that goes wrong
+silently. The default policy, on a table nothing scopes more finely, is
+"an authenticated member of this organisation":
+
+```sql
+ALTER TABLE tenant_dev.form ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_dev.form FORCE ROW LEVEL SECURITY;
+CREATE POLICY member ON tenant_dev.form
+    USING (coalesce(current_setting('app.user_id', true), '') <> '');
+```
+
+`coalesce(…, '') <> ''` and not `IS NOT NULL`, for the reason §5.2 records.
 
 ### 2.3 The connection layer
 
@@ -247,52 +270,104 @@ A permission check in the API layer — `require("submission.view")`, and a
 `WHERE` in each service that lists — passes every screen test, because every
 screen calls a service that filters. It fails the first report or export that
 queries the table directly, and nobody notices, because the screens are all
-correct. That is the pilot scope §4.2's sentence with a mechanism missing:
-"a filter can be forgotten in one query; a scope cannot" is true only if the
-scope is somewhere a query cannot skip.
-
-The place a query cannot skip is the database. **Row-level security**, set
-from the same connection layer that sets `search_path`:
+correct. The pilot scope §4.2's sentence — "a filter can be forgotten in one
+query; a scope cannot" — is true only if the scope is somewhere a query
+cannot skip. That place is the database, and it is the same place tenancy
+already lives: one mechanism, asked twice. Set the principal on the
+connection; let row-level security enforce it.
 
 ```sql
--- §5: the principal, as the connection sees it. Set with SET LOCAL by the
--- connection layer from the session; empty when there is no session.
+-- The principal, as the connection sees it. Set by the connection layer, per
+-- transaction, from the session (§5.2 says how); absent when there is none.
 --   app.user_id           the person
 --   app.scope_kind        'organization' | 'project' | 'team' — the widest live grant
---   app.visible_user_ids  text[]: the people whose work this principal may see.
---                         For team scope, the team's members; for project
---                         scope, the project's; for organization, every member.
+--   app.visible_user_ids  comma-joined: the people whose work this principal may see
 
 ALTER TABLE tenant_dev.submission ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_dev.submission FORCE ROW LEVEL SECURITY;
-CREATE POLICY submission_scope ON tenant_dev.submission
+CREATE POLICY scope ON tenant_dev.submission
     USING (created_by = ANY (string_to_array(current_setting('app.visible_user_ids', true), ','))
            OR current_setting('app.scope_kind', true) = 'organization');
 ```
 
-`submission` in item 1, as the mechanism's proof and because it is the table
-every later item reads. Item 2 adds the same policy to `case_record`,
-`assignment`, `device` and `submission_op`; item 5's monitoring and item 6's
-review inherit it without a line of their own.
+`submission` carries the scoped policy in item 1, as the mechanism's proof and
+because it is the table every later item reads; item 2 puts the same policy on
+`case_record`, `assignment`, `device` and `submission_op`; items 5 and 6
+inherit it without a line of their own. Every other table carries the member
+policy from §2.2. The API-layer `require(permission)` still exists — it is how
+a screen is refused before it renders — but it is the courtesy, not the
+guarantee.
 
-Three things make this true rather than nominal, and each is a test:
+### 5.1 Three probes, run on 7 September 2026
 
-- **The application is not the owner.** `FORCE ROW LEVEL SECURITY` subjects
-  the owner to policies; a superuser is exempt from everything. The app
-  connects as `dcp_app` (§2.2); `test_tenant_isolation.py` asserts the role
-  before it asserts anything else. **A test suite that connects as `dcp`
-  passes every isolation test whether or not isolation works** — that is the
-  most exact instance of "what would pass every test" in this document.
-- **The raw query is the test.** Supervisor A's principal runs
-  `select(Submission)` — no service, no filter — and sees A's team's rows. Not
-  the API: the model.
-- **Every scoped table is listed.** `test_schema.py` gains a list of the
-  tables that carry a scope policy and fails when a table item 2 scopes is
-  missing from it, the way `test_tenant_tables_have_no_organization_id_column`
-  works. The break: drop the policy on `submission`; the raw-query test fails.
+Against a scratch database on the development Postgres, as a superuser owner
+(`dcp`, the role in `docker-compose.yml`) and a fresh non-superuser role; two
+rows in a `submission` table, one per user, with the policy above.
+`scripts/` will keep the probe once the tests exist; until then this table is
+the evidence.
 
-The API-layer check still exists — `require(permission)` is how a screen is
-refused before it renders — but it is the courtesy, not the guarantee.
+| Probe | Result |
+|---|---|
+| **The owner is a superuser, and a superuser bypasses everything.** Owner, no principal set, `ENABLE` only | 2 rows |
+| Owner, no principal set, `FORCE` | **2 rows.** FORCE subjects the *owner* to policies; it does nothing to a *superuser*. `dcp` is both |
+| App role, no principal set | 0 rows |
+| App role, `app.visible_user_ids = usr_a` set with `set_config(…, true)` | 1 row, `s1` |
+| **After that transaction ends**, `current_setting('app.visible_user_ids', true)` | **`''`, not NULL.** A custom setting that has been set once in a session reads back as the empty string for the rest of that session |
+| App role, `app.scope_kind = organization` (local) | 2 rows |
+| After that transaction, rows | 0 |
+| **Pool return.** SQLAlchemy asyncpg pool of size 1. Request 1 sets the principal with `is_local => true`, sees 1 row. Request 2 on the same pooled connection | setting `''`, **0 rows** |
+| Request 3 sets the principal with `is_local => false` (session level), sees 1 row. Request 4 on the same pooled connection | setting `'usr_b'`, **1 row — the leak** |
+
+### 5.2 What the probes decide
+
+- **The application never connects as the owner.** `FORCE` is not enough:
+  the owner is a superuser, and the probe shows FORCE changing nothing for it.
+  `dcp_app` (§2.2) is the only role the application and the test suite
+  connect as, and the isolation test asserts `NOT rolsuper` on its own
+  connection before any other assertion. A suite connecting as `dcp` passes
+  every isolation test whether or not isolation works — the most exact
+  instance of "what would pass every test" in this document.
+- **The principal is set per transaction, `is_local => true`, and never at
+  session level.** The pool-return probe is the whole reason: a session-level
+  setting rode the pooled connection into the next request and showed it
+  another person's row. A transaction-local one was gone. This is written
+  into `specs/erd-v0.1.md` §1 as a rule with the probe as its evidence, so
+  that the reset is never "optimised away" — there is no reset to remove,
+  because the transaction's end is the reset.
+- **Unset is `''` as often as it is NULL, and both mean no access.**
+  `current_setting(name, true)` returns NULL on a connection that has never
+  set the name and `''` on one that has. Every policy therefore compares
+  through something that denies both: `= ANY (string_to_array('', ','))` is
+  false, `'' = 'organization'` is false, and the member policy says
+  `coalesce(…, '') <> ''`. A policy written `IS NOT NULL` would be open on
+  every reused connection. The break that holds this: unset the principal —
+  on a fresh connection *and* on one that has carried a principal — and the
+  query returns zero rows, never everything.
+
+### 5.3 The tests that keep it from being nominal
+
+1. **`test_every_table_is_forced.py`** (db): enumerate `pg_class` for every
+   ordinary table in `public` and every tenant schema; each must have
+   `relrowsecurity` and `relforcerowsecurity` true and at least one row in
+   `pg_policies`. Fails naming the table. A migration that adds a table
+   without a policy is red in CI; a policy that exists without FORCE is red
+   in CI — the worst failure shape, correct in `psql` and bypassed by the app
+   connection, cannot land.
+2. **`test_tenant_isolation.py`** (db, §2.4): asserts the connection role is
+   `dcp_app` and not a superuser first; then the raw unfiltered
+   `select(Submission)` under supervisor A's principal sees A's team's rows
+   only; under no principal, on a fresh connection and on a reused one, sees
+   none; across the scratch schema, sees nothing of the other.
+3. **The scoped-table list in `test_schema.py`**: the tables carrying a
+   `scope` policy are enumerated, and a table item 2 scopes that is missing
+   from the list fails, the way `test_tenant_tables_have_no_organization_id_column`
+   works.
+
+Breaks, each to be run for real when the tests exist: drop FORCE from one
+table; drop a policy from one table; add a table in a scratch migration with
+no policy; connect the suite as the owner; set the principal at session
+level; write a policy with `IS NOT NULL`; unset the principal and expect
+zero.
 
 ## 6. The model's DDL — memberships, roles, people
 
