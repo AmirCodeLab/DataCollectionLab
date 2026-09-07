@@ -241,3 +241,75 @@ def test_a_form_can_exist_with_nothing_published(draft_db: str) -> None:
     assert mine["project_id"] == PROJECT_ID
     assert mine["latest_version_id"] is None, "nothing is published"
     assert duplicate is not None and "started" in duplicate
+
+
+def test_test_cases_live_with_the_draft(draft_db: str) -> None:
+    """Builder scope §4 and §6: a draft is "IR + test cases", and a case is
+    owned by the author — saved with the draft, returned with it, and left
+    alone by a save that says nothing about it. The server runs nothing."""
+    import asyncio
+
+    from app.modules.forms import service
+
+    cases = [
+        {
+            "id": "tc1",
+            "name": "consent hides the page",
+            "steps": [{"kind": "set", "path": "consent", "value": "no"}],
+            "expectations": [{"path": "page_q", "relevant": False}],
+        },
+        {
+            "id": "tc2",
+            "name": "a member's age counts",
+            "steps": [{"kind": "addRow", "repeatId": "members"}],
+            "expectations": [{"path": "members[i1].age", "valid": False}],
+        },
+    ]
+
+    async def run() -> tuple[list, list, list]:
+        async with _session(draft_db) as session, session.begin():
+            created = await service.create_form(
+                session, project_id=PROJECT_ID, form_key="tested", title="Tested"
+            )
+        async with _session(draft_db) as session, session.begin():
+            first = await service.save_draft(
+                session,
+                form_id=created.id,
+                ir={"formId": "tested"},
+                expected_revision=None,
+                test_cases=cases,
+            )
+            revision = first.revision
+        async with _session(draft_db) as session, session.begin():
+            draft = await service.get_draft(session, created.id)
+            stored = list(draft.test_cases) if draft else []
+        # A save that says nothing about the cases leaves them.
+        async with _session(draft_db) as session, session.begin():
+            await service.save_draft(
+                session,
+                form_id=created.id,
+                ir={"formId": "tested", "v": 2},
+                expected_revision=revision,
+                test_cases=None,
+            )
+        async with _session(draft_db) as session, session.begin():
+            draft = await service.get_draft(session, created.id)
+            kept = list(draft.test_cases) if draft else []
+        # An empty list is a request to have none.
+        async with _session(draft_db) as session, session.begin():
+            await service.save_draft(
+                session,
+                form_id=created.id,
+                ir={"formId": "tested", "v": 3},
+                expected_revision=revision + 1,
+                test_cases=[],
+            )
+        async with _session(draft_db) as session, session.begin():
+            draft = await service.get_draft(session, created.id)
+            cleared = list(draft.test_cases) if draft else ["never"]
+        return stored, kept, cleared
+
+    stored, kept, cleared = asyncio.run(run())
+    assert stored == cases
+    assert kept == cases
+    assert cleared == []

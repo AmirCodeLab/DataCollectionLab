@@ -22,7 +22,7 @@
 
 import { create } from "zustand";
 
-import type { CompileResponse } from "@/api/types";
+import type { CompileResponse, TestCase } from "@/api/types";
 import {
   insertNode,
   moveNode,
@@ -75,8 +75,21 @@ export interface BuilderState {
   /** `null` selects the form header. */
   selectedId: string | null;
   compile: CompileState;
+  /**
+   * The author's test cases, saved with the draft (scope §6: "IR + test
+   * cases"). Owned by the author, about this form, and supposed to change
+   * when the form changes — never a conformance vector. Editing one dirties
+   * the draft like an IR edit does, and touches the compile answer not at all:
+   * a case says nothing about what the form is, only what it should do.
+   */
+  testCases: TestCase[];
 
-  open: (formId: string, ir: FormIr, revision: number | null) => void;
+  open: (
+    formId: string,
+    ir: FormIr,
+    revision: number | null,
+    testCases?: TestCase[],
+  ) => void;
   close: () => void;
   select: (id: string | null) => void;
 
@@ -98,6 +111,11 @@ export interface BuilderState {
   compileSucceeded: (askedFor: FormIr, result: CompileResponse) => void;
   compileRefused: (askedFor: FormIr, refusals: string[]) => void;
   compileFailed: (askedFor: FormIr, message: string) => void;
+
+  addTestCase: (testCase: TestCase) => void;
+  removeTestCase: (id: string) => void;
+  renameTestCase: (id: string, name: string) => void;
+  replaceTestCase: (testCase: TestCase) => void;
 }
 
 const idleCompile: CompileState = {
@@ -126,6 +144,19 @@ export const useBuilder = create<BuilderState>((set, get) => {
     });
   };
 
+  /** A test-case edit dirties the draft and leaves the compile answer alone. */
+  const editCases = (change: (cases: TestCase[]) => TestCase[]): void => {
+    const state = get();
+    if (state.ir === null) return;
+    set({
+      testCases: change(state.testCases),
+      save: {
+        status: state.save.status === "conflict" ? "conflict" : "dirty",
+        message: null,
+      },
+    });
+  };
+
   return {
     formId: null,
     ir: null,
@@ -134,8 +165,9 @@ export const useBuilder = create<BuilderState>((set, get) => {
     save: { status: "clean", message: null },
     selectedId: null,
     compile: idleCompile,
+    testCases: [],
 
-    open: (formId, ir, revision) =>
+    open: (formId, ir, revision, testCases = []) =>
       set({
         formId,
         ir,
@@ -144,6 +176,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
         save: { status: revision === null ? "dirty" : "clean", message: null },
         selectedId: null,
         compile: idleCompile,
+        testCases,
       }),
     close: () =>
       set({
@@ -154,6 +187,7 @@ export const useBuilder = create<BuilderState>((set, get) => {
         save: { status: "clean", message: null },
         selectedId: null,
         compile: idleCompile,
+        testCases: [],
       }),
     select: (id) => set({ selectedId: id }),
 
@@ -231,6 +265,18 @@ export const useBuilder = create<BuilderState>((set, get) => {
           askedFor,
         },
       })),
+    addTestCase: (testCase) => editCases((cases) => [...cases, testCase]),
+    removeTestCase: (id) =>
+      editCases((cases) => cases.filter((c) => c.id !== id)),
+    renameTestCase: (id, name) =>
+      editCases((cases) =>
+        cases.map((c) => (c.id === id ? { ...c, name } : c)),
+      ),
+    replaceTestCase: (testCase) =>
+      editCases((cases) =>
+        cases.map((c) => (c.id === testCase.id ? testCase : c)),
+      ),
+
     compileFailed: (askedFor, message) =>
       set((state) => ({
         compile: {

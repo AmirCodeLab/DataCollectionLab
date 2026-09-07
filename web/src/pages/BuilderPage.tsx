@@ -26,8 +26,12 @@ import { useAutoCompile } from "@/builder/compile";
 import { IrMenu } from "@/builder/floor/IrMenu";
 import { asFormIr, emptyForm } from "@/builder/ir";
 import { PlanPane } from "@/builder/plan/PlanPane";
+import { PreviewPane } from "@/builder/preview/PreviewPane";
+import { PreviewToggle } from "@/builder/preview/PreviewToggle";
+import { usePreviewOpen } from "@/builder/preview/previewStore";
 import { PropertiesPane } from "@/builder/properties/PropertiesPane";
 import { PublishButton } from "@/builder/publish/PublishButton";
+import { TestModePane } from "@/builder/tests/TestModePane";
 import { useBuilder } from "@/builder/store";
 import { TreePane } from "@/builder/tree/TreePane";
 
@@ -80,7 +84,13 @@ function Opener({ form }: { form: FormSummary }) {
     if (opened === form.id || draft.data === undefined) return;
     if (draft.data !== null) {
       const parsed = asFormIr(draft.data.ir);
-      if ("ir" in parsed) open(form.id, parsed.ir, draft.data.revision);
+      if ("ir" in parsed)
+        open(
+          form.id,
+          parsed.ir,
+          draft.data.revision,
+          draft.data.testCases ?? [],
+        );
       return;
     }
     if (startFrom === null) {
@@ -136,6 +146,7 @@ function Opener({ form }: { form: FormSummary }) {
 function Editor({ form }: { form: FormSummary }) {
   useAutoSave(form.id);
   useAutoCompile();
+  const previewOpen = usePreviewOpen((s) => s.open);
   const title = useBuilder(
     (s) => s.ir?.title[s.ir.defaultLanguage] ?? form.title,
   );
@@ -150,6 +161,7 @@ function Editor({ form }: { form: FormSummary }) {
         <code className="text-xs text-slate-500">{form.formId}</code>
         <SaveStatus />
         <span className="ms-auto flex items-center gap-3">
+          <PreviewToggle />
           <IrMenu />
           <PublishButton
             projectId={form.projectId}
@@ -162,10 +174,11 @@ function Editor({ form }: { form: FormSummary }) {
           <TreePane />
         </aside>
         <div className="min-h-0 overflow-auto">
-          <PropertiesPane />
+          {previewOpen ? <PreviewPane /> : <PropertiesPane />}
         </div>
         <aside className="min-h-0 overflow-auto border-s border-slate-200 ps-3">
           <PlanPane />
+          <TestModePane />
         </aside>
       </div>
     </section>
@@ -215,24 +228,35 @@ function useAutoSave(formId: string) {
   const ir = useBuilder((s) => s.ir);
   const saved = useBuilder((s) => s.saved);
   const status = useBuilder((s) => s.save.status);
+  const testCases = useBuilder((s) => s.testCases);
   const inFlight = useRef(false);
 
   useEffect(() => {
-    if (ir === null || ir === saved) return;
+    // Dirty means the document changed (by identity) or a test case did
+    // (the store marks the status); either way the whole draft goes out.
+    if (ir === null || (ir === saved && status !== "dirty")) return;
     if (status === "conflict" || status === "saving" || inFlight.current)
       return;
     const handle = setTimeout(() => {
       const current = useBuilder.getState();
-      if (current.ir === null || current.ir === current.saved) return;
+      if (current.ir === null) return;
+      if (current.ir === current.saved && current.save.status !== "dirty")
+        return;
       const sent = current.ir;
       inFlight.current = true;
       current.saveStarted();
       // Omitted, not null, for a draft that does not exist yet: the schema
       // reads an absent revision as "I am starting this draft".
+      // The cases travel with every save: they are part of the draft, and a
+      // save that omitted them would leave the server holding yesterday's.
       const request =
         current.revision === null
-          ? { ir: sent }
-          : { ir: sent, expectedRevision: current.revision };
+          ? { ir: sent, testCases: current.testCases }
+          : {
+              ir: sent,
+              expectedRevision: current.revision,
+              testCases: current.testCases,
+            };
       saveDraft(formId, request)
         .then((doc) => {
           useBuilder.getState().saveSucceeded(sent, doc.revision);
@@ -251,5 +275,5 @@ function useAutoSave(formId: string) {
         });
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [formId, ir, saved, status]);
+  }, [formId, ir, saved, status, testCases]);
 }

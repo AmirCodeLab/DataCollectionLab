@@ -737,6 +737,7 @@ async def save_draft(
     ir: dict[str, Any],
     expected_revision: int | None,
     updated_by: str | None = None,
+    test_cases: list[dict[str, Any]] | None = None,
 ) -> FormDraft:
     """Create or replace a form's draft, and bump its revision.
 
@@ -760,7 +761,13 @@ async def save_draft(
     if draft is None:
         if expected_revision is not None:
             raise DraftConflict(0)
-        draft = FormDraft(form_id=form_id, ir=ir, revision=1, updated_by=updated_by)
+        draft = FormDraft(
+            form_id=form_id,
+            ir=ir,
+            revision=1,
+            updated_by=updated_by,
+            test_cases=test_cases if test_cases is not None else [],
+        )
         session.add(draft)
         await session.flush()
         return draft
@@ -769,6 +776,10 @@ async def save_draft(
         raise DraftConflict(draft.revision)
 
     draft.ir = ir
+    # None means the caller said nothing about test cases; a list, even an
+    # empty one, replaces them. The two are different requests.
+    if test_cases is not None:
+        draft.test_cases = test_cases
     draft.revision = draft.revision + 1
     draft.updated_by = updated_by
     draft.updated_at = datetime.now(UTC)
