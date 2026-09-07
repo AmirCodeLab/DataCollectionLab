@@ -40,6 +40,15 @@ authorization was a requirement, and RLS is the mechanism that answers both.
 §2 below is rewritten to it; the table move, the `search_path` layer and the
 scratch schema are gone.
 
+**Fifth pass**, four answers: users are tenant-scoped (`platform_user.organization_id`,
+the same policy as everything else); roles too, seeded per organisation;
+the coverage test fails closed with `alembic_version` the one named
+exemption; a second connection is forbidden by an AST lint. And no bootstrap
+escape for login: the organisation is resolved before authentication, from
+the hostname or the login form, which for this single-tenant deployment is
+its one organisation. The `SECURITY DEFINER` function of the fourth pass is
+gone — it was the escape.
+
 ## 1. What exists today, plainly
 
 | | Today |
@@ -90,17 +99,32 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 -- Row-level security on EVERY table, enabled and forced. The migration
 -- enumerates pg_class rather than listing names, and
 -- tests/test_every_table_is_forced.py holds the result — a table added by a
--- later migration with no policy is red in CI.
+-- later migration with no policy is red in CI. The test fails closed: an
+-- unknown table with no policy is a failure, not a skip. `alembic_version`
+-- is the one exemption, named in the test: Alembic owns it, it holds no
+-- tenant data, the application never reads it.
 --
 -- Three policy shapes, and every table carries exactly one of them:
 --
--- (a) platform tables: the organisation the principal belongs to.
+-- (a) platform tables: the organisation. A user belongs to one organisation
+--     (§3.1) and carries it directly — as tenant-scoped as a submission.
+ALTER TABLE platform_user ADD COLUMN organization_id text
+    REFERENCES platform_organization (id) ON DELETE RESTRICT;
+-- (backfilled to the one organisation, then NOT NULL; and UNIQUE (organization_id, id)
+--  so the membership below can reference the pair and never disagree with it)
+ALTER TABLE platform_org_membership
+    ADD CONSTRAINT platform_org_membership_same_org_fk
+    FOREIGN KEY (organization_id, user_id) REFERENCES platform_user (organization_id, id);
+
 CREATE POLICY org ON platform_organization
-    USING (id = coalesce(current_setting('app.org_id', true), ''));
+    -- Visible by id once the principal is set, or by slug while the login
+    -- route is resolving it (§2.3) — the one row, either way.
+    USING (id = coalesce(current_setting('app.org_id', true), '')
+           OR slug = coalesce(current_setting('app.org_slug', true), ''));
+CREATE POLICY org ON platform_user
+    USING (organization_id = coalesce(current_setting('app.org_id', true), ''));
 CREATE POLICY org ON platform_org_membership
     USING (organization_id = coalesce(current_setting('app.org_id', true), ''));
-CREATE POLICY org ON platform_user
-    USING (id IN (SELECT user_id FROM platform_org_membership));   -- inherits (a)
 CREATE POLICY own ON platform_session
     USING (user_id = coalesce(current_setting('app.user_id', true), ''));
 
@@ -161,11 +185,31 @@ request ──► session cookie ──► platform_session ──► user ─�
 nothing to the next request (§5.1, the pool probe). The organisation is read
 from the session, never from a constant; the seed's `schema_name = "public"`
 goes with the column. A request with no session sets nothing, and a policy
-that reads nothing admits nothing: the login route reads `platform_user` by
-username **as the owner-side function it is** — one `SECURITY DEFINER`
-function, `platform_login(username, password_hash_check)`, the single place
-an unauthenticated request touches a row, because with a principal of nothing
-the app role cannot see the user it is about to authenticate.
+that reads nothing admits nothing.
+
+**Login resolves the organisation before it reads a user.** With a principal
+of nothing the app role can see no `platform_user` row, and the answer is not
+an unrestricted read — it is that the login request already knows which
+organisation it is for. The connection layer sets `app.org_slug` from the
+request's hostname (per-customer hostnames, the SurveyCTO shape) or from an
+organisation identifier in the login form; the `platform_organization`
+policy admits that one row by slug; its id becomes `app.org_id`; and the
+user row is now visible under the ordinary policy. For this deployment —
+single-tenant, provisioning deliberately unbuilt — the slug is the
+deployment's one organisation, configured. **Multi-tenant provisioning has to
+deliver the resolution** (ERD §1 records the constraint), and nothing is built
+meanwhile that reads a user without an organisation.
+
+**One connection factory, and a lint.** `tests/test_one_connection_factory.py`,
+in the shape of `test_form_version_has_one_writer.py`: any
+`create_async_engine`, `asyncpg.connect` or `postgresql://` literal in `app/`
+or `scripts/` outside `app/infrastructure/database.py` fails, naming the file
+and line. `migrations/env.py` is the named exemption (migrations run as the
+owner). Two scripts fail it today — `scripts/export_submissions.py` and
+`scripts/measure_export.py` each build their own engine — and that is the
+finding, not a nuisance: an export with its own connection is the one report
+nobody thought of, the exact shape §5 is about. They move onto the factory
+with a principal in this item.
 
 Migrations: unchanged. One schema, one version table, `migrations/env.py` as
 it is. The two things that were about to be scheduled — a table move and a
@@ -377,8 +421,10 @@ the evidence.
 
 ### 5.3 The tests that keep it from being nominal
 
-1. **`test_every_table_is_forced.py`** (db): enumerate `pg_class` for every
-   ordinary table in the schema; each must have
+1. **`test_every_table_is_forced.py`** (db): enumerate `pg_tables` for every
+   ordinary table in the schema — **fail closed**: an unknown table with no
+   policy is a failure, not a skip, and `alembic_version` is the one
+   exemption, named with its reason; each must have
    `relrowsecurity` and `relforcerowsecurity` true and at least one row in
    `pg_policies`. Fails naming the table. A migration that adds a table
    without a policy is red in CI; a policy that exists without FORCE is red
@@ -389,7 +435,10 @@ the evidence.
    `select(Submission)` under supervisor A's principal sees A's team's rows
    only; under no principal, on a fresh connection and on a reused one, sees
    none; under the fixture organisation, sees nothing of the seed's.
-3. **The scoped-table list in `test_schema.py`**: the tables carrying a
+3. **`test_one_connection_factory.py`**: the AST lint of §2.3 — no engine,
+   no raw connection, no `postgresql://` outside the factory, in `app/` or
+   `scripts/`.
+4. **The scoped-table list in `test_schema.py`**: the tables carrying a
    `scope` policy are enumerated, and a table item 2 scopes that is missing
    from the list fails, the way `test_tenant_tables_have_no_organization_id_column`
    works.
@@ -438,10 +487,14 @@ ALTER TABLE platform_org_membership
 -- role, role_permission, user_role (§3.5), in the tenant schema
 CREATE TABLE role (
     id              text PRIMARY KEY,
-    name            text NOT NULL UNIQUE,
+    -- An organisation's own (§3.5): tenant-scoped like everything else, with
+    -- the organisation policy. No shared system-role table beside it.
+    organization_id text NOT NULL REFERENCES platform_organization (id) ON DELETE RESTRICT,
+    name            text NOT NULL,
     scope_kind      text NOT NULL,
     builtin         boolean NOT NULL DEFAULT false,
     created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (organization_id, name),
     CONSTRAINT role_scope_kind_check
         CHECK (scope_kind IN ('organization', 'project', 'team'))
 );
@@ -485,12 +538,16 @@ CREATE UNIQUE INDEX user_role_live_idx
     ON user_role (user_id, role_id, scope_kind, coalesce(project_id, ''), coalesce(team_id, ''))
     WHERE revoked_at IS NULL;
 
--- The three roles §3.2 names, seeded by the migration, not by code.
-INSERT INTO role (id, name, scope_kind, builtin) VALUES
-    ('role_admin',      'Admin',             'organization', true),
-    ('role_pm',         'Programme manager', 'project',      true),
-    ('role_supervisor', 'Supervisor',        'team',         true),
-    ('role_enumerator', 'Enumerator',        'team',         true);
+-- The standard roles, seeded PER ORGANISATION at its creation — by this
+-- migration for the one that exists, by provisioning for every later one.
+-- Duplicating a few rows is cheaper than an exception to the isolation rule.
+INSERT INTO role (id, organization_id, name, scope_kind, builtin)
+SELECT o.id || '_' || r.suffix, o.id, r.name, r.scope_kind, true
+FROM platform_organization o,
+     (VALUES ('admin', 'Admin', 'organization'),
+             ('pm', 'Programme manager', 'project'),
+             ('supervisor', 'Supervisor', 'team'),
+             ('enumerator', 'Enumerator', 'team')) AS r(suffix, name, scope_kind);
 -- and their permissions: Admin everything; PM everything but device.revoke;
 -- Supervisor user.create, sample.assign, submission.view; Enumerator none —
 -- an enumerator's access is their device's session, not a permission.
@@ -533,6 +590,8 @@ deleted, and the constraint makes the sentence true rather than remembered.
 - **Scope is two nullable columns and a CHECK**, the shape `assignment`
   already has, not a polymorphic id with no foreign key.
 - **Isolation is a policy in the database**, not a filter in a service (§5).
+- **Users and roles are tenant-scoped**, carrying `organization_id` under the
+  same policy as everything else; §3.6 had them platform-level.
 
 ## 8. Assumptions the DDL was written under — say if any is wrong
 
@@ -566,4 +625,6 @@ taken the recommended way so the DDL could be written:
   constant path; the policy dropped from `submission`; a test connecting as
   the owner; a route without the principal; a screen that checks a role name;
   a pending user who can log in; a registered, unbound device that can push;
-  the session token in any storage.
+  the session token in any storage; a script with its own engine; a table
+  added in a scratch migration that the coverage test does not know; a login
+  route that reads `platform_user` before the organisation is resolved.
