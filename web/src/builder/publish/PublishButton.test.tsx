@@ -203,3 +203,38 @@ describe("the next numbered version", () => {
     await waitFor(() => expect(useBuilder.getState().ir?.version).toBe(2));
   });
 });
+
+describe("a refusal is of one document", () => {
+  beforeEach(() => {
+    mocks.publishVersion.mockReset();
+    useBuilder.getState().close();
+    useBuilder.getState().open("01FORM", emptyForm("f", "F"), 1);
+  });
+  afterEach(cleanup);
+
+  it("disappears once the document changes, and the panel closes on Escape", async () => {
+    mocks.publishVersion.mockRejectedValueOnce(
+      new ApiError(422, "[...]", ["'g' is never shown"]),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PublishButton projectId="01PROJ" />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await screen.findByText("'g' is never shown");
+
+    useBuilder
+      .getState()
+      .insert({ parentId: null, index: 0 }, newQuestion("a", "text", "en"));
+    await waitFor(() =>
+      expect(screen.queryByText("'g' is never shown")).not.toBeInTheDocument(),
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "publish this form" }),
+    ).not.toBeInTheDocument();
+  });
+});

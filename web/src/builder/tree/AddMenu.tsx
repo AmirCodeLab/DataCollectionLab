@@ -7,7 +7,9 @@
  * sentence, so the author reads why rather than wondering where it went.
  */
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+
+import { useDismiss } from "@/builder/dismiss";
 import { useQuery } from "@tanstack/react-query";
 
 import { paletteQuery } from "@/api/queries";
@@ -23,6 +25,16 @@ import { useBuilder } from "@/builder/store";
 
 export function AddMenu() {
   const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, container, close);
+  // The tree pane scrolls, and a menu positioned inside it is clipped at the
+  // pane's edge — the registry notes were cut mid-word on the first
+  // end-to-end run. Fixed to the viewport, at the button, instead; measured
+  // when the button is pressed.
+  const [anchor, setAnchor] = useState<{ top: number; start: number } | null>(
+    null,
+  );
   const palette = useQuery(paletteQuery());
   const ir = useBuilder((s) => s.ir);
   const selectedId = useBuilder((s) => s.selectedId);
@@ -37,10 +49,14 @@ export function AddMenu() {
   const language = ir.defaultLanguage;
 
   return (
-    <div className="relative">
+    <div ref={container} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ top: rect.bottom + 4, start: rect.left });
+          setOpen((v) => !v);
+        }}
         aria-expanded={open}
         className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
       >
@@ -49,7 +65,17 @@ export function AddMenu() {
       {open && (
         <div
           role="menu"
-          className="absolute start-0 z-10 mt-1 w-72 rounded border border-slate-200 bg-white p-2 text-xs shadow"
+          aria-label="add to the form"
+          style={
+            anchor === null
+              ? undefined
+              : {
+                  position: "fixed",
+                  top: anchor.top,
+                  insetInlineStart: anchor.start,
+                }
+          }
+          className="z-20 mt-1 w-80 max-w-[90vw] rounded border border-slate-200 bg-white p-2 text-xs shadow-lg"
         >
           <p className="mb-1 font-medium text-slate-600">Question</p>
           {palette.isPending && (
@@ -69,6 +95,7 @@ export function AddMenu() {
                     <button
                       type="button"
                       role="menuitem"
+                      aria-label={type.dataType}
                       disabled={!enabled}
                       onClick={() =>
                         add(

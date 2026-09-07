@@ -7,7 +7,7 @@
  * one violation per line, never rephrased and never composed here.
  */
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/api/client";
@@ -18,6 +18,8 @@ import {
   type PublishVersionResponse,
 } from "@/api/types";
 import { refusalsFrom } from "@/builder/compile";
+import { useDismiss } from "@/builder/dismiss";
+import type { FormIr } from "@/builder/ir";
 import { useBuilder } from "@/builder/store";
 import { nextVersion } from "./version";
 
@@ -31,8 +33,9 @@ type Outcome =
   | { state: "idle" }
   | { state: "publishing" }
   | { state: "published"; response: PublishVersionResponse }
-  | { state: "refused"; violations: string[] }
-  | { state: "failed"; message: string };
+  /** A refusal is of one document; once that document changes it is history. */
+  | { state: "refused"; violations: string[]; forIr: FormIr }
+  | { state: "failed"; message: string; forIr: FormIr };
 
 export function PublishButton({
   projectId,
@@ -45,8 +48,18 @@ export function PublishButton({
   const [deployTo, setDeployTo] = useState<EnvironmentKind[]>([]);
   const [publishedBy, setPublishedBy] = useState("");
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
+  const container = useRef<HTMLSpanElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, container, close);
 
   if (ir === null) return null;
+  // A refusal or failure shown against a document the author has since
+  // edited would be a verdict on a form that no longer exists.
+  const current: Outcome =
+    (outcome.state === "refused" || outcome.state === "failed") &&
+    outcome.forIr !== ir
+      ? { state: "idle" }
+      : outcome;
   const version = nextVersion(ir.version, publishedVersions);
   const form = version === ir.version ? ir : { ...ir, version };
 
@@ -75,18 +88,23 @@ export function PublishButton({
       await queryClient.invalidateQueries({ queryKey: ["forms"] });
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 422) {
-        setOutcome({ state: "refused", violations: refusalsFrom(error) });
+        setOutcome({
+          state: "refused",
+          violations: refusalsFrom(error),
+          forIr: form,
+        });
       } else {
         setOutcome({
           state: "failed",
           message: error instanceof Error ? error.message : String(error),
+          forIr: form,
         });
       }
     }
   };
 
   return (
-    <span className="relative inline-block text-xs">
+    <span ref={container} className="relative inline-block text-xs">
       <button
         type="button"
         className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700"
@@ -149,7 +167,7 @@ export function PublishButton({
               Close
             </button>
           </div>
-          <Result outcome={outcome} />
+          <Result outcome={current} />
         </div>
       )}
     </span>

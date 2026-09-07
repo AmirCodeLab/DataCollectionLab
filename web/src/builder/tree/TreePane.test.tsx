@@ -286,3 +286,22 @@ describe("moving", () => {
     expect(useBuilder.getState().selectedId).toBeNull();
   });
 });
+
+describe("the add menu and the tree's names", () => {
+  it("closes on Escape, and every node can be found by its label and id", async () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add…" }));
+    expect(
+      await screen.findByRole("menu", { name: "add to the form" }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("menu", { name: "add to the form" }),
+    ).not.toBeInTheDocument();
+    // The first end-to-end run's automation could not name a single tree
+    // button; a screen reader could not have either.
+    expect(
+      screen.getByRole("button", { name: "Label consent (consent)" }),
+    ).toBeInTheDocument();
+  });
+});
