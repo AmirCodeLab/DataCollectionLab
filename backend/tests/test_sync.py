@@ -515,7 +515,8 @@ def test_registration_refusals_name_a_machine_readable_reason(sync_api: Any) -> 
 
         # Two active projects: the target cannot be inferred, so nothing is guessed.
         await _execute(
-            "INSERT INTO project (id, organization_id, name, slug) VALUES ('01OTHERPROJ', '01ORGTEST', 'Other', 'other')"
+            "INSERT INTO project (id, organization_id, name, slug) "
+            "VALUES ('01OTHERPROJ', '01ORGTEST', 'Other', 'other')"
         )
         ambiguous = await register("dev-brand-new")
         assert ambiguous.status_code == 409, ambiguous.text

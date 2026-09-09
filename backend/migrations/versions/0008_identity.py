@@ -160,7 +160,9 @@ def upgrade() -> None:
         "WHERE organization_id IS NULL"
     )
     op.alter_column("platform_user", "organization_id", nullable=False)
-    op.create_unique_constraint("platform_user_org_id_key", "platform_user", ["organization_id", "id"])
+    op.create_unique_constraint(
+        "platform_user_org_id_key", "platform_user", ["organization_id", "id"]
+    )
 
     op.add_column("audit_event", sa.Column("organization_id", sa.Text(), nullable=True))
     op.create_foreign_key(
@@ -567,7 +569,9 @@ def downgrade() -> None:
     op.drop_table("role")
 
     # -- 3. People and memberships ------------------------------------------------
-    op.drop_constraint("platform_org_membership_same_org_fk", "platform_org_membership", type_="foreignkey")
+    op.drop_constraint(
+        "platform_org_membership_same_org_fk", "platform_org_membership", type_="foreignkey"
+    )
     for name in (
         "platform_org_membership_pending_unapproved_check",
         "platform_org_membership_approval_check",
@@ -581,7 +585,14 @@ def downgrade() -> None:
     op.drop_constraint(
         "platform_org_membership_created_by_fkey", "platform_org_membership", type_="foreignkey"
     )
-    for column in ("deactivated_at", "approved_at", "approved_by", "created_by", "membership_kind", "status"):
+    for column in (
+        "deactivated_at",
+        "approved_at",
+        "approved_by",
+        "created_by",
+        "membership_kind",
+        "status",
+    ):
         op.drop_column("platform_org_membership", column)
 
     op.drop_constraint("platform_user_username_key", "platform_user", type_="unique")

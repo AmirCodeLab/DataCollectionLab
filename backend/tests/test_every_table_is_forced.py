@@ -94,7 +94,9 @@ def test_every_table_is_enabled_forced_and_has_a_policy(migrated: list[dict[str,
 
 
 @pytest.mark.db
-def test_the_exemptions_are_real_and_nothing_else_is_unknown(migrated: list[dict[str, Any]]) -> None:
+def test_the_exemptions_are_real_and_nothing_else_is_unknown(
+    migrated: list[dict[str, Any]],
+) -> None:
     """An exemption that names a table which does not exist is a stale
     decision, and the test would silently stop guarding whatever replaced it."""
     names = {t["name"] for t in migrated}
