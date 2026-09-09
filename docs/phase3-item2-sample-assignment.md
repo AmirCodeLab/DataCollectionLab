@@ -469,9 +469,9 @@ start from a case, and the "No longer assigned to you" section.
   collected while they held it (§4.1). The alternative is an overlap rule on
   timestamps, argued against there.
 - **A2.** An enumerator sees only their own work — their assigned cases and
-  the submissions they made — and their pull is only that. Today a
-  team-scoped person without `submission.view` sees teammates' ops; this item
-  narrows it.
+  the submissions they made — and their pull is only that. Approved, and the
+  half of it that was a live leak is defect 26, fixed on PR #46 ahead of this
+  item.
 - **A3.** A case is assigned to at most one team and at most one person at a
   time. Two enumerators on one household is two visits on one case held by
   one of them, or the case moved between them; it is not two live holders.
