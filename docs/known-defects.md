@@ -770,6 +770,17 @@ for a container.
 | **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
 | **Blocks** | Nothing; an author may read a fresh screen as already failing |
 
+## 26. An enumerator's sync pull carried a teammate's ops, plaintext answers included
+
+| | |
+|---|---|
+| **Where** | `dcp_principal_for` (`backend/migrations/schema/010_people.sql` §2): every person in a granted team went into `app.visible_user_ids` whether or not the person held `submission.view`; `submission`'s policy admits work by anyone in that list, and the Enumerator role is team-scoped |
+| **Status** | **Fix on PR #46** (migration 011): the people in scope are visible only to a person holding `submission.view`; everyone else sees themself. `test_auth.py::test_08b` is the regression; break 171 |
+| **Found** | 9 September 2026, writing item 2's analysis (assumption A2), and confirmed by probe on merged main before the fix: signed in as one enumerator on their device, `GET /sync/pull` returned the other enumerator's op with its plaintext answer. `GET /submissions` refused the same person at the route; the handset's sync has no route to refuse at, and stores what it pulls |
+| **Blocks** | Pilot scope §4.1, "an enumerator sees only what is assigned to them", and §4.2's isolation between people — on the handset path, the one that carries the data |
+
+**What a reviewer would have seen: nothing.** Every console screen was right — the route refused the enumerator — and every test passed, because no test had two enumerators in one team pulling. The console's permission check and the handset's absence of one read as the same guarantee, and they were not. The lesson is item 1's, one layer down: a rule that lives on the principal has to be stated in terms of what the *policy* reads, and "team-scoped" was never the same fact as "may see the team's work".
+
 ## Closed
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
