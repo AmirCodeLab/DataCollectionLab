@@ -65,6 +65,12 @@ data class SyncOp(
     val valueCiphertext: String? = null,
     val contentKeyId: String? = null,
     val nonce: String? = null,
+    /**
+     * The case the submission is against (item 2), carried on every op of it
+     * so the server binds the submission to the case on whichever op opens
+     * it. Read from the submission row at push time, never stored on the op.
+     */
+    val caseId: String? = null,
 ) {
     val isEncrypted: Boolean get() = valueCiphertext != null
 }
@@ -83,6 +89,15 @@ data class SubmissionSummary(
     val createdAt: String,
     val updatedAt: String,
     val pendingOps: Long,
+    /** The case this work is against, or null for uncased work. */
+    val caseId: String? = null,
+    val caseKey: String? = null,
+    /**
+     * Whether that case is still this person's, as the latest assignment
+     * statement said. Null for uncased work. False is the "no longer assigned
+     * to you" state: the draft is kept, finishable and pushable.
+     */
+    val caseAssigned: Boolean? = null,
 )
 
 data class SyncStatus(
@@ -219,13 +234,22 @@ class SubmissionStore(
         deviceId = queries.getDeviceState().executeAsOne().device_id
     }
 
-    fun createDraft(formId: String, formVersion: Int): String {
+    /**
+     * Opens a draft, against [caseId] when the work is on an assigned case.
+     * The case is bound here and never changed: the server binds the
+     * submission to it on the first op, and reassignment afterwards moves the
+     * case, not the work (analysis §4.1).
+     */
+    fun createDraft(formId: String, formVersion: Int, caseId: String? = null): String {
         val instant = now()
         val id = Ulid.generate(instant.toEpochMilliseconds())
         val iso = instant.toString()
-        queries.insertSubmission(id, formId, formVersion.toLong(), iso, iso)
+        queries.insertSubmission(id, formId, formVersion.toLong(), iso, iso, caseId)
         return id
     }
+
+    fun caseIdFor(submissionId: String): String? =
+        queries.caseIdForSubmission(submissionId).executeAsOneOrNull()?.case_id
 
     fun appendOp(
         submissionId: String,
@@ -290,9 +314,17 @@ class SubmissionStore(
 
     // -- outbox / sync -----------------------------------------------------
 
-    /** Oldest unpushed ops, up to [limit] — one push batch. */
-    fun pendingOps(limit: Int): List<SyncOp> =
-        queries.pendingOps(limit.toLong()).executeAsList().map(::toSyncOp)
+    /**
+     * Oldest unpushed ops, up to [limit] — one push batch. Each carries its
+     * submission's case, read from the submission row now rather than stored
+     * on the op: the case is a fact about the submission, and one place holds
+     * it.
+     */
+    fun pendingOps(limit: Int): List<SyncOp> {
+        val ops = queries.pendingOps(limit.toLong()).executeAsList().map(::toSyncOp)
+        val cases = ops.map { it.submissionId }.distinct().associateWith { caseIdFor(it) }
+        return ops.map { op -> op.copy(caseId = cases[op.submissionId]) }
+    }
 
     fun pendingCount(): Long = queries.countPendingOps().executeAsOne()
 
@@ -408,6 +440,14 @@ class SubmissionStore(
     fun markDeviceRegistered() = queries.markDeviceRegistered()
 
     /**
+     * The server does not know this device after all. Seen on a handset
+     * whose server had been recreated: the local flag said registered, so
+     * no sync re-introduced it, and every sign-in was refused with "sync
+     * once first" — a loop with no way out but clearing the app's data.
+     */
+    fun markDeviceUnregistered() = queries.markDeviceUnregistered()
+
+    /**
      * Writes one pulled batch and advances the cursor in the SAME transaction,
      * so the cursor is persisted only once the batch is durable (sync §5).
      * Replays are no-ops via INSERT OR IGNORE on opId.
@@ -480,6 +520,9 @@ class SubmissionStore(
                 createdAt = it.created_at,
                 updatedAt = it.updated_at,
                 pendingOps = it.pending_ops,
+                caseId = it.case_id,
+                caseKey = it.case_key,
+                caseAssigned = it.case_id?.let { _ -> it.case_assigned == 1L },
             )
         }
 
@@ -496,6 +539,9 @@ class SubmissionStore(
                     createdAt = it.created_at,
                     updatedAt = it.updated_at,
                     pendingOps = it.pending_ops,
+                    caseId = it.case_id,
+                    caseKey = it.case_key,
+                    caseAssigned = it.case_id?.let { _ -> it.case_assigned == 1L },
                 )
             }
         }

@@ -74,6 +74,12 @@ data class SyncResult(
      * on any screen to notice. This sentence is the whole of the noticing.
      */
     val datasetError: String? = null,
+    /**
+     * How many cases the assignment statement listed (sync §5, item 2), or
+     * null when the server said nothing about assignments — this client does
+     * not collect against a sample, or the server predates it.
+     */
+    val assignedCases: Int? = null,
 ) {
     val isSuccess: Boolean get() = error == null
 }
@@ -155,6 +161,11 @@ class SyncClient(
      * plugin still runs, in memory, so a session set within one run is used.
      */
     private val session: SessionStore? = null,
+    /**
+     * Where the assignment statement lands (sync §5, item 2). Null on a client
+     * that does not collect against a sample — the desktop review app.
+     */
+    private val cases: CaseStore? = null,
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
@@ -234,6 +245,12 @@ class SyncClient(
                 val raw = runCatching { response.bodyAsText() }.getOrDefault("")
                 val detail = runCatching { SyncJson.decodeFromString<WireErrorBody>(raw).detail }
                     .getOrNull()
+                if (detail?.reason == "device_unknown") {
+                    // The server's word beats the local flag: the next sync
+                    // or sign-in registers again instead of looping on
+                    // "sync once first" against a server that lost us.
+                    store.markDeviceUnregistered()
+                }
                 SignInResult.Refused(
                     reason = detail?.reason ?: "http_${response.status.value}",
                     message = detail?.message?.takeIf { it.isNotBlank() }
@@ -267,6 +284,7 @@ class SyncClient(
         var formError: String? = null
         var fetchedDatasetRows = 0
         var datasetError: String? = null
+        var assignedCases: Int? = null
         // Read once, here, and used for every request in this pass.
         //
         // Not per request, and the reason is not tidiness. `refreshCrypto`
@@ -344,11 +362,23 @@ class SyncClient(
                         store.syncStatus().pullCursor,
                         wantForms = first && forms != null,
                         wantDatasets = first && datasets != null,
+                        wantAssignments = first && cases != null,
                     )
                 }
                 if (first) {
                     manifest = page.forms
                     datasetManifest = page.datasets
+                    // The assignment statement is applied with the first
+                    // page's ops, before anything else can fail: it is small,
+                    // it is complete, and a device that learns its cases
+                    // moved should learn it whether or not the forms fetch.
+                    // Null means the server said nothing — the cases stay as
+                    // they are; an empty list is a statement and is applied.
+                    val statement = page.assignments
+                    if (statement != null) {
+                        cases?.applyStatement(statement.map { it.toAssignedCase() })
+                        assignedCases = statement.size
+                    }
                     first = false
                 }
                 store.applyPullBatch(page.ops.map { it.toSyncOp() }, page.nextCursor)
@@ -425,6 +455,7 @@ class SyncClient(
                 formError = formError,
                 fetchedDatasetRows = fetchedDatasetRows,
                 datasetError = datasetError,
+                assignedCases = assignedCases,
             )
         } catch (e: CancellationException) {
             throw e
@@ -444,6 +475,7 @@ class SyncClient(
                 formError = formError,
                 fetchedDatasetRows = fetchedDatasetRows,
                 datasetError = datasetError,
+                assignedCases = assignedCases,
             )
         }
     }
@@ -557,6 +589,7 @@ class SyncClient(
         cursor: Long,
         wantForms: Boolean = false,
         wantDatasets: Boolean = false,
+        wantAssignments: Boolean = false,
     ): WirePullResponse =
         http.get("$baseUrl/api/v1/sync/pull") {
             parameter("cursor", cursor)
@@ -564,6 +597,7 @@ class SyncClient(
             val scopes = buildList {
                 if (wantForms) add("forms")
                 if (wantDatasets) add("datasets")
+                if (wantAssignments) add("assignments")
             }
             if (scopes.isNotEmpty()) {
                 parameter("scope", scopes.joinToString(","))
@@ -839,6 +873,16 @@ class SyncClient(
             }
         }
     }
+
+    private fun WireAssignedCase.toAssignedCase() = AssignedCase(
+        caseId = caseId,
+        caseKey = caseKey,
+        datasetKey = datasetKey,
+        status = status,
+        priority = priority,
+        dueAt = dueAt,
+        dataJson = data?.takeUnless { it is JsonNull }?.toString() ?: "{}",
+    )
 
     private fun WirePulledOp.toSyncOp() = SyncOp(
         opId = opId,

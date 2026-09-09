@@ -26,7 +26,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import func, null, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ulid import new_ulid
@@ -251,10 +251,27 @@ async def push(
                     form_version_id=form_version_id,
                     origin_device_id=op.device_id,
                     created_by=attributed,
+                    case_id=op.case_id,
                     status="draft",
                     started_at=op.wall_clock,
                 )
-                session.add(submission)
+                # The one scope refusal in the push path (item 2): opening
+                # work against a case needs that case assigned to the opener,
+                # and the policy on `submission` says so. Inside a savepoint,
+                # so a case that moved since the device last pulled its
+                # assignments costs that op — named — and nothing else.
+                try:
+                    async with session.begin_nested():
+                        session.add(submission)
+                        await session.flush()
+                except DBAPIError as error:
+                    if "row-level security" not in str(error.orig):
+                        raise
+                    # The savepoint's rollback already dropped the pending
+                    # row from the session; make sure of it.
+                    if submission in session:
+                        session.expunge(submission)
+                    raise _Rejection("not_assigned") from error
                 submissions[submission.id] = submission
             else:
                 if submission.project_id != device.project_id:
@@ -659,6 +676,7 @@ async def pull(
     device_id: str | None = None,
     want_forms: bool = False,
     want_datasets: bool = False,
+    assignments_for: str | None = None,
 ) -> PullResponse:
     """Everything accepted after `cursor`, oldest arrival first, bounded.
 
@@ -784,11 +802,22 @@ async def pull(
             session, device_id
         )
 
+    assignments = None
+    if assignments_for is not None:
+        from app.modules.cases import service as cases_service
+
+        # Complete, not a delta (item 2 analysis §6.1): a release is an
+        # absence, and a stream of additions cannot say "you no longer hold
+        # this". The device keeps what it holds against a released case; it
+        # only stops starting new work on it.
+        assignments = await cases_service.assigned_to(session, assignments_for)
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
         forms=forms,
         datasets=datasets,
+        assignments=assignments,
         next_cursor=next_cursor,
         has_more=has_more,
     )

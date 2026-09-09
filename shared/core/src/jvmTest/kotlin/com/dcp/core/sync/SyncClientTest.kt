@@ -565,4 +565,163 @@ class SyncClientTest {
         assertEquals(3, attempts)
         assertEquals(0, store.pendingCount())
     }
+
+    // ------------------------------------------------------------------
+    // The assignment statement (sync §5, item 2), and the case on the wire.
+    // ------------------------------------------------------------------
+
+    private fun clientWithCases(
+        store: SubmissionStore,
+        cases: CaseStore,
+        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
+    ): SyncClient {
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("/devices") ->
+                        jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
+                    request.url.encodedPath.endsWith("/crypto") -> jsonResponse(
+                        """{"deviceId":"dev-test","projectId":"prj","securityMode":"standard",
+                            "projectKeys":[]}"""
+                    )
+                    else -> handler(request)
+                }
+            }
+        ) {
+            expectSuccess = true
+            install(ContentNegotiation) { json(SyncJson) }
+        }
+        return SyncClient(
+            store, fixedServerConfig("http://test"), fastRetry, httpClient = http, cases = cases,
+        )
+    }
+
+    private fun statement(vararg keys: String): String = keys.joinToString(",", "[", "]") {
+        """{"caseId":"case-$it","caseKey":"$it","datasetKey":"village","status":"open",
+            "priority":0,"dueAt":null,"data":{"case_key":"$it","headName":"Head $it"}}"""
+    }
+
+    @Test
+    fun `the first pull asks for assignments and applies the statement, absence releasing`() = runBlocking {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY, Properties(), DcpDatabase.Schema)
+        val database = DcpDatabase(driver)
+        val store = SubmissionStore(database, deviceIdOverride = "dev-test")
+        val cases = CaseStore(database)
+        val scopes = mutableListOf<String?>()
+        var current = statement("S3|1|1", "S3|1|2")
+        val client = clientWithCases(store, cases) { request ->
+            if (request.url.encodedPath.endsWith("/sync/pull")) {
+                scopes.add(request.url.parameters["scope"])
+                jsonResponse("""{"ops":[],"tombstones":[],"assignments":$current,"nextCursor":0,"hasMore":false}""")
+            } else {
+                // Accept whatever was pushed; the push is not what this test is about.
+                val pushed = SyncJson.decodeFromString(
+                    WirePushRequest.serializer(), (request.body as TextContent).text,
+                ).ops.joinToString(",") { "\"${it.opId}\"" }
+                jsonResponse("""{"accepted":[$pushed],"rejected":[]}""")
+            }
+        }
+
+        val first = client.syncOnce()
+        assertNull(first.error)
+        assertEquals(2, first.assignedCases)
+        assertEquals(listOf<String?>("assignments"), scopes)
+        assertEquals(listOf("S3|1|1", "S3|1|2"), cases.list().filter { it.assigned }.map { it.caseKey })
+
+        // A draft on S3|1|1, then the case moves away.
+        val draft = store.createDraft("hh", 1, caseId = "case-S3|1|1")
+        store.appendOp(draft, "hh", 1, OpKind.SET, "q", FormValue.Text("x"))
+        current = statement("S3|1|2")
+        assertNull(client.syncOnce().error)
+        val released = cases.get("case-S3|1|1")!!
+        assertEquals(false, released.assigned)
+        assertNotNull(store.getSubmission(draft) as SubmissionSummary?, "the draft survives the release")
+        Unit
+    }
+
+    @Test
+    fun `a pull that says nothing about assignments leaves the cases alone`() = runBlocking {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY, Properties(), DcpDatabase.Schema)
+        val database = DcpDatabase(driver)
+        val store = SubmissionStore(database, deviceIdOverride = "dev-test")
+        val cases = CaseStore(database)
+        cases.applyStatement(listOf(AssignedCase("case-1", "S1", "village", "open", 0, null, "{}")))
+        val client = clientWithCases(store, cases) { request ->
+            if (request.url.encodedPath.endsWith("/sync/pull")) jsonResponse(emptyPull())
+            else jsonResponse("""{"accepted":[],"rejected":[]}""")
+        }
+        val result = client.syncOnce()
+        assertNull(result.error)
+        assertNull(result.assignedCases)
+        assertTrue(cases.get("case-1")!!.assigned, "silence is not a release")
+    }
+
+    @Test
+    fun `every op of a cased draft carries its case on the wire, and not_assigned is kept by name`() = runBlocking {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY, Properties(), DcpDatabase.Schema)
+        val database = DcpDatabase(driver)
+        val store = SubmissionStore(database, deviceIdOverride = "dev-test")
+        val cases = CaseStore(database)
+        val cased = store.createDraft("hh", 1, caseId = "case-7")
+        val op1 = store.appendOp(cased, "hh", 1, OpKind.SET, "q", FormValue.Text("a"))
+        val uncased = store.createDraft("hh", 1)
+        val op2 = store.appendOp(uncased, "hh", 1, OpKind.SET, "q", FormValue.Text("b"))
+
+        val bodies = mutableListOf<String>()
+        val client = clientWithCases(store, cases) { request ->
+            if (request.url.encodedPath.endsWith("/sync/push")) {
+                bodies.add((request.body as TextContent).text)
+                jsonResponse(
+                    """{"accepted":["${op2.opId}"],
+                        "rejected":[{"opId":"${op1.opId}","reason":"not_assigned"}],"serverCursor":1}"""
+                )
+            } else jsonResponse(emptyPull())
+        }
+        val result = client.syncOnce()
+        assertNull(result.error)
+        val ops = SyncJson.decodeFromString(WirePushRequest.serializer(), bodies.single()).ops
+        assertEquals("case-7", ops.first { it.opId == op1.opId }.caseId)
+        assertNull(ops.first { it.opId == op2.opId }.caseId)
+        // The refusal is the server's named reason, on that op only; the
+        // draft and its op stay, to be retried once the case is back.
+        assertEquals(listOf(RejectedOpGroup("not_assigned", 1)), store.rejectedOpSummary())
+        assertEquals(1, store.getSubmission(cased)!!.pendingOps)
+        assertEquals(0, store.getSubmission(uncased)!!.pendingOps)
+    }
+
+    @Test
+    fun `a server that does not know the device makes the next sign-in register it again`() = runBlocking {
+        val store = store()
+        store.markDeviceRegistered() // an old install, against a server since recreated
+        var registrations = 0
+        var known = false
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("/devices") -> {
+                        registrations += 1; known = true
+                        jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
+                    }
+                    request.url.encodedPath.endsWith("/auth/login") ->
+                        if (known) jsonResponse("""{"userId":"u1","displayName":"Enum"}""")
+                        else respond(
+                            """{"detail":{"reason":"device_unknown","message":"Sync once first."}}""",
+                            HttpStatusCode.Forbidden,
+                            headersOf(HttpHeaders.ContentType, "application/json"),
+                        )
+                    else -> jsonResponse(emptyPull())
+                }
+            }
+        ) { expectSuccess = true; install(ContentNegotiation) { json(SyncJson) } }
+        val client = SyncClient(store, fixedServerConfig("http://test"), fastRetry, httpClient = http)
+
+        val first = client.signIn("enumerator", "pw")
+        assertTrue(first is SignInResult.Refused && first.reason == "device_unknown", "$first")
+        assertEquals(0, registrations)
+        assertTrue(!store.isDeviceRegistered(), "the server's word beats the local flag")
+
+        val second = client.signIn("enumerator", "pw")
+        assertTrue(second is SignInResult.Signed, "$second")
+        assertEquals(1, registrations)
+    }
 }

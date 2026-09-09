@@ -8,6 +8,7 @@ import com.dcp.core.media.GeoCaptureOutcome
 import com.dcp.core.media.MediaStore
 import com.dcp.core.sync.OpKind
 import com.dcp.core.sync.SubmissionStatus
+import com.dcp.core.sync.CaseStore
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.form.CompileException
 import com.dcp.form.CompiledForm
@@ -136,6 +137,13 @@ data class CollectionState(
      */
     val missingFormVersion: String? = null,
     /**
+     * Which case this work is against, and whether it is still this
+     * person's — "Case S3|1|1" or "Case S3|1|1 · no longer assigned to you".
+     * Null for uncased work. The draft is the same draft either way: still
+     * finishable, still pushable (item 2, analysis §4.3).
+     */
+    val caseNote: String? = null,
+    /**
      * Dataset keys this form chooses from and this device cannot serve (§3.2).
      *
      * A persistent condition rather than a transient message: it is true for as
@@ -221,6 +229,12 @@ class CollectionViewModel(
      * answer them.
      */
     private val mediaCapture: MediaCaptureGraph? = null,
+    /**
+     * The cases this device holds (item 2). Null on a client with no sample
+     * — a submission then carries no `_metadata.case_key`, and a form whose
+     * roster preloads from the sample offers nothing, visibly.
+     */
+    private val cases: CaseStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CollectionState())
@@ -243,6 +257,17 @@ class CollectionViewModel(
     private val commitJobs = mutableMapOf<String, Job>()
 
     init {
+        // The case line under the title follows the store rather than being
+        // read once: this ViewModel outlives one visit to the screen, and a
+        // sync between two visits can move the case. Seen on a device — the
+        // list said "no longer assigned" while the open draft still said
+        // "Case S3|1|1" and nothing else.
+        viewModelScope.launch {
+            store.observeSubmissions().collect { rows ->
+                val mine = rows.firstOrNull { it.submissionId == submissionId } ?: return@collect
+                _state.update { it.copy(caseNote = caseNoteFor(mine.caseKey, mine.caseAssigned)) }
+            }
+        }
         viewModelScope.launch {
             val summaryFirst = withContext(Dispatchers.Default) { store.getSubmission(submissionId) }
             // Resolved from the submission by the catalog, never chosen here.
@@ -271,10 +296,16 @@ class CollectionViewModel(
             // (§3.2, break 30's rule with a village list instead of a form).
             val datasets = catalog.datasetSourceForSubmission(submissionId)
             val missingDatasets = catalog.missingDatasetsForSubmission(submissionId)
+            // The case this submission is against, from its own row — never
+            // from what is assigned now. `_metadata.case_key` is what a
+            // rowSource filter compares (Form IR §2.3), and it has to name the
+            // case the work was opened on even after the case moved.
+            val caseKey = summaryFirst?.caseId?.let { id -> cases?.caseKeyFor(id) }
             val (loadedInstance, summary) = withContext(Dispatchers.Default) {
                 val inst = FormInstance(
                     compiled,
                     today = todayIsoDate(),
+                    metadata = caseMetadata(caseKey),
                     datasets = datasets ?: InMemoryDatasetSource(emptyMap()),
                 )
                 // Rows first, answers second: an answer inside a row the

@@ -14,6 +14,27 @@ export interface AddTeamMemberRequest {
   userId: string;
 }
 
+/** Exactly one of the two: a team, or a person. */
+export interface AssignRequest {
+  teamId?: string | null;
+  userId?: string | null;
+}
+
+/**
+ * One entry of the assignment statement a device pulls (sync §5,
+ * `scope=assignments`): a case held by the device's person, with the sample
+ * row behind it so a roster can be preloaded and a settlement shown.
+ */
+export interface AssignedCase {
+  caseId: string;
+  caseKey: string | null;
+  datasetKey: string | null;
+  status: CaseStatus;
+  priority: number;
+  dueAt: string | null;
+  data: Record<string, unknown>;
+}
+
 export interface Body_import_xlsform_api_v1_forms_import_post {
   /** An XLSForm .xlsx workbook */
   file: string;
@@ -31,6 +52,75 @@ export interface Body_publish_dataset_api_v1_projects__project_id__datasets_post
   /** Display name for the dataset. Defaults to its key. */
   name?: string | null;
 }
+
+export interface Body_upload_sample_api_v1_projects__project_id__samples_post {
+  /** The sample, as CSV */
+  file: string;
+  /** The key this sample is published under, e.g. `hh_sample`. */
+  datasetKey: string;
+  /** The columns that together identify a row, comma-separated, in the order they compose: `settlementCode,structureId,hhId`. */
+  keyColumns: string;
+  /** Display name. Defaults to the key. */
+  name?: string | null;
+}
+
+export interface BulkAssignRequest {
+  teamId?: string | null;
+  userId?: string | null;
+  caseIds: string[];
+}
+
+export interface BulkAssignResponse {
+  assigned: number;
+}
+
+export interface Case {
+  id: string;
+  projectId: string;
+  datasetKey: string | null;
+  caseKey: string | null;
+  status: CaseStatus;
+  priority: number;
+  dueAt: string | null;
+  data: Record<string, unknown>;
+  holder: CaseHolder;
+  submissions: number;
+}
+
+export interface CaseError {
+  reason: CaseFailure;
+  message: string;
+}
+
+export interface CaseErrorResponse {
+  detail: CaseError;
+}
+
+export const CASE_FAILURES = [
+  "outside_your_authority",
+  "not_found",
+  "bad_key_row",
+  "bad_request",
+] as const;
+
+export type CaseFailure = (typeof CASE_FAILURES)[number];
+
+/** The live assignment at one level. */
+export interface CaseHolder {
+  teamId: string | null;
+  teamName: string | null;
+  userId: string | null;
+  userName: string | null;
+  assignedAt: string | null;
+}
+
+export interface CaseListResponse {
+  cases: Case[];
+}
+
+export const CASE_STATUSES = ["open", "closed", "withdrawn"] as const;
+
+export type CaseStatus = (typeof CASE_STATUSES)[number];
 
 /** A Form IR document to compile. Its own formId and version are authoritative. */
 export interface CompileRequest {
@@ -1015,6 +1105,7 @@ export interface PullResponse {
   ops: PulledOp[];
   tombstones: PulledTombstone[];
   forms: DeployedFormVersion[];
+  assignments?: AssignedCase[] | null;
   datasets?: DeployedDatasetVersion[] | null;
   nextCursor: number;
   hasMore: boolean;
@@ -1087,6 +1178,7 @@ export const REJECT_REASONS = [
   "malformed",
   "unknown_content_key",
   "nonce_reused",
+  "not_assigned",
 ] as const;
 
 export type RejectReason = (typeof REJECT_REASONS)[number];
@@ -1111,6 +1203,23 @@ export interface RoleListResponse {
 
 export interface RolePermissionsRequest {
   permissions: Permission[];
+}
+
+/**
+ * What one upload did: the dataset version it published (idempotent by
+ * content) and the cases it made, reopened and withdrew.
+ */
+export interface SampleUploadResponse {
+  datasetKey: string;
+  datasetVersionId: string;
+  version: number;
+  rowCount: number;
+  createdVersion: boolean;
+  keyColumns: string[];
+  casesCreated: number;
+  casesReopened: number;
+  casesWithdrawn: number;
+  warnings: string[];
 }
 
 export interface SaveDraftRequest {

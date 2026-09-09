@@ -121,6 +121,219 @@
         }
       }
     },
+    "/api/v1/cases": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "List Cases",
+        "description": "The project's cases the asker may see, with the live holder at each\nlevel and the sample row behind each.",
+        "operationId": "list_cases_api_v1_cases_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{case_id}/assign": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Assign Case",
+        "description": "Assign one case to a team or to a person. Release-and-write in one\nstatement; the previous holder's view moves with it.",
+        "operationId": "assign_case_api_v1_cases__case_id__assign_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cases/assign": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Assign Cases",
+        "description": "The split: many cases to one team or one person, all or nothing.",
+        "operationId": "assign_cases_api_v1_cases_assign_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkAssignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/datasets/versions/{dataset_version_id}/rows": {
       "get": {
         "tags": [
@@ -2580,6 +2793,81 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/samples": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Upload Sample",
+        "description": "Upload the sample: one CSV, published as an immutable dataset version the way POST /projects/{id}/datasets publishes reference data, keyed by the composite key the upload names (Form IR §3.1: the parts joined with `|`, escaped), and one case per row (pilot scope §4.3). A re-upload keeps the cases whose keys it still holds, makes cases for new keys, and withdraws — never deletes — the cases whose keys are gone.",
+        "operationId": "upload_sample_api_v1_projects__project_id__samples_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_sample_api_v1_projects__project_id__samples_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/submissions": {
       "get": {
         "tags": [
@@ -2882,7 +3170,7 @@
           "sync"
         ],
         "summary": "Pull",
-        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`. `assignments` is accepted and ignored, so a newer client asking\nfor all three still works against this server rather than failing on an\nunknown word.\n\n`scope=datasets` returns the dataset versions the form versions deployed to\nthis device were **published against** (`form_version_dataset`), not the\ndatasets its project happens to own. The pinning that lets an answer be\nexplained later is the same thing that decides which rows travel. Like the\nform manifest it names versions and checksums, never rows: those are fetched\nonce per version, paged, from `GET /datasets/versions/{id}/rows`.\n\n`datasets` is **null** when nothing was asked or the device is unknown, and\n`[]` when the answer is genuinely \"none\" — a device must be able to tell an\nunanswered question from an answer, or it will delete a village list because\nit synced against an older server.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
+        "description": "Resume the op and tombstone streams from a cursor, and optionally list\nthe form versions this device should be running.\n\n`scope` is the comma-separated list of spec §5: `assignments`, `forms`,\n`datasets`.\n\n`scope=assignments` returns the complete statement of the cases held by\nthe session's person (item 2): a device notices a case it no longer holds\nby its absence, keeps whatever it collected against it, and stops\nstarting new work on it. Complete rather than a delta for the reason the\nform manifest is.\n\n`scope=datasets` returns the dataset versions the form versions deployed to\nthis device were **published against** (`form_version_dataset`), not the\ndatasets its project happens to own. The pinning that lets an answer be\nexplained later is the same thing that decides which rows travel. Like the\nform manifest it names versions and checksums, never rows: those are fetched\nonce per version, paged, from `GET /datasets/versions/{id}/rows`.\n\n`datasets` is **null** when nothing was asked or the device is unknown, and\n`[]` when the answer is genuinely \"none\" — a device must be able to tell an\nunanswered question from an answer, or it will delete a village list because\nit synced against an older server.\n\n`scope=forms` needs `deviceId`, because deployment is per environment\n(`form_deployment`): a device is told about the versions deployed to its own\nenvironment, never everything the project has published. The manifest names\nversions and their checksums, not their IR — the documents are fetched one\nat a time from `GET /forms/versions/{formVersionId}`, so a device that\nalready holds a version spends nothing re-reading it.\n\nUnlike the op stream, the manifest is a complete statement rather than a\ndelta: it is how a device notices a version has been *withdrawn*, which no\nstream of additions could tell it.",
         "operationId": "pull_api_v1_sync_pull_get",
         "parameters": [
           {
@@ -3258,6 +3546,100 @@
         ],
         "title": "AddTeamMemberRequest"
       },
+      "AssignRequest": {
+        "properties": {
+          "teamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamid"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          }
+        },
+        "type": "object",
+        "title": "AssignRequest",
+        "description": "Exactly one of the two: a team, or a person."
+      },
+      "AssignedCase": {
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "title": "Caseid"
+          },
+          "caseKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Casekey"
+          },
+          "datasetKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datasetkey"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueat"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "caseId",
+          "caseKey",
+          "datasetKey",
+          "status",
+          "priority",
+          "dueAt",
+          "data"
+        ],
+        "title": "AssignedCase",
+        "description": "One entry of the assignment statement a device pulls (sync §5,\n`scope=assignments`): a case held by the device's person, with the sample\nrow behind it so a roster can be preloaded and a settlement shown."
+      },
       "Body_import_xlsform_api_v1_forms_import_post": {
         "properties": {
           "file": {
@@ -3325,6 +3707,311 @@
           "datasetKey"
         ],
         "title": "Body_publish_dataset_api_v1_projects__project_id__datasets_post"
+      },
+      "Body_upload_sample_api_v1_projects__project_id__samples_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The sample, as CSV"
+          },
+          "datasetKey": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Datasetkey",
+            "description": "The key this sample is published under, e.g. `hh_sample`."
+          },
+          "keyColumns": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Keycolumns",
+            "description": "The columns that together identify a row, comma-separated, in the order they compose: `settlementCode,structureId,hhId`."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Display name. Defaults to the key."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "datasetKey",
+          "keyColumns"
+        ],
+        "title": "Body_upload_sample_api_v1_projects__project_id__samples_post"
+      },
+      "BulkAssignRequest": {
+        "properties": {
+          "teamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamid"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          },
+          "caseIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Caseids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "caseIds"
+        ],
+        "title": "BulkAssignRequest"
+      },
+      "BulkAssignResponse": {
+        "properties": {
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assigned"
+        ],
+        "title": "BulkAssignResponse"
+      },
+      "Case": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "datasetKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datasetkey"
+          },
+          "caseKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Casekey"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueat"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          },
+          "holder": {
+            "$ref": "#/components/schemas/CaseHolder"
+          },
+          "submissions": {
+            "type": "integer",
+            "title": "Submissions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "datasetKey",
+          "caseKey",
+          "status",
+          "priority",
+          "dueAt",
+          "data",
+          "holder",
+          "submissions"
+        ],
+        "title": "Case"
+      },
+      "CaseError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/CaseFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "CaseError"
+      },
+      "CaseErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/CaseError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "CaseErrorResponse"
+      },
+      "CaseFailure": {
+        "type": "string",
+        "enum": [
+          "outside_your_authority",
+          "not_found",
+          "bad_key_row",
+          "bad_request"
+        ]
+      },
+      "CaseHolder": {
+        "properties": {
+          "teamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamid"
+          },
+          "teamName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamname"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "assignedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "teamId",
+          "teamName",
+          "userId",
+          "userName",
+          "assignedAt"
+        ],
+        "title": "CaseHolder",
+        "description": "The live assignment at one level."
+      },
+      "CaseListResponse": {
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/Case"
+            },
+            "type": "array",
+            "title": "Cases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cases"
+        ],
+        "title": "CaseListResponse"
+      },
+      "CaseStatus": {
+        "type": "string",
+        "enum": [
+          "open",
+          "closed",
+          "withdrawn"
+        ]
       },
       "CompileRequest": {
         "properties": {
@@ -6616,6 +7303,20 @@
             "type": "array",
             "title": "Forms"
           },
+          "assignments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssignedCase"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignments"
+          },
           "datasets": {
             "anyOf": [
               {
@@ -6949,7 +7650,8 @@
           "submission_closed",
           "malformed",
           "unknown_content_key",
-          "nonce_reused"
+          "nonce_reused",
+          "not_assigned"
         ]
       },
       "RejectedOp": {
@@ -7047,6 +7749,71 @@
           "permissions"
         ],
         "title": "RolePermissionsRequest"
+      },
+      "SampleUploadResponse": {
+        "properties": {
+          "datasetKey": {
+            "type": "string",
+            "title": "Datasetkey"
+          },
+          "datasetVersionId": {
+            "type": "string",
+            "title": "Datasetversionid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "rowCount": {
+            "type": "integer",
+            "title": "Rowcount"
+          },
+          "createdVersion": {
+            "type": "boolean",
+            "title": "Createdversion"
+          },
+          "keyColumns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keycolumns"
+          },
+          "casesCreated": {
+            "type": "integer",
+            "title": "Casescreated"
+          },
+          "casesReopened": {
+            "type": "integer",
+            "title": "Casesreopened"
+          },
+          "casesWithdrawn": {
+            "type": "integer",
+            "title": "Caseswithdrawn"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasetKey",
+          "datasetVersionId",
+          "version",
+          "rowCount",
+          "createdVersion",
+          "keyColumns",
+          "casesCreated",
+          "casesReopened",
+          "casesWithdrawn",
+          "warnings"
+        ],
+        "title": "SampleUploadResponse",
+        "description": "What one upload did: the dataset version it published (idempotent by\ncontent) and the cases it made, reopened and withdrew."
       },
       "SaveDraftRequest": {
         "properties": {

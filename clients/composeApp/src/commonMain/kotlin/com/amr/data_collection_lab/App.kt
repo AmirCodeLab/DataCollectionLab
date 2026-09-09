@@ -83,7 +83,9 @@ private fun Collection(graph: AppGraph) {
     when (val current = route) {
         Route.Submissions -> SubmissionListRoot(
             viewModel = viewModel {
-                SubmissionListViewModel(graph.store, graph.formCatalog, graph.syncClient)
+                SubmissionListViewModel(
+                    graph.store, graph.formCatalog, graph.syncClient, graph.caseStore,
+                )
             },
             onNavigateToCollection = { route = Route.Collection(it) },
             onNavigateToSettings = { route = Route.Settings },
@@ -101,6 +103,7 @@ private fun Collection(graph: AppGraph) {
             viewModel = viewModel(key = "collection_${current.submissionId}") {
                 CollectionViewModel(
                     graph.store, graph.formCatalog, current.submissionId, graph.media,
+                    cases = graph.caseStore,
                 )
             },
             onNavigateBack = { route = Route.Submissions },

@@ -176,6 +176,7 @@ class SyncCrypto(
             actorId = op.actorId,
             counter = op.counter,
             wallClock = op.wallClock,
+            caseId = op.caseId,
         )
     }
 
@@ -245,6 +246,7 @@ class SyncCrypto(
         actorId = actorId,
         counter = counter,
         wallClock = wallClock,
+        caseId = caseId,
     )
 
     companion object {

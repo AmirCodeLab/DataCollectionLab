@@ -13,6 +13,7 @@ import { SubmissionsPage } from "@/pages/SubmissionsPage";
 import { SubmissionPage } from "@/pages/SubmissionPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { ProjectKeysPage } from "@/pages/ProjectKeysPage";
+import { SamplePage } from "@/pages/SamplePage";
 import { FormsPage } from "@/pages/FormsPage";
 import { BuilderPage } from "@/pages/BuilderPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -92,6 +93,12 @@ const projectKeysRoute = createRoute({
   component: ProjectKeysPage,
 });
 
+const sampleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/sample",
+  component: SamplePage,
+});
+
 const formsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/forms",
@@ -127,6 +134,7 @@ export const routeTree = rootRoute.addChildren([
   submissionRoute,
   projectsRoute,
   projectKeysRoute,
+  sampleRoute,
   formsRoute,
   builderRoute,
   peopleRoute,

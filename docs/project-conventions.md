@@ -970,8 +970,24 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    rule, `dcp_case_in_scope`, decides what is in scope for every table under
    a case; reassignment moves the view and not the rows; an enumerator sees
    only their own work (defect 26, fixed ahead of this item). Breaks 172–180.
-   Next: the routes (sample upload, cases, assignment, `scope=assignments`),
-   then the screens, then a browser run and a handset run
+   The routes, screens and both runs are on `feat/item2-routes` (PR #48,
+   stacked on #47): the sample upload (CSV, key columns, `case_key` on every
+   row, migration 013), cases with their holders, the split by team and by
+   person, `GET /sync/pull?scope=assignments` as a complete statement of the
+   live assignments, `not_assigned` — the push path's one scope refusal,
+   named, one op's cost; the console's sample page; the handset's case list,
+   `case_record` (schema v9, never deleted), a draft on a released case kept,
+   listed, openable and pushable. Walked in the browser (PM upload, split
+   across two supervisors, each assigning to their enumerator, the pool
+   invisible to both) and on the emulator (sign in, pull, one case, collect,
+   sync, the case moved away, pull with the draft open → "no longer assigned
+   to you — drafts kept", the pending op accepted; then `not_assigned` from
+   the server explained in the sync bar). The runs found three things no
+   test looked at, fixed on the same PR: a pending person could hold a case
+   (migration 014), a stale case line on the collection screen, a device
+   stranded by a recreated server. Record: `docs/e2e-run-2026-09-09-item2.md`.
+   Breaks 181–189. Left: merge #47 then #48, the cleanup pass; the roster's
+   `rowSource: dataset` (item 3) can now read `_metadata.case_key`
 3. **Repeat screen flow**, and the roster it unblocks. **Spec and engines done,
    5 September 2026; the UI is what is left.** Form IR §11.3 decides it — a
    repeat is one screen holding the instance list, an instance is entered and

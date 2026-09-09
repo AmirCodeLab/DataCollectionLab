@@ -2,9 +2,13 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
-import { ApiError, apiGet, apiPost, apiPut } from "./client";
+import { ApiError, apiGet, apiPost, apiPostForm, apiPut } from "./client";
 import type {
   AddTeamMemberRequest,
+  BulkAssignRequest,
+  BulkAssignResponse,
+  CaseListResponse,
+  SampleUploadResponse,
   CompileResponse,
   CreatePersonRequest,
   CreateRoleRequest,
@@ -105,6 +109,36 @@ export const createRole = (request: CreateRoleRequest) =>
   apiPost<Role>("/api/v1/roles", request);
 export const setRolePermissions = (roleId: string, request: RolePermissionsRequest) =>
   apiPut<Role>(`/api/v1/roles/${roleId}/permissions`, request);
+
+/** The sample and its cases (item 2). What the list holds is what
+ *  `dcp_case_in_scope` shows the asker: the unassigned pool to a manager,
+ *  a team's cases to its supervisor. Assignment goes through the database's
+ *  function, and its refusal is 403 `outside_your_authority`. */
+export const casesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["cases", projectId],
+    queryFn: () => apiGet<CaseListResponse>("/api/v1/cases", { projectId }),
+    enabled: projectId !== "",
+  });
+
+export interface SampleUpload {
+  file: File;
+  datasetKey: string;
+  keyColumns: string[];
+  name?: string;
+}
+
+export const uploadSample = (projectId: string, upload: SampleUpload) => {
+  const form = new FormData();
+  form.set("file", upload.file, upload.file.name);
+  form.set("datasetKey", upload.datasetKey);
+  form.set("keyColumns", upload.keyColumns.join(","));
+  if (upload.name) form.set("name", upload.name);
+  return apiPostForm<SampleUploadResponse>(`/api/v1/projects/${projectId}/samples`, form);
+};
+
+export const assignCases = (request: BulkAssignRequest) =>
+  apiPost<BulkAssignResponse>("/api/v1/cases/assign", request);
 
 /** How often an auto-refreshing view re-reads. Field syncs are not fast. */
 export const REFRESH_INTERVAL_MS = 10_000;
