@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.entities import service as dataset_service
@@ -45,7 +46,25 @@ _KEY_ERRORS: dict[int | str, dict[str, Any]] = {
 }
 
 
-@router.get("", response_model=ProjectListResponse, response_model_by_alias=True)
+@router.get(
+    "",
+    response_model=ProjectListResponse,
+    response_model_by_alias=True,
+    dependencies=[
+        Depends(
+            access(
+                permission=(
+                    "form.edit",
+                    "submission.view",
+                    "form.publish",
+                    "project.manage",
+                    "sample.upload",
+                    "team.manage",
+                )
+            )
+        )
+    ],
+)
 async def list_projects(
     session: Annotated[AsyncSession, Depends(get_db)],
     include_archived: Annotated[bool, Query(alias="includeArchived")] = False,
@@ -65,6 +84,7 @@ async def list_projects(
     response_model=ProjectKeyListResponse,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="project.manage"))],
 )
 async def list_project_keys(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -91,6 +111,7 @@ async def list_project_keys(
     response_model_by_alias=True,
     status_code=201,
     responses=_KEY_ERRORS,
+    dependencies=[Depends(access(permission="project.manage"))],
 )
 async def add_project_key(
     request: ProjectKeyCreate,
@@ -127,6 +148,7 @@ async def add_project_key(
     response_model=ProjectKeyDetail,
     response_model_by_alias=True,
     responses=_KEY_ERRORS,
+    dependencies=[Depends(access(permission="project.manage"))],
 )
 async def revoke_project_key(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -164,6 +186,7 @@ async def revoke_project_key(
     response_model=MediaPolicyResponse,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="project.manage"))],
 )
 async def get_media_policy(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -184,6 +207,7 @@ async def get_media_policy(
     response_model=MediaPolicyResponse,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="project.manage"))],
 )
 async def set_media_policy(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -232,6 +256,7 @@ async def set_media_policy(
         "it would have its choice list moved underneath answers already "
         "collected against it."
     ),
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def publish_dataset(
     session: Annotated[AsyncSession, Depends(get_db)],

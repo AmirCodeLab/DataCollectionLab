@@ -92,6 +92,7 @@ private fun Collection(graph: AppGraph) {
             viewModel = viewModel {
                 SettingsViewModel(
                     graph.serverConfig, graph.store, graph.formCatalog, graph.syncClient,
+                    graph.session,
                 )
             },
             onNavigateBack = { route = Route.Submissions },

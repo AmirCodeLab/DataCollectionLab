@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.media import service as media_service
@@ -27,7 +28,12 @@ from app.modules.submissions.schemas import (
 router = APIRouter()
 
 
-@router.get("", response_model=SubmissionListResponse, response_model_by_alias=True)
+@router.get(
+    "",
+    response_model=SubmissionListResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(access(permission="submission.view"))],
+)
 async def list_submissions(
     session: Annotated[AsyncSession, Depends(get_db)],
     form_id: Annotated[str | None, Query(alias="formId")] = None,
@@ -52,6 +58,7 @@ async def list_submissions(
     response_model=SubmissionDetail,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="submission.view"))],
 )
 async def get_submission(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -70,6 +77,7 @@ async def get_submission(
     response_model=SubmissionKeysResponse,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="submission.view"))],
 )
 async def get_submission_keys(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -93,6 +101,7 @@ async def get_submission_keys(
     response_model=SubmissionMediaResponse,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="submission.view"))],
 )
 async def get_submission_media(
     session: Annotated[AsyncSession, Depends(get_db)],

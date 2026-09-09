@@ -15,6 +15,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import Identity, access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.form_engine.expression import CompileError
@@ -61,7 +62,12 @@ from app.modules.forms.xlsform.report import render_markdown
 router = APIRouter()
 
 
-@router.get("", response_model=FormListResponse, response_model_by_alias=True)
+@router.get(
+    "",
+    response_model=FormListResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(access(permission=("form.edit", "submission.view", "form.publish")))],
+)
 async def list_forms(
     session: Annotated[AsyncSession, Depends(get_db)],
     include_archived: Annotated[bool, Query(alias="includeArchived")] = False,
@@ -77,6 +83,7 @@ async def list_forms(
     response_model_by_alias=True,
     status_code=201,
     responses={409: {"model": MessageError}},
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def create_form(
     request: CreateFormRequest,
@@ -105,6 +112,7 @@ async def create_form(
     response_model=DraftDocument,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def get_draft(
     form_id: Annotated[str, Path(min_length=1, max_length=64)],
@@ -123,6 +131,7 @@ async def get_draft(
     response_model=DraftDocument,
     response_model_by_alias=True,
     responses={409: {"model": MessageError}},
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def save_draft(
     form_id: Annotated[str, Path(min_length=1, max_length=64)],
@@ -175,6 +184,7 @@ def _draft(draft: FormDraft) -> DraftDocument:
     "/expressions",
     response_model=ExpressionResponse,
     response_model_by_alias=True,
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def expressions(request: ExpressionRequest) -> ExpressionResponse:
     """Surface text to a §4.1 AST, or an AST back to text (Appendix A).
@@ -222,7 +232,12 @@ async def expressions(request: ExpressionRequest) -> ExpressionResponse:
     return ExpressionResponse(expression=node, text=text)
 
 
-@router.get("/palette", response_model=PaletteResponse, response_model_by_alias=True)
+@router.get(
+    "/palette",
+    response_model=PaletteResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(access(permission="form.edit"))],
+)
 async def palette() -> PaletteResponse:
     """Every dataType the IR defines, and whether a client can present it.
 
@@ -280,7 +295,12 @@ def _screen(screen: FormScreen) -> ScreenSummary:
     )
 
 
-@router.post("/compile", response_model=CompileResponse, response_model_by_alias=True)
+@router.post(
+    "/compile",
+    response_model=CompileResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(access(permission="form.edit"))],
+)
 async def compile_form(request: CompileRequest) -> CompileResponse:
     """Compile a Form IR document and report what would block publishing it.
 
@@ -339,6 +359,7 @@ async def compile_form(request: CompileRequest) -> CompileResponse:
         "POST /projects/{projectId}/datasets and POST /forms/versions are what "
         "commit it."
     ),
+    dependencies=[Depends(access(permission="form.edit"))],
 )
 async def import_xlsform(
     file: Annotated[UploadFile, File(description="An XLSForm .xlsx workbook")],
@@ -446,7 +467,12 @@ async def import_xlsform(
     )
 
 
-@router.post("/evaluate", response_model=EvaluateResponse, response_model_by_alias=True)
+@router.post(
+    "/evaluate",
+    response_model=EvaluateResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(access(permission="form.edit"))],
+)
 async def evaluate_form(request: EvaluateRequest) -> EvaluateResponse:
     """Server-side evaluation of a form state.
 
@@ -488,7 +514,9 @@ async def evaluate_form(request: EvaluateRequest) -> EvaluateResponse:
     status_code=201,
 )
 async def publish_version(
-    request: PublishVersionRequest, session: Annotated[AsyncSession, Depends(get_db)]
+    request: PublishVersionRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    identity: Annotated[Identity, Depends(access(permission="form.publish"))],
 ) -> PublishVersionResponse:
     """Publish an immutable form version.
 
@@ -514,6 +542,15 @@ async def publish_version(
     resolve at read time, against whatever is newest, which is the same mistake
     as validating a v1 answer against v2's choice list.
     """
+    if request.deploy_to and "form.deploy" not in identity.permissions:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "reason": "permission_denied",
+                "message": "Publishing is form.publish; deploying to an environment is "
+                "form.deploy, which this account does not hold. Publish without deployTo.",
+            },
+        )
     async with session.begin():
         try:
             return await service.publish_version(
@@ -537,6 +574,7 @@ async def publish_version(
     response_model=FormVersionDocument,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(app=True, permission=("form.edit", "submission.view")))],
 )
 async def get_form_version(
     session: Annotated[AsyncSession, Depends(get_db)],

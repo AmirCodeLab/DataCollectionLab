@@ -2,7 +2,7 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.published_defaults import PUBLISHED_JWT_SECRET
+from app.core.published_defaults import PUBLISHED_APP_DB_PASSWORD
 
 
 class Settings(BaseSettings):
@@ -27,11 +27,29 @@ class Settings(BaseSettings):
     # nothing else, because a superuser is exempt from row-level security and
     # every screen would look correct while no policy applied. The factory
     # (app/infrastructure/database.py) refuses a superuser on the first URL.
-    database_url: str = "postgresql+asyncpg://dcp_app:dcp_app@localhost:5432/dcp"
+    # The password is published (published_defaults.py) and refused outside
+    # development at startup, the way the signing key used to be.
+    database_url: str = (
+        f"postgresql+asyncpg://dcp_app:{PUBLISHED_APP_DB_PASSWORD}@localhost:5432/dcp"
+    )
     database_admin_url: str = "postgresql+asyncpg://dcp:dcp@localhost:5432/dcp"
-    # The deployment's one organisation, resolved before any user is read
-    # (ERD §1). Single-tenant until provisioning delivers the resolution.
+    # SCAFFOLD — the organisation a request is for when nothing else says.
+    # Today: the `dcp_org` cookie a login sets names it for every request
+    # after the login, and the login itself takes an `organization` field; this
+    # setting is the default when that field is absent, which on the pilot's
+    # single-tenant deployment is always. It is NOT how a multi-tenant
+    # deployment works: provisioning (Phase 3 §9, not in this phase) replaces
+    # it with resolution from the hostname — per-customer hostnames, the
+    # SurveyCTO shape — and removes this setting in the same change. Until
+    # then nothing may read a user without an organisation resolved first
+    # (ERD §1), and this is the one place that resolution can come from a
+    # constant.
     organization_slug: str = "dev"
+
+    # How long a session lives without use. The row's expiry slides on use
+    # (auth/service.TOUCH_INTERVAL). Thirty days, because a handset may not
+    # see the network for weeks.
+    session_ttl_seconds: int = 60 * 60 * 24 * 30
     redis_url: str = "redis://localhost:6379/0"
 
     s3_endpoint: str = "http://localhost:9000"
@@ -47,12 +65,6 @@ class Settings(BaseSettings):
     # in a village with no signal; short enough that abandoned half-uploads do
     # not accumulate forever.
     media_session_ttl_seconds: int = 60 * 60 * 24 * 7
-
-    # Published, and refused outside development at startup. See
-    # app/core/published_defaults.py.
-    jwt_secret: str = PUBLISHED_JWT_SECRET
-    access_token_ttl_seconds: int = 900
-    refresh_token_ttl_seconds: int = 60 * 60 * 24 * 30
 
 
 @lru_cache

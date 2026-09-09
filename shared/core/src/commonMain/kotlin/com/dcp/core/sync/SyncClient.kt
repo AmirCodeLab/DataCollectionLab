@@ -2,6 +2,8 @@ package com.dcp.core.sync
 
 import com.dcp.core.crypto.Hex
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.cookies.AcceptAllCookiesStorage
+import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -146,10 +148,18 @@ class SyncClient(
      */
     private val forms: FormStore? = null,
     private val datasets: DatasetStore? = null,
+    /**
+     * Where the session lives (proposal §3.3): the cookies the server set at
+     * login, carried on every request and kept across restarts. Null on a
+     * client with no login yet — the desktop review app — where the cookie
+     * plugin still runs, in memory, so a session set within one run is used.
+     */
+    private val session: SessionStore? = null,
 ) {
     private val http: HttpClient = httpClient ?: HttpClient(CIO) {
         expectSuccess = true
         install(ContentNegotiation) { json(SyncJson) }
+        install(HttpCookies) { storage = session?.cookies ?: AcceptAllCookiesStorage() }
     }
 
     private val crypto = SyncCrypto(store, formSensitivity)
@@ -189,6 +199,63 @@ class SyncClient(
         // answers /health with something else is not one this app can use, and
         // saying so is more useful than a parse error.
         ConnectionCheck.Failed(url, SyncFailure.describe(url, e))
+    }
+
+    /**
+     * Sign in on this device (proposal §4): `POST /auth/login` with the
+     * device's id, which binds the device to the person and answers with an
+     * `app` session cookie. The cookie lands in [SessionStore] and rides every
+     * request from here; nothing about it is returned to the caller.
+     *
+     * A refusal is a decision the server names — `pending_approval`,
+     * `deactivated`, `device_unknown` — and is handed back as one rather than
+     * thrown, because the settings screen has to show it as a sentence.
+     */
+    suspend fun signIn(username: String, password: String): SignInResult {
+        val base = serverConfig.baseUrl()
+        return try {
+            // A device the server has never seen cannot be bound; introduce it
+            // first, idempotently, the way the first sync does.
+            if (!store.isDeviceRegistered()) {
+                registerDevice(base)
+                store.markDeviceRegistered()
+            }
+            val response = http.post("$base/api/v1/auth/login") {
+                expectSuccess = false
+                contentType(ContentType.Application.Json)
+                setBody(WireLoginRequest(username = username, password = password, deviceId = store.deviceId))
+            }
+            if (response.status.isSuccess()) {
+                val me: WireMe = response.body()
+                val who = SignedIn(me.userId, me.username, me.displayName, me.expiresAt)
+                session?.remember(who)
+                SignInResult.Signed(who)
+            } else {
+                val raw = runCatching { response.bodyAsText() }.getOrDefault("")
+                val detail = runCatching { SyncJson.decodeFromString<WireErrorBody>(raw).detail }
+                    .getOrNull()
+                SignInResult.Refused(
+                    reason = detail?.reason ?: "http_${response.status.value}",
+                    message = detail?.message?.takeIf { it.isNotBlank() }
+                        ?: "The server answered HTTP ${response.status.value}.",
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: DeviceRegistrationException) {
+            SignInResult.Refused(e.reason ?: "registration_refused", e.detail)
+        } catch (e: Exception) {
+            SignInResult.Failed(SyncFailure.describe(base, e))
+        }
+    }
+
+    /** Revoke the session on the server if it can be reached, and forget it
+     *  here either way: a device that cannot reach the server must still be
+     *  able to sign out. */
+    suspend fun signOut() {
+        val base = serverConfig.baseUrl()
+        runCatching { http.post("$base/api/v1/auth/logout") { expectSuccess = false } }
+        session?.forget()
     }
 
     suspend fun syncOnce(): SyncResult {
@@ -793,4 +860,16 @@ class SyncClient(
         contentKeyId = contentKeyId,
         nonce = nonce,
     )
+}
+
+
+/** What [SyncClient.signIn] came back with. */
+sealed interface SignInResult {
+    data class Signed(val who: SignedIn) : SignInResult
+
+    /** The server said no, and said why: the reason is its contract. */
+    data class Refused(val reason: String, val message: String) : SignInResult
+
+    /** The server could not be asked. */
+    data class Failed(val description: String) : SignInResult
 }

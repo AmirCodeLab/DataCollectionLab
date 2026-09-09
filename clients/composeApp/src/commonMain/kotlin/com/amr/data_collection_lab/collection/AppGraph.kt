@@ -16,6 +16,7 @@ import com.dcp.core.sync.FormSensitivity
 import com.dcp.core.sync.DatasetStore
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.ServerConfig
+import com.dcp.core.sync.SessionStore
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
 import com.dcp.core.sync.openDatabase
@@ -96,6 +97,10 @@ class AppGraph(
      */
     val serverConfig: ServerConfig = ServerConfig(db, defaultSyncBaseUrl())
 
+    /** The session: the cookies the server set at login, in the encrypted
+     *  database beside everything else (proposal §3.3). */
+    val session: SessionStore = SessionStore(db)
+
     val media: MediaCaptureGraph? = platform?.let { p ->
         val mediaStore = MediaStore(db)
         MediaCaptureGraph(
@@ -153,5 +158,6 @@ class AppGraph(
         // versions deployed to it, so a client that delivered one without the
         // other would have forms whose questions offer nothing.
         datasets = datasetStore,
+        session = session,
     )
 }

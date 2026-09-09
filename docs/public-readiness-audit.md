@@ -263,6 +263,13 @@ correct for a local stack, named in `SECURITY.md` as defaults rather than a
 deployment baseline, and unlike a signing key a wrong database password fails
 loudly rather than silently.
 
+
+**Update, 9 September 2026.** There is no signing key any more: sessions are
+a cookie and a row (`platform_session`, item 1), the cookie carries an opaque
+token and the row its hash. The guard this section describes moved, with its
+tests and break 71, to the published secret that remains — the application
+database password in `DATABASE_URL` — and refuses the same way.
+
 ## 6. CONSIDER — no per-file licence headers
 
 Two files carry `SPDX-License-Identifier`. The AGPL is enforceable from

@@ -161,7 +161,7 @@ class RolePermission(Base):
             "permission IN ('user.create', 'user.approve', 'user.deactivate', "
             "'user.assign_role', 'team.manage', 'sample.upload', 'sample.assign', "
             "'form.edit', 'form.publish', 'form.deploy', 'submission.view', "
-            "'submission.review', 'export.download', 'device.revoke')",
+            "'submission.review', 'export.download', 'device.revoke', 'project.manage')",
             name="role_permission_name_check",
         ),
     )

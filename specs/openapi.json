@@ -5,6 +5,122 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "description": "Sign in, for the console or for a handset on its device.\n\nThe organisation is resolved first — from the request's `organization`,\nelse the deployment's configured one — and only then is the person looked\nup under its policy (ERD §1). Whether the person may hold a session is\nthe session policy's decision: a `pending_approval` or `deactivated`\nmembership is refused by the database, and the reason is read afterwards\nto name it here.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "description": "Revoke this session. The row is the state, so this is a row update;\nthe cookies are cleared as a courtesy to the browser.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "description": "Who this session is and what it may do — what a console reads on load\nto decide which screens to offer.",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/datasets/versions/{dataset_version_id}/rows": {
       "get": {
         "tags": [
@@ -3779,6 +3895,185 @@
           "recovery"
         ]
       },
+      "LoginError": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/LoginFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "LoginError"
+      },
+      "LoginErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/LoginError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "LoginErrorResponse"
+      },
+      "LoginFailure": {
+        "type": "string",
+        "enum": [
+          "invalid_credentials",
+          "pending_approval",
+          "deactivated",
+          "no_membership",
+          "device_unknown",
+          "device_revoked",
+          "device_required"
+        ]
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind",
+            "default": "console"
+          },
+          "deviceId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceid"
+          },
+          "organization": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "LogoutResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "logged_out",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LogoutResponse"
+      },
+      "Me": {
+        "properties": {
+          "userId": {
+            "type": "string",
+            "title": "Userid"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "displayName": {
+            "type": "string",
+            "title": "Displayname"
+          },
+          "organizationId": {
+            "type": "string",
+            "title": "Organizationid"
+          },
+          "organizationSlug": {
+            "type": "string",
+            "title": "Organizationslug"
+          },
+          "sessionKind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "deviceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceid"
+          },
+          "scopeKind": {
+            "$ref": "#/components/schemas/ScopeKind"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": "array",
+            "title": "Permissions"
+          },
+          "expiresAt": {
+            "type": "string",
+            "title": "Expiresat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "userId",
+          "username",
+          "displayName",
+          "organizationId",
+          "organizationSlug",
+          "sessionKind",
+          "deviceId",
+          "scopeKind",
+          "permissions",
+          "expiresAt"
+        ],
+        "title": "Me",
+        "description": "Who this session is, and what it may do. Everything a screen needs to\ndecide what to render; nothing it needs to keep."
+      },
       "MediaChunkResponse": {
         "properties": {
           "mediaId": {
@@ -4470,6 +4765,26 @@
         ],
         "title": "PaletteType",
         "description": "One dataType, and whether a client can actually present it.\n\n`status` is `collectable` or `in_spec_only`, and the distinction is the\nwhole reason this endpoint exists: a dataType can be in the IR, carry a\nconformance vector and be evaluated identically by both engines, and still\narrive on a phone as a label with empty space under it. That was defect 7.\n\nA builder shows the `in_spec_only` ones **disabled, carrying `note`** —\nwhich is the registry's own sentence about that type, not a sentence the\nconsole invented. The day `time` ships, the palette gains it with no\nconsole change."
+      },
+      "Permission": {
+        "type": "string",
+        "enum": [
+          "user.create",
+          "user.approve",
+          "user.deactivate",
+          "user.assign_role",
+          "team.manage",
+          "sample.upload",
+          "sample.assign",
+          "form.edit",
+          "form.publish",
+          "form.deploy",
+          "submission.view",
+          "submission.review",
+          "export.download",
+          "device.revoke",
+          "project.manage"
+        ]
       },
       "ProjectKeyCreate": {
         "properties": {
@@ -5334,6 +5649,15 @@
         ],
         "title": "SaveDraftRequest"
       },
+      "ScopeKind": {
+        "type": "string",
+        "enum": [
+          "organization",
+          "project",
+          "team",
+          "none"
+        ]
+      },
       "ScreenSummary": {
         "properties": {
           "index": {
@@ -5400,6 +5724,13 @@
           "standard",
           "field_level",
           "project_e2e"
+        ]
+      },
+      "SessionKind": {
+        "type": "string",
+        "enum": [
+          "console",
+          "app"
         ]
       },
       "SubmissionDetail": {

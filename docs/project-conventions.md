@@ -855,6 +855,20 @@ notice. `./scripts/status.sh` section 5 asks locally.
   the rest. Migrations and provisioning run as the owner through
   `DATABASE_ADMIN_URL` (`create_admin_engine`, `admin_connection`), and that
   is the only thing that does
+- **Every route declares who may call it, and scope is a policy, not a
+  filter.** A route carries exactly one of `access(permission=…, app=…)` or
+  `public("why")` from `backend/app/api/access.py`;
+  `tests/test_every_route_declares_access.py` walks the app's route table and
+  fails on one that declares neither, naming it, and pins the public set. That
+  declaration is the courtesy — the 401 or 403 a screen can show. The
+  guarantee is the connection's principal: a person's `scope_kind` and
+  `visible_user_ids`, computed from `user_role` at login and declared on every
+  transaction, which `submission`'s policy reads whether the query came from a
+  screen, an export, a report or a sync endpoint. A supervisor's team boundary
+  is never a `WHERE` somebody has to remember. Whether a person may hold a
+  session is the session policy's decision too: the login inserts the row and
+  reports the policy's refusal; it has no status check of its own
+  (`test_auth.py::test_04`)
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
 - **Commit the implementation before running a break.** A break is reverted
@@ -920,9 +934,17 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    layer with it: the application connects as `dcp_app` through the one
    factory, every request carries the deployment's organisation as its
    principal (`ORGANIZATION_SLUG`, resolved before anything else is read),
-   and the isolation tests run on that path. What is left is the login itself
-   — sessions from a cookie, a person's own scope replacing the organisation's,
-   permissions on every screen
+   and the isolation tests run on that path. **Login landed the same day:**
+   `POST /auth/login` for console and app (HttpOnly, SameSite=Strict cookie;
+   the row holds the token's hash), `GET /auth/me`, `POST /auth/logout`; a
+   person's scope replaces the organisation's on every request; every route
+   declares its access and the route table is linted; the console has a
+   sign-in page and a permission-gated nav, the handset a sign-in on its
+   settings screen with the session kept in the encrypted database; the seed
+   creates an admin, a PM, a supervisor with a team, an enumerator and a
+   pending enumerator (`dcp-dev`). What is left of item 1 is the console's
+   people screens — users, teams, roles, the approval queue — which today are
+   the seed and psql
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot

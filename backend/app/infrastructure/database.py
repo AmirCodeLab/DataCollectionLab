@@ -306,7 +306,8 @@ async def session_as(
 async def session_for_organization(
     slug: str, *, engine: AsyncEngine | None = None
 ) -> AsyncIterator[AsyncSession]:
-    """Resolve the organisation first, then a session scoped to it.
+    """Resolve the organisation first, then a session scoped to it and to
+    nobody within it.
 
     ERD §1: with a principal of nothing the application can see no user, so
     the organisation is known before anything else is read. ``app.org_slug``
@@ -317,20 +318,47 @@ async def session_for_organization(
     nothing here reads a user without an organisation in the meantime.
     """
     async with session_as(Principal(org_slug=slug), engine=engine) as session:
-        org_id = (
-            await session.execute(
-                text("SELECT id FROM platform_organization WHERE slug = :slug"), {"slug": slug}
-            )
-        ).scalar_one_or_none()
-        # End the resolving transaction: the next one declares the whole principal.
+        await rescope_to_organization(session, slug, strict=False)
+        yield session
+
+
+async def rescope_to_organization(
+    session: AsyncSession, slug: str, *, strict: bool = True
+) -> str | None:
+    """Point an existing session at one organisation: resolve the slug under
+    a slug-only principal, end that transaction, and declare the
+    organisation — and nobody in it — for every transaction after. Returns
+    the organisation's id.
+
+    Root rows are readable from here (a login has to find its person); the
+    scope policy admits nothing until a resolved session replaces this with
+    the person's principal (app.api.access).
+
+    A slug no organisation has: `strict` raises `OrganizationUnknown`; a
+    request's session (`strict=False`) is left on the slug alone, which is a
+    principal that sees nothing — the right answer for a request that names
+    no organisation this deployment serves, and the login route says so
+    when it tries to rescope for real.
+    """
+    if session.in_transaction():
         await session.rollback()
-        if org_id is None:
+    session.info["principal"] = Principal(org_slug=slug)
+    org_id = (
+        await session.execute(
+            text("SELECT id FROM platform_organization WHERE slug = :slug"), {"slug": slug}
+        )
+    ).scalar_one_or_none()
+    # End the resolving transaction: the next one declares the whole principal.
+    await session.rollback()
+    if org_id is None:
+        if strict:
             raise OrganizationUnknown(
                 f"no organisation with slug {slug!r} is visible. Seed one "
                 "(scripts/seed_dev.py) or set ORGANIZATION_SLUG to the deployment's."
             )
-        session.info["principal"] = Principal.organization(org_id, slug=slug)
-        yield session
+        return None
+    session.info["principal"] = Principal(org_id=str(org_id), org_slug=slug)
+    return str(org_id)
 
 
 # ---------------------------------------------------------------------------

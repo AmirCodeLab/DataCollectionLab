@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import Identity, access, bound_device
 from app.api.deps import get_db
 from app.modules.sync import service
 from app.modules.sync.schemas import PullResponse, PushRequest, PushResponse
@@ -18,7 +19,9 @@ router = APIRouter()
 
 @router.post("/push", response_model=PushResponse, response_model_by_alias=True)
 async def push(
-    request: PushRequest, session: Annotated[AsyncSession, Depends(get_db)]
+    request: PushRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    identity: Annotated[Identity, Depends(access(app=True))],
 ) -> PushResponse:
     """Accept a batch of operations, and the content keys they are encrypted to.
 
@@ -27,13 +30,17 @@ async def push(
     arrive together or not at all. Replay is idempotent: an op the server
     already has is reported accepted without being written again.
     """
+    bound_device(identity, request.device_id)
     async with session.begin():
-        return await service.push(session, request.device_id, request.ops, request.keys)
+        return await service.push(
+            session, request.device_id, request.ops, request.keys, actor_id=identity.user_id
+        )
 
 
 @router.get("/pull", response_model=PullResponse, response_model_by_alias=True)
 async def pull(
     session: Annotated[AsyncSession, Depends(get_db)],
+    identity: Annotated[Identity, Depends(access(app=True))],
     cursor: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=service.MAX_PULL_LIMIT)] = service.DEFAULT_PULL_LIMIT,
     scope: Annotated[str | None, Query()] = None,
@@ -70,6 +77,12 @@ async def pull(
     delta: it is how a device notices a version has been *withdrawn*, which no
     stream of additions could tell it.
     """
+    # The session speaks for one device. A pull that names one must name that
+    # one; a pull that names none is that one's.
+    if device_id is None:
+        device_id = identity.device_id
+    else:
+        bound_device(identity, device_id)
     wanted = {part.strip() for part in (scope or "").split(",") if part.strip()}
     async with session.begin():
         return await service.pull(

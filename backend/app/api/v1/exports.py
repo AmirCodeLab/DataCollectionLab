@@ -25,6 +25,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.export import service
@@ -80,6 +81,7 @@ class ZipResponse(Response):
             "description": "The filter selected more than one request will export.",
         },
     },
+    dependencies=[Depends(access(permission="export.download"))],
 )
 async def export_form(
     session: Annotated[AsyncSession, Depends(get_db)],

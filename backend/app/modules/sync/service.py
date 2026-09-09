@@ -79,12 +79,41 @@ class _Rejection(Exception):
         self.reason: RejectReason = reason
 
 
+LOCAL_ACTOR = "usr_local"
+
+
+def _attribute(
+    op: SyncOp, device: Device, batch_device_id: str, actor_id: str | None
+) -> str | None:
+    """Who this op is filed under. See `push`."""
+    if actor_id is None:
+        # No session behind the batch (a caller inside the process): the op
+        # says who, as it always did.
+        return op.actor_id
+    person = actor_id if op.device_id == batch_device_id else device.user_id
+    if person is None:
+        raise _Rejection("not_authorized")
+    if op.actor_id not in (None, LOCAL_ACTOR, person):
+        raise _Rejection("not_authorized")
+    return person
+
+
 async def push(
     session: AsyncSession,
     batch_device_id: str,
     raw_ops: list[dict[str, Any]],
     raw_keys: Sequence[ContentKeyIn] = (),
+    *,
+    actor_id: str | None = None,
 ) -> PushResponse:
+    """`actor_id` is the person whose app session pushed the batch. An op from
+    the batch's own device is theirs; an op relayed from another device (spec
+    §10) is that device's bound person's, and a device nobody has logged in on
+    has no one to attribute to. The op's own `actorId` is the handset's
+    placeholder (`usr_local`) or must agree — a handset cannot file work under
+    someone else — and what is stored is the attributed person, because the
+    scope policy on `submission` reads `created_by`.
+    """
     accepted: list[str] = []
     rejected: list[RejectedOp] = []
 
@@ -200,6 +229,7 @@ async def push(
             device = devices.get(op.device_id)
             if device is None or device.revoked_at is not None:
                 raise _Rejection("not_authorized")
+            attributed = _attribute(op, device, batch_device_id, actor_id)
 
             form_version_id = await resolve_form_version(
                 device.project_id, op.form_id, op.form_version
@@ -220,7 +250,7 @@ async def push(
                     environment_id=environment_id,
                     form_version_id=form_version_id,
                     origin_device_id=op.device_id,
-                    created_by=op.actor_id,
+                    created_by=attributed,
                     status="draft",
                     started_at=op.wall_clock,
                 )
@@ -301,7 +331,7 @@ async def push(
                 content_key_id=op.content_key_id,
                 nonce=nonce,
                 device_id=op.device_id,
-                actor_id=op.actor_id,
+                actor_id=attributed,
                 counter=op.counter,
                 wall_clock=op.wall_clock,
             )

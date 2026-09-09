@@ -7,6 +7,8 @@ import com.dcp.core.sync.ConnectionCheck
 import com.dcp.core.sync.ServerConfig
 import com.dcp.core.sync.ServerUrlResult
 import com.dcp.core.sync.SubmissionStore
+import com.dcp.core.sync.SessionStore
+import com.dcp.core.sync.SignInResult
 import com.dcp.core.sync.SyncClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -55,7 +57,18 @@ data class SettingsState(
     val pendingOps: Long = 0,
     val forms: List<HeldFormUi> = emptyList(),
     val isLoading: Boolean = true,
+    /** Who is signed in on this device, or null. Display only: the server
+     *  decides every request from the cookie, not from this. */
+    val signedInAs: String? = null,
+    val usernameDraft: String = "",
+    val passwordDraft: String = "",
+    val isSigningIn: Boolean = false,
+    /** Why the sign-in was refused or could not be asked. Shown under the form. */
+    val signInError: String? = null,
 ) {
+    val canSignIn: Boolean
+        get() = usernameDraft.isNotBlank() && passwordDraft.isNotEmpty() && !isSigningIn
+
     /** Nothing to save while the field matches what is already in effect. */
     val canSave: Boolean get() = serverUrlDraft.trim() != serverUrlInEffect
 }
@@ -65,6 +78,10 @@ sealed interface SettingsAction {
     data object OnSaveServerUrl : SettingsAction
     data object OnResetToDefault : SettingsAction
     data object OnTestConnection : SettingsAction
+    data class OnUsernameChanged(val value: String) : SettingsAction
+    data class OnPasswordChanged(val value: String) : SettingsAction
+    data object OnSignIn : SettingsAction
+    data object OnSignOut : SettingsAction
     data object OnBack : SettingsAction
 }
 
@@ -103,6 +120,7 @@ class SettingsViewModel(
     private val store: SubmissionStore,
     private val catalog: FormCatalog,
     private val syncClient: SyncClient,
+    private val session: SessionStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -163,6 +181,15 @@ class SettingsViewModel(
                 _state.update { it.copy(pendingOps = rows.sumOf { row -> row.pendingOps }) }
             }
         }
+        session?.let { sessions ->
+            viewModelScope.launch {
+                sessions.observeSignedIn().collect { who ->
+                    _state.update {
+                        it.copy(signedInAs = who?.let { w -> w.displayName.ifBlank { w.username } })
+                    }
+                }
+            }
+        }
     }
 
     fun onAction(action: SettingsAction) {
@@ -195,10 +222,59 @@ class SettingsViewModel(
 
             SettingsAction.OnTestConnection -> viewModelScope.launch { testConnection() }
 
+            is SettingsAction.OnUsernameChanged -> _state.update {
+                it.copy(usernameDraft = action.value, signInError = null)
+            }
+
+            is SettingsAction.OnPasswordChanged -> _state.update {
+                it.copy(passwordDraft = action.value, signInError = null)
+            }
+
+            SettingsAction.OnSignIn -> viewModelScope.launch { signIn() }
+
+            SettingsAction.OnSignOut -> viewModelScope.launch {
+                withContext(Dispatchers.Default) { syncClient.signOut() }
+                _state.update { it.copy(signInError = null) }
+            }
+
             SettingsAction.OnBack -> viewModelScope.launch {
                 _events.send(SettingsEvent.NavigateBack)
             }
         }
+    }
+
+    private suspend fun signIn() {
+        val current = _state.value
+        if (!current.canSignIn) return
+        _state.update { it.copy(isSigningIn = true, signInError = null) }
+        try {
+            val result = withContext(Dispatchers.Default) {
+                syncClient.signIn(current.usernameDraft.trim(), current.passwordDraft)
+            }
+            _state.update {
+                when (result) {
+                    // The password leaves the state the moment it has been
+                    // used; the name is kept so a refusal can be retried.
+                    is SignInResult.Signed -> it.copy(passwordDraft = "", signInError = null)
+                    is SignInResult.Refused -> it.copy(
+                        passwordDraft = "",
+                        signInError = describeRefusal(result.reason, result.message),
+                    )
+                    is SignInResult.Failed -> it.copy(signInError = result.description)
+                }
+            }
+        } finally {
+            _state.update { it.copy(isSigningIn = false) }
+        }
+    }
+
+    private fun describeRefusal(reason: String, message: String): String = when (reason) {
+        "invalid_credentials" -> "Wrong username or password."
+        "pending_approval" -> "This account is waiting for approval by an administrator."
+        "deactivated" -> "This account has been deactivated."
+        "device_unknown" -> "This device is not registered with the server yet. Sync once, then sign in."
+        "device_revoked" -> "This device has been revoked."
+        else -> message.ifBlank { "Sign-in refused ($reason)." }
     }
 
     private suspend fun save() {

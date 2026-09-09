@@ -24,7 +24,13 @@ from pydantic import ValidationError
 
 from app.modules.crypto.envelope import is_usable_recipient_key
 from app.modules.projects.schemas import ProjectKeyCreate
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 KEYS_DB = "dcp_test_keys"
 PROJECT_ID = "01PROJKEYS"
@@ -219,12 +225,11 @@ def keys_api() -> Any:
     command.upgrade(cfg, "head")
     asyncio.run(_seed())
 
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(_keys_db_url()))
+    install_api_overrides(app, database_of(_keys_db_url()))
     yield app
-    app.dependency_overrides.pop(get_db, None)
+    remove_api_overrides(app)
 
     async def drop() -> None:
         conn = await asyncpg.connect(_admin_dsn())

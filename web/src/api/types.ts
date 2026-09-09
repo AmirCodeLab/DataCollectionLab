@@ -520,6 +520,56 @@ export const KEY_ROLES = ["primary", "backup", "recovery"] as const;
 
 export type KeyRole = (typeof KEY_ROLES)[number];
 
+export interface LoginError {
+  reason: LoginFailure;
+  message: string;
+}
+
+export interface LoginErrorResponse {
+  detail: LoginError;
+}
+
+export const LOGIN_FAILURES = [
+  "invalid_credentials",
+  "pending_approval",
+  "deactivated",
+  "no_membership",
+  "device_unknown",
+  "device_revoked",
+  "device_required",
+] as const;
+
+export type LoginFailure = (typeof LOGIN_FAILURES)[number];
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+  kind?: SessionKind;
+  deviceId?: string | null;
+  organization?: string | null;
+}
+
+export interface LogoutResponse {
+  status: "logged_out";
+}
+
+/**
+ * Who this session is, and what it may do. Everything a screen needs to
+ * decide what to render; nothing it needs to keep.
+ */
+export interface Me {
+  userId: string;
+  username: string | null;
+  displayName: string;
+  organizationId: string;
+  organizationSlug: string;
+  sessionKind: SessionKind;
+  deviceId: string | null;
+  scopeKind: ScopeKind;
+  permissions: Permission[];
+  expiresAt: string;
+}
+
 /**
  * One chunk stored. Re-sending a chunk already held is a success, not an
  * error: a client that lost the response has no way to tell the difference,
@@ -734,6 +784,26 @@ export interface PaletteType {
   note?: string | null;
 }
 
+export const PERMISSIONS = [
+  "user.create",
+  "user.approve",
+  "user.deactivate",
+  "user.assign_role",
+  "team.manage",
+  "sample.upload",
+  "sample.assign",
+  "form.edit",
+  "form.publish",
+  "form.deploy",
+  "submission.view",
+  "submission.review",
+  "export.download",
+  "device.revoke",
+  "project.manage",
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
 /**
  * A public key being registered as a recipient (envelope §4.1).
  *
@@ -936,6 +1006,10 @@ export interface SaveDraftRequest {
   testCases?: TestCase[] | null;
 }
 
+export const SCOPE_KINDS = ["organization", "project", "team", "none"] as const;
+
+export type ScopeKind = (typeof SCOPE_KINDS)[number];
+
 /**
  * One screen of the plan, as §11.1 partitions it.
  *
@@ -959,6 +1033,10 @@ export interface ScreenSummary {
 export const SECURITY_MODES = ["standard", "field_level", "project_e2e"] as const;
 
 export type SecurityMode = (typeof SECURITY_MODES)[number];
+
+export const SESSION_KINDS = ["console", "app"] as const;
+
+export type SessionKind = (typeof SESSION_KINDS)[number];
 
 export interface SubmissionDetail {
   id: string;
