@@ -10,6 +10,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -69,14 +70,41 @@ class SyncE2ETest {
         )
     }
 
-    private fun httpClient() = HttpClient(CIO) {
+    /** The person the handset signs in as (item 1): a device cannot push,
+     * pull or read its crypto config until a person has logged in on it, and
+     * the seed's enumerator is that person by default. */
+    private val username = System.getenv("DCP_E2E_USERNAME") ?: "enumerator"
+    private val password = System.getenv("DCP_E2E_PASSWORD") ?: "dcp-dev"
+
+    private fun httpClient(session: SessionStore) = HttpClient(CIO) {
         expectSuccess = true
         install(ContentNegotiation) { json(SyncJson) }
+        install(HttpCookies) { storage = session.cookies }
     }
 
-    /** Every opId the server holds for [forDevice], via the real pull API. */
-    private suspend fun serverOpIds(forDevice: String): List<String> {
-        httpClient().use { http ->
+    /** A sync client signed in on this device, or the test is skipped with the
+     * server's reason — a refused login is the server's decision, not a
+     * broken test. */
+    private suspend fun signedIn(
+        store: SubmissionStore,
+        session: SessionStore,
+        config: SyncConfig = SyncConfig(),
+        forms: FormStore? = null,
+    ): SyncClient {
+        val client = SyncClient(
+            store, fixedServerConfig(baseUrl), config,
+            deviceInfo = DeviceInfo("desktop", osVersion = "e2e", appVersion = "e2e"),
+            httpClient = httpClient(session), forms = forms, session = session,
+        )
+        val result = client.signIn(username, password)
+        assumeTrue("could not sign in as $username at $baseUrl: $result", result is SignInResult.Signed)
+        return client
+    }
+
+    /** Every opId the server holds for [forDevice], via the real pull API —
+     * on the device's own session, which is the only way to pull. */
+    private suspend fun serverOpIds(forDevice: String, session: SessionStore): List<String> {
+        httpClient(session).use { http ->
             val ids = mutableListOf<String>()
             var cursor = 0L
             while (true) {
@@ -110,8 +138,11 @@ class SyncE2ETest {
 
             // The server "dies" after acknowledging two batches: the transport
             // starts refusing exactly where a mid-push crash would.
+            // Signed in on this device first: the session the push needs.
+            val session = SessionStore(fileDatabase())
+            signedIn(store, session)
             var pushResponses = 0
-            val dying = httpClient().apply {
+            val dying = httpClient(session).apply {
                 plugin(HttpSend).intercept { request ->
                     if (request.url.encodedPath.endsWith("/sync/push") && pushResponses >= 2) {
                         throw IOException("simulated server death mid-push")
@@ -133,7 +164,7 @@ class SyncE2ETest {
 
             // Recovery with a healthy client: the outbox drains completely...
             val recovered = SyncClient(
-                store, fixedServerConfig(baseUrl), SyncConfig(batchSize = 25), httpClient = httpClient(),
+                store, fixedServerConfig(baseUrl), SyncConfig(batchSize = 25), httpClient = httpClient(session), session = session,
             ).syncOnce()
             assertNull(recovered.error)
             assertEquals(60, recovered.pushedOps)
@@ -142,7 +173,7 @@ class SyncE2ETest {
 
             // ...and the server holds EXACTLY our 110 ops for this device:
             // nothing lost, nothing duplicated, byte-for-byte the same ids.
-            val onServer = serverOpIds(deviceId)
+            val onServer = serverOpIds(deviceId, session)
             val local = store.opsFor(submission).map { it.opId }
             assertEquals(110, onServer.size)
             assertEquals(onServer.distinct().size, onServer.size)
@@ -160,7 +191,9 @@ class SyncE2ETest {
         val freshId = "dev-fresh-" + buildString {
             repeat(12) { append("0123456789abcdef"[kotlin.random.Random.nextInt(16)]) }
         }
-        val store = fileStore(freshId)
+        val db = fileDatabase()
+        val store = SubmissionStore(db, deviceIdOverride = freshId)
+        val session = SessionStore(db)
         val submission = store.createDraft("household_survey", 1)
         repeat(3) { i ->
             store.appendOp(
@@ -169,11 +202,8 @@ class SyncE2ETest {
             )
         }
 
-        val result = SyncClient(
-            store, fixedServerConfig(baseUrl), SyncConfig(),
-            deviceInfo = DeviceInfo("desktop", osVersion = "e2e", appVersion = "e2e"),
-            httpClient = httpClient(),
-        ).syncOnce()
+        // Signing in binds the device (proposal §4); the first sync follows.
+        val result = signedIn(store, session).syncOnce()
 
         assertNull(result.error)
         assertEquals(3, result.pushedOps)
@@ -182,13 +212,14 @@ class SyncE2ETest {
         // the server actually stored them under the fresh device id
         assertEquals(
             store.opsFor(submission).map { it.opId }.toSet(),
-            serverOpIds(freshId).toSet(),
+            serverOpIds(freshId, session).toSet(),
         )
     }
 
     @Test
     fun `total outage leaves the outbox and cursor untouched`(): Unit = runBlocking {
         val store = fileStore("dev-nowhere")
+        val session = SessionStore(fileDatabase())
         val submission = store.createDraft("household_survey", 1)
         store.appendOp(submission, "household_survey", 1, OpKind.SET, "observations",
             FormValue.Text("offline"))
@@ -196,7 +227,7 @@ class SyncE2ETest {
 
         val result = SyncClient(
             store, fixedServerConfig("http://localhost:59999"), // nothing listens here
-            SyncConfig(maxAttempts = 2, baseDelayMs = 1), httpClient = httpClient(),
+            SyncConfig(maxAttempts = 2, baseDelayMs = 1), httpClient = httpClient(session), session = session,
         ).syncOnce()
 
         assertNotNull(result.error)
@@ -228,10 +259,11 @@ class SyncE2ETest {
         val deviceId = "dev-e2e-forms-" + System.currentTimeMillis()
         val store = SubmissionStore(db, deviceIdOverride = deviceId)
         val forms = FormStore(db)
+        val session = SessionStore(db)
 
         assertEquals(emptyList(), forms.all(), "a fresh device starts with no forms at all")
 
-        val result = SyncClient(store, fixedServerConfig(baseUrl), httpClient = httpClient(), forms = forms).syncOnce()
+        val result = signedIn(store, session, forms = forms).syncOnce()
 
         assertNull(result.error)
         assertNull(result.formError)
@@ -257,7 +289,11 @@ class SyncE2ETest {
         // A second sync must fetch nothing: the checksum comparison is what
         // keeps a sync cheap, and it only demonstrably works against a real
         // server's real checksums.
-        val second = SyncClient(store, fixedServerConfig(baseUrl), httpClient = httpClient(), forms = forms).syncOnce()
+        // A new client over the same database: the session it kept is enough.
+        val second = SyncClient(
+            store, fixedServerConfig(baseUrl), httpClient = httpClient(session),
+            forms = forms, session = session,
+        ).syncOnce()
         assertNull(second.error)
         assertEquals(
             0, second.fetchedForms,
