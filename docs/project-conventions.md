@@ -963,7 +963,15 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    done.** Two seeded teams now; seven people, password `dcp-dev`
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
-   applied in the UI. A filter can be forgotten in one query; a scope cannot
+   applied in the UI. A filter can be forgotten in one query; a scope cannot.
+   **Status, 9 September 2026:** the analysis is
+   `docs/phase3-item2-sample-assignment.md` (approved, A1–A7), and the schema
+   is migration 012 — a case is a sample row, held at two levels, and one
+   rule, `dcp_case_in_scope`, decides what is in scope for every table under
+   a case; reassignment moves the view and not the rows; an enumerator sees
+   only their own work (defect 26, fixed ahead of this item). Breaks 172–180.
+   Next: the routes (sample upload, cases, assignment, `scope=assignments`),
+   then the screens, then a browser run and a handset run
 3. **Repeat screen flow**, and the roster it unblocks. **Spec and engines done,
    5 September 2026; the UI is what is left.** Form IR §11.3 decides it — a
    repeat is one screen holding the instance list, an instance is entered and
