@@ -29,6 +29,13 @@ data class WireOp(
     val actorId: String? = null,
     val counter: Long,
     val wallClock: String,
+    /**
+     * The case the submission is against (item 2). The server reads it on the
+     * op that opens the submission and refuses `not_assigned` when the case is
+     * not held by this device's person — the one scope refusal in the push
+     * path, named, one op's cost.
+     */
+    val caseId: String? = null,
 )
 
 /** One wrap of a content key to one recipient project key (envelope §4.3). */
@@ -191,8 +198,27 @@ data class WirePullResponse(
     // would spend a morning fetching it back. That is the stale-dataset failure
     // with the sign flipped and it is just as quiet.
     val datasets: List<WireDeployedDatasetVersion>? = null,
+    // The assignment statement (`scope=assignments`, item 2): every case the
+    // signed-in person holds, complete. Nullable for the same reason `forms`
+    // is. Null: nothing was said, leave the cases alone. Empty: the server
+    // answered and this person holds nothing — every case on the device is
+    // released, and the drafts on them are kept and say so.
+    val assignments: List<WireAssignedCase>? = null,
     val nextCursor: Long,
     val hasMore: Boolean = false,
+)
+
+/** One entry of the assignment statement (`GET /sync/pull?scope=assignments`). */
+@Serializable
+data class WireAssignedCase(
+    val caseId: String,
+    val caseKey: String? = null,
+    val datasetKey: String? = null,
+    val status: String = "open",
+    val priority: Long = 0,
+    val dueAt: String? = null,
+    // The sample row behind the case, kept as the JSON it arrived as.
+    val data: JsonElement? = null,
 )
 
 /** One entry of the dataset manifest (`GET /sync/pull?scope=datasets`). */

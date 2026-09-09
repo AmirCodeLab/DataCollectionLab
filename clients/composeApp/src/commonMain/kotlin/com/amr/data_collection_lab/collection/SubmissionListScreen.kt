@@ -104,7 +104,8 @@ fun SubmissionListScreen(
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
 
-                state.submissions.isEmpty() -> Box(
+                state.submissions.isEmpty() && state.assignedCases.isEmpty() &&
+                    state.releasedCases.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -124,21 +125,107 @@ fun SubmissionListScreen(
                     )
                 }
 
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(items = state.submissions, key = { it.submissionId }) { submission ->
-                        SubmissionCard(
-                            submission = submission,
-                            onClick = {
-                                onAction(SubmissionListAction.OnSubmissionClick(submission.submissionId))
-                            },
-                        )
-                    }
+                else -> WorkList(state, onAction)
+            }
+        }
+    }
+}
+
+/**
+ * The cases first, then the submissions. A case is where fieldwork starts
+ * for an enumerator with a sample (item 2): a tap opens the draft on it or
+ * starts one. A released case with work on it stays listed, under its own
+ * heading, so the draft is reachable and named — never silently gone.
+ */
+@Composable
+private fun WorkList(state: SubmissionListState, onAction: (SubmissionListAction) -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (state.caseRefusal != null) {
+            item(key = "case-refusal") {
+                Text(
+                    text = state.caseRefusal,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
+        if (state.assignedCases.isNotEmpty()) {
+            item(key = "assigned-heading") {
+                SectionHeading("Assigned to me (${state.assignedCases.size})")
+            }
+            items(items = state.assignedCases, key = { "case-" + it.caseId }) { case ->
+                CaseCard(case = case, onClick = { onAction(SubmissionListAction.OnCaseClick(case.caseId)) })
+            }
+        }
+        if (state.releasedCases.isNotEmpty()) {
+            item(key = "released-heading") {
+                SectionHeading("No longer assigned to you — drafts kept (${state.releasedCases.size})")
+            }
+            items(items = state.releasedCases, key = { "released-" + it.caseId }) { case ->
+                CaseCard(case = case, onClick = { onAction(SubmissionListAction.OnCaseClick(case.caseId)) })
+            }
+        }
+        if (state.submissions.isNotEmpty()) {
+            item(key = "submissions-heading") {
+                SectionHeading("Submissions (${state.submissions.size})")
+            }
+            items(items = state.submissions, key = { it.submissionId }) { submission ->
+                SubmissionCard(
+                    submission = submission,
+                    onClick = {
+                        onAction(SubmissionListAction.OnSubmissionClick(submission.submissionId))
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+@Composable
+private fun CaseCard(case: CaseUi, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = case.label, style = MaterialTheme.typography.titleMedium)
+                if (case.summary.isNotEmpty()) {
+                    Text(
+                        text = case.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
+            Spacer(Modifier.width(8.dp))
+            SuggestionChip(
+                onClick = onClick,
+                label = {
+                    Text(
+                        when {
+                            !case.assigned -> "No longer assigned"
+                            case.submissions > 0 -> "In progress"
+                            else -> "Start"
+                        },
+                    )
+                },
+            )
         }
     }
 }
@@ -229,6 +316,18 @@ private fun SubmissionCard(submission: SubmissionUi, onClick: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (submission.caseKey != null) {
+                        Text(
+                            text = if (submission.caseAssigned == false) {
+                                "Case ${submission.caseKey} · no longer assigned to you"
+                            } else {
+                                "Case ${submission.caseKey}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (submission.caseAssigned == false) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 SuggestionChip(

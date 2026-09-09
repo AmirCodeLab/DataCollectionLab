@@ -1,0 +1,31 @@
+-- v8 -> v9: the cases assigned to this device's person (item 2).
+--
+-- Migrated, like every step before it (see 7.sqm for why a device never
+-- recreates its database). Two additions, both mirrored in sync.sq — keep the
+-- two in step:
+--
+-- 1. `submission.case_id`: the case a draft is against, NULL for uncased
+--    work. Every existing submission is uncased, which is exactly true of
+--    work started before this version.
+-- 2. `case_record`: the assignment statement as last pulled. Arrives empty,
+--    and that is the correct starting state: a device upgrading has been told
+--    nothing about assignments yet, and the next sync's statement fills it.
+--
+-- There is no DELETE on case_record anywhere in the schema. A release is an
+-- absence from the next statement, recorded as `assigned = 0`, and the row
+-- stays so the draft on it is still listed with the case it was for.
+
+ALTER TABLE submission ADD COLUMN case_id TEXT;
+
+CREATE TABLE case_record (
+    case_id TEXT NOT NULL PRIMARY KEY,
+    case_key TEXT,
+    dataset_key TEXT,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'open',
+    priority INTEGER NOT NULL DEFAULT 0,
+    due_at TEXT,
+    assigned INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    released_seen_at TEXT
+);

@@ -356,6 +356,14 @@ private fun CollectionTopBar(state: CollectionState, onAction: (CollectionAction
                     text = state.formTitle,
                     style = MaterialTheme.typography.titleMedium,
                 )
+                if (state.caseNote != null) {
+                    Text(
+                        text = state.caseNote,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if ("no longer" in state.caseNote) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (state.finalized) {
                     Text(
                         text = UiStrings.finalized(state.language),

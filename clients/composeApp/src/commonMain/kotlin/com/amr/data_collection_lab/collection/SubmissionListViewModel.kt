@@ -3,6 +3,8 @@ package com.amr.data_collection_lab.collection
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dcp.core.sync.CaseStore
+import com.dcp.core.sync.RejectReasons
 import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
@@ -27,11 +29,31 @@ data class SubmissionUi(
     val savedAt: String,
     val finalized: Boolean,
     val pendingOps: Long,
+    /** The case this work is against — "S3|1|1" — or null for uncased work. */
+    val caseKey: String? = null,
+    /**
+     * False when the case has moved to someone else since the draft was
+     * opened: shown as "no longer assigned to you", and nothing else changes —
+     * the draft is kept, finishable and pushable (item 2, analysis §4.3).
+     */
+    val caseAssigned: Boolean? = null,
 )
 
 @Stable
 data class SubmissionListState(
     val submissions: List<SubmissionUi> = emptyList(),
+    /** The cases assigned to this person, as the last sync's statement said. */
+    val assignedCases: List<CaseUi> = emptyList(),
+    /** Cases released since, with work on this device — still reachable. */
+    val releasedCases: List<CaseUi> = emptyList(),
+    /**
+     * Why a tap on a case did nothing: it is no longer this person's and no
+     * work had started. Cleared by the next action.
+     */
+    val caseRefusal: String? = null,
+    /** The case a new submission is being started against, while the form
+     *  picker is up; null for uncased work. */
+    val startingForCase: String? = null,
     /**
      * Forms this device may start a new submission on — delivered by the server
      * (sync §5), not bundled. Empty means the device has synced no forms yet,
@@ -65,6 +87,8 @@ data class SubmissionListState(
 
 sealed interface SubmissionListAction {
     data object OnNewSubmissionClick : SubmissionListAction
+    /** A case tapped: opens its draft, starts one, or says why not. */
+    data class OnCaseClick(val caseId: String) : SubmissionListAction
     data object OnSyncClick : SubmissionListAction
     data class OnSubmissionClick(val submissionId: String) : SubmissionListAction
     /** A form chosen from the picker; starts a submission on that version. */
@@ -80,6 +104,7 @@ class SubmissionListViewModel(
     private val store: SubmissionStore,
     private val catalog: FormCatalog,
     private val syncClient: SyncClient,
+    private val cases: CaseStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SubmissionListState())
@@ -109,9 +134,19 @@ class SubmissionListViewModel(
                                 savedAt = it.updatedAt.take(16).replace("T", " "),
                                 finalized = it.status == SubmissionStatus.FINALIZED,
                                 pendingOps = it.pendingOps,
+                                caseKey = it.caseKey,
+                                caseAssigned = it.caseAssigned,
                             )
                         },
                     )
+                }
+            }
+        }
+        viewModelScope.launch {
+            cases.observe().collect { held ->
+                val sections = sectionsOf(held)
+                _state.update {
+                    it.copy(assignedCases = sections.assigned, releasedCases = sections.releasedWithWork)
                 }
             }
         }
@@ -131,7 +166,7 @@ class SubmissionListViewModel(
                     s.copy(
                         rejectedSummary = groups
                             .takeIf { it.isNotEmpty() }
-                            ?.joinToString("; ") { "${it.count} ops rejected: ${it.reason}" },
+                            ?.joinToString("; ") { RejectReasons.describe(it.reason, it.count) },
                     )
                 }
             }
@@ -141,24 +176,31 @@ class SubmissionListViewModel(
     fun onAction(action: SubmissionListAction) {
         when (action) {
             is SubmissionListAction.OnNewSubmissionClick -> viewModelScope.launch {
-                // Re-read rather than trusting the cached list: a sync may have
-                // delivered or withdrawn a form since this screen opened.
-                val forms = refreshStartableForms()
-                when (forms.size) {
-                    // Nothing to start. The button stays enabled and says so,
-                    // because "sync to get your forms" is the actual next step
-                    // and a disabled button explains nothing.
-                    0 -> Unit
-                    1 -> startSubmission(forms.single())
-                    else -> _state.update { it.copy(isChoosingForm = true) }
+                _state.update { it.copy(caseRefusal = null) }
+                startWork(caseId = null)
+            }
+            is SubmissionListAction.OnCaseClick -> viewModelScope.launch {
+                val case = (_state.value.assignedCases + _state.value.releasedCases)
+                    .firstOrNull { it.caseId == action.caseId } ?: return@launch
+                when (val tap = tapOn(case)) {
+                    is CaseTap.OpenExisting -> {
+                        _state.update { it.copy(caseRefusal = null) }
+                        _events.send(SubmissionListEvent.NavigateToCollection(tap.submissionId))
+                    }
+                    is CaseTap.StartNew -> {
+                        _state.update { it.copy(caseRefusal = null) }
+                        startWork(caseId = tap.caseId)
+                    }
+                    is CaseTap.Refused -> _state.update { it.copy(caseRefusal = tap.message) }
                 }
             }
             is SubmissionListAction.OnFormChosen -> viewModelScope.launch {
-                _state.update { it.copy(isChoosingForm = false) }
-                startSubmission(action.form)
+                val forCase = _state.value.startingForCase
+                _state.update { it.copy(isChoosingForm = false, startingForCase = null) }
+                startSubmission(action.form, forCase)
             }
             SubmissionListAction.OnFormChoiceDismissed ->
-                _state.update { it.copy(isChoosingForm = false) }
+                _state.update { it.copy(isChoosingForm = false, startingForCase = null) }
             is SubmissionListAction.OnSyncClick -> sync()
             is SubmissionListAction.OnSubmissionClick -> viewModelScope.launch {
                 _events.send(SubmissionListEvent.NavigateToCollection(action.submissionId))
@@ -189,8 +231,25 @@ class SubmissionListViewModel(
         }
     }
 
-    private suspend fun startSubmission(form: FormChoice) {
-        val id = store.createDraft(form.formId, form.version)
+    /**
+     * Starts work, against [caseId] when it came from the case list. Re-reads
+     * the forms rather than trusting the cached list: a sync may have
+     * delivered or withdrawn a form since this screen opened.
+     */
+    private suspend fun startWork(caseId: String?) {
+        val forms = refreshStartableForms()
+        when (forms.size) {
+            // Nothing to start. The button stays enabled and says so, because
+            // "sync to get your forms" is the actual next step and a disabled
+            // button explains nothing.
+            0 -> Unit
+            1 -> startSubmission(forms.single(), caseId)
+            else -> _state.update { it.copy(isChoosingForm = true, startingForCase = caseId) }
+        }
+    }
+
+    private suspend fun startSubmission(form: FormChoice, caseId: String?) {
+        val id = store.createDraft(form.formId, form.version, caseId)
         _events.send(SubmissionListEvent.NavigateToCollection(id))
     }
 

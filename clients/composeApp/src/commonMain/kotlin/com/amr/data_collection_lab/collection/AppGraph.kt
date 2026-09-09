@@ -13,6 +13,7 @@ import com.dcp.core.media.MediaUploader
 import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
+import com.dcp.core.sync.CaseStore
 import com.dcp.core.sync.DatasetStore
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.ServerConfig
@@ -87,6 +88,13 @@ class AppGraph(
     val formCatalog: FormCatalog = FormCatalog(formStore, store, datasetStore)
 
     /**
+     * The cases assigned to this device's person (item 2). Filled by the
+     * assignment statement each sync carries; a release is recorded, never
+     * deleted, so a draft on a moved case is kept and says so.
+     */
+    val caseStore: CaseStore = CaseStore(db)
+
+    /**
      * Which server this device talks to, and the settings screen's subject.
      *
      * [defaultSyncBaseUrl] is now a *fallback* rather than the answer: it is
@@ -159,5 +167,7 @@ class AppGraph(
         // other would have forms whose questions offer nothing.
         datasets = datasetStore,
         session = session,
+        // And the assignment statement, applied with the first pull page.
+        cases = caseStore,
     )
 }

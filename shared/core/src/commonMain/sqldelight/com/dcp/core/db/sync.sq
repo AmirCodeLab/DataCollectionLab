@@ -8,7 +8,40 @@ CREATE TABLE submission (
     form_version INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    -- The case this work is against (item 2), or NULL for uncased work. Set
+    -- when the draft is opened from the assignment list and never changed:
+    -- the server binds a submission to its case on the first op it sees, and
+    -- a case moving to someone else does not move the work already done on
+    -- it (analysis §4.1). Mirrored in 8.sqm.
+    case_id TEXT
+);
+
+-- The cases assigned to this device's person, as the last assignment
+-- statement said (sync §5, `scope=assignments`; analysis §6.2).
+--
+-- The statement is complete, so a case that was here and is not in the next
+-- one has been released — and the ROW IS KEPT, with `assigned` cleared and
+-- the time the release was noticed. There is no DELETE on this table, on
+-- purpose: a draft on a released case is still this enumerator's work, still
+-- finishable and still pushable (the server's policy shows a submission to
+-- its creator whoever holds the case), and the list has to be able to say
+-- which case that draft was for. Losing that silently is the worst outcome
+-- item 2 names.
+CREATE TABLE case_record (
+    case_id TEXT NOT NULL PRIMARY KEY,
+    case_key TEXT,
+    dataset_key TEXT,
+    -- The sample row behind the case, as the server holds it — what the
+    -- roster preloads from and what the list shows a line of.
+    data_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'open',
+    priority INTEGER NOT NULL DEFAULT 0,
+    due_at TEXT,
+    -- 1 while the latest statement lists it; 0 once a statement did not.
+    assigned INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    released_seen_at TEXT
 );
 
 -- Sync protocol §2. `counter` is the per-device monotonic logical counter;
@@ -124,8 +157,11 @@ bumpCounter:
 UPDATE device_state SET counter = counter + 1 WHERE id = 1;
 
 insertSubmission:
-INSERT INTO submission(submission_id, form_id, form_version, status, created_at, updated_at)
-VALUES (?, ?, ?, 'draft', ?, ?);
+INSERT INTO submission(submission_id, form_id, form_version, status, created_at, updated_at, case_id)
+VALUES (?, ?, ?, 'draft', ?, ?, ?);
+
+caseIdForSubmission:
+SELECT case_id FROM submission WHERE submission_id = ?;
 
 touchSubmission:
 UPDATE submission SET updated_at = ? WHERE submission_id = ?;
@@ -137,17 +173,22 @@ UPDATE submission SET status = ?, updated_at = ? WHERE submission_id = ?;
 -- included, so a rejected op can never look like it synced.
 getSubmission:
 SELECT s.submission_id, s.form_id, s.form_version, s.status, s.created_at, s.updated_at,
+       s.case_id, c.case_key, c.assigned AS case_assigned,
        (SELECT COUNT(*) FROM op_outbox o
          WHERE o.submission_id = s.submission_id AND o.synced != 1) AS pending_ops
 FROM submission s
+LEFT JOIN case_record c ON c.case_id = s.case_id
 WHERE s.submission_id = ?;
 
--- Newest first, with the count of ops still waiting to be pushed.
+-- Newest first, with the count of ops still waiting to be pushed, and the
+-- case each is against — with whether that case is still this person's.
 listSubmissions:
 SELECT s.submission_id, s.form_id, s.form_version, s.status, s.created_at, s.updated_at,
+       s.case_id, c.case_key, c.assigned AS case_assigned,
        (SELECT COUNT(*) FROM op_outbox o
          WHERE o.submission_id = s.submission_id AND o.synced != 1) AS pending_ops
 FROM submission s
+LEFT JOIN case_record c ON c.case_id = s.case_id
 ORDER BY s.updated_at DESC;
 
 insertOp:
@@ -254,3 +295,42 @@ WHERE content_key_id = ? ORDER BY project_key_id;
 
 markContentKeyUploaded:
 UPDATE content_key SET uploaded = 1 WHERE content_key_id = ?;
+
+-- The assignment statement (sync §5). Applied in one transaction: first every
+-- row is marked as not in the statement, then each listed case is written
+-- back as assigned. Nothing is deleted — see case_record.
+markAllCasesReleased:
+UPDATE case_record
+SET assigned = 0, released_seen_at = COALESCE(released_seen_at, ?)
+WHERE assigned = 1;
+
+-- Two statements rather than an UPSERT: the dialect this schema compiles
+-- under (SQLite 3.18) predates ON CONFLICT DO UPDATE.
+insertCaseIfAbsent:
+INSERT OR IGNORE INTO case_record(case_id, case_key, dataset_key, data_json, status, priority,
+                                  due_at, assigned, first_seen_at, released_seen_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, NULL);
+
+markCaseAssigned:
+UPDATE case_record
+SET case_key = ?, dataset_key = ?, data_json = ?, status = ?, priority = ?, due_at = ?,
+    assigned = 1, released_seen_at = NULL
+WHERE case_id = ?;
+
+getCase:
+SELECT * FROM case_record WHERE case_id = ?;
+
+-- Every case this device has ever been told about, assigned first, then by
+-- priority and key — with how many submissions are on the device for each.
+listCases:
+SELECT c.*,
+       (SELECT COUNT(*) FROM submission s WHERE s.case_id = c.case_id) AS submissions
+FROM case_record c
+ORDER BY c.assigned DESC, c.priority DESC, c.case_key ASC, c.case_id ASC;
+
+-- The most recently touched submission against a case: what a tap on the
+-- case opens when work on it has already started. Its own query rather than
+-- a scalar subquery on listCases, because SQLDelight types a scalar subquery
+-- over a NOT NULL column as non-null and a case with no work yet has none.
+latestSubmissionForCase:
+SELECT submission_id FROM submission WHERE case_id = ? ORDER BY updated_at DESC LIMIT 1;
