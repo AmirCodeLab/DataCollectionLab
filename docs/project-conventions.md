@@ -1013,7 +1013,17 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    `docs/phase3-item4-separate-sync.md` (9 September 2026). Its §0 corrects the
    number this line used to carry: RCons's sample is 1,129 rows, and the
    38,000-row / 11.3 MB artefact is the village reference list (break 52,
-   measured), so the expensive scope is reference data rather than the sample
+   measured), so the expensive scope is reference data rather than the sample.
+   **Status, 9 September 2026:** analysis on #49 (A1–A8 confirmed). The schema
+   step is `feat/item4-schema`, stacked on it: handset **v10** —
+   `form_version.ir_json` nullable, so a deployed version that has not been
+   downloaded has somewhere to live, plus `sync_scope` — one pin-readiness
+   answer (`DatasetStore.pinnedLists`, read only through `ReferenceData`, and
+   lint-enforced), a finalisation gate that refuses by name ("Cannot finalise:
+   villages v8 not downloaded — tap Reference data"), and the server's one
+   validator, `limit=0` on the pull. Breaks 190–195; the first was watched to
+   fail against main before the feature existed. Next: the three actions and
+   the updates screen, then a browser run and a handset run
 5. **Supervisor monitoring**, within scope only
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
