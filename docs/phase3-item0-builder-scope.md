@@ -816,6 +816,65 @@ published, 3 because item 3 will have assumed it.
 
 ---
 
+## What item 0 leaves behind — 7 September 2026
+
+All seven steps of the build order are done and verified in a browser on
+merged main (`docs/e2e-run-2026-09-07.md`; PRs #27–#36). This is the one place
+that lists what is *not* done, so it does not live in PR descriptions. Two
+lists: what a form author still cannot do, and what the pilot needs before
+RCons touch it. Defects are in `docs/known-defects.md` by number.
+
+### What a form author still cannot do
+
+| Cannot | Where it stands |
+|---|---|
+| Preload a roster from the sample (`rowSource` `kind: "dataset"`) | Shown, disabled, with the engine's refusal. Waits on `_metadata.case_key` (item 2) and defect 16 |
+| Nest a repeat | Refused by the tree; IR v0.2 |
+| Use a non-collectable type (`time`, media beyond image, geo…) | Shown, disabled, with the registry note. `specs/collectable-types-v0.1.json` decides |
+| Write `pulldata`, `count_selected`, nested and/or **visually** | Code hatch only, by design (§2) |
+| Trace a group's relevance | Defect 23. Fields and a counted repeat only |
+| Choose which expectations a test case carries | Every path is recorded with relevance, validity and value; a case is renamed or removed, never edited. A case that should say only "hidden" cannot |
+| Run a test case on the server, or share one as a vector | By design (§4): cases run in the builder; the crossing to `conformance/` is by hand |
+| Branch a draft or keep two | One draft per form (§6) |
+| See who else is editing | Last-write-wins is stopped by the revision check, not merged; the conflict names the server's revision and nothing else |
+| Be somebody | `form_draft.updated_by`, `form_version.published_by`, `form_deployment.deployed_by` are null or free text. Item 1 |
+| Preview in another language, or right-to-left | The preview draws the default language; the console's RTL is by Tailwind logical properties and has not been looked at in a browser with an Arabic or Urdu form |
+| Answer an image question in preview | "not answerable in preview" |
+| See the preview as the enumerator sees a fresh screen | Defect 25 (required flagged before touch); defect 24 (position after replay) |
+
+### What the pilot needs before RCons touch it
+
+1. **Item 1.** The console has no login: anyone who reaches `/forms` can edit,
+   publish and deploy any form, and nothing records who did. That is the
+   reason item 1 is next and is not a builder gap.
+2. **The engine bundle in the deployed console.** Defect 22: `web/public/engine/`
+   is gitignored, CI never builds it, and no test calls the real exports. A
+   deploy that forgets `scripts/build_engine_wasm.sh` ships a preview that says
+   "The engine bundle is not built".
+3. **The environment story on publish.** The publish panel offers development,
+   staging and production; a device in the seeded project is always on
+   production (defect 3). An author who deploys to development sees success and
+   no handset changes. Either the panel says so, or devices get an environment.
+4. **A rebuilt server strands every device** (defect 21): the pull cursor has no
+   log identity. Every reseed during the pilot's preparation is this.
+5. **The XLSForm template.** `docs/xlsform-template/` exists; whether RCons
+   has it and has produced a form with it is not recorded here.
+6. **A form of RCons's size in the builder.** The largest form the builder has
+   held is `clinic_intake` (10 fields). Their instrument is 95 sections. The
+   tree, the plan pane and the autosave have not been watched at that size.
+7. **The trace and preview against an RCons form**, in their language. Item
+   0's runs were English, left-to-right, authored by us.
+
+### Not on either list, and why
+
+- The Python reference is still production for `/forms/evaluate` and the
+  publish gate. O-2, still open; recorded in the architecture doc.
+- Reachability warnings promised by Form IR §10.3 for "repeat with no bound"
+  and "unused calculate" do not exist (defect 17, narrowed). An author gets no
+  warning; the form is not wrong.
+
+---
+
 ## Three things I need from you before implementing
 
 1. The Wasm decision (a or b, or spike first).
