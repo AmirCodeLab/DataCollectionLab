@@ -36,7 +36,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
-from tests.identity_fixtures import ORG_ID, ensure_organization
+from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
 
 pytestmark = pytest.mark.db
 
@@ -103,7 +103,7 @@ def _villages(name: str) -> list[dict[str, Any]]:
 def _database_url() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url
+    return get_settings().database_admin_url
 
 
 def _admin_dsn() -> str:
@@ -446,19 +446,7 @@ def export_api(export_db: str) -> Any:
     from app.api.deps import get_db
     from app.main import app
 
-    async def scratch_db() -> AsyncIterator[Any]:
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        # One engine per request: each test runs in its own event loop, and
-        # pooled asyncpg connections cannot cross loops.
-        engine = create_async_engine(export_db)
-        try:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-                yield session
-        finally:
-            await engine.dispose()
-
-    app.dependency_overrides[get_db] = scratch_db
+    app.dependency_overrides[get_db] = api_session_override(database_of(export_db))
     yield app
     app.dependency_overrides.pop(get_db, None)
 

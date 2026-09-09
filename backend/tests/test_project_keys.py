@@ -12,7 +12,7 @@ other API suites. They skip when Postgres is unreachable.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -24,7 +24,7 @@ from pydantic import ValidationError
 
 from app.modules.crypto.envelope import is_usable_recipient_key
 from app.modules.projects.schemas import ProjectKeyCreate
-from tests.identity_fixtures import ORG_ID, ensure_organization
+from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
 
 KEYS_DB = "dcp_test_keys"
 PROJECT_ID = "01PROJKEYS"
@@ -119,7 +119,7 @@ def test_small_order_points_are_not_usable_recipients() -> None:
 def _admin_dsn() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    return get_settings().database_admin_url.replace("postgresql+asyncpg://", "postgresql://")
 
 
 def _keys_db_url() -> str:
@@ -222,17 +222,7 @@ def keys_api() -> Any:
     from app.api.deps import get_db
     from app.main import app
 
-    async def scratch_db() -> AsyncIterator[Any]:
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        engine = create_async_engine(_keys_db_url())
-        try:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-                yield session
-        finally:
-            await engine.dispose()
-
-    app.dependency_overrides[get_db] = scratch_db
+    app.dependency_overrides[get_db] = api_session_override(database_of(_keys_db_url()))
     yield app
     app.dependency_overrides.pop(get_db, None)
 

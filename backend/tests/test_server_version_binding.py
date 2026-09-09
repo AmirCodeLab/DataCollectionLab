@@ -72,7 +72,7 @@ def _roster_ir(version: int, members: list[str]) -> dict[str, Any]:
 def _database_url() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url
+    return get_settings().database_admin_url
 
 
 def _admin_dsn() -> str:

@@ -111,11 +111,11 @@ def _public_hex(private_hex: str) -> str:
 
 async def install(project_id: str | None, roles: list[str], database: str | None) -> None:
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
     from app.core.config import get_settings
     from app.core.ulid import new_ulid
+    from app.infrastructure.database import create_engine, session_for_organization
     from app.modules.crypto.models import ProjectKey
     from app.modules.projects.models import Project
 
@@ -126,16 +126,14 @@ async def install(project_id: str | None, roles: list[str], database: str | None
             "This installs a private key that is published in the repository."
         )
 
-    url = settings.database_url
-    if database is not None:
-        from urllib.parse import urlsplit, urlunsplit
+    engine = create_engine(database=database)
+    print(f"Database: {engine.url.render_as_string(hide_password=True).rsplit('@', 1)[-1]}")
 
-        url = urlunsplit(urlsplit(url)._replace(path=f"/{database}"))
-    print(f"Database: {url.rsplit('@', 1)[-1]}")
-
-    engine = create_async_engine(url)
     try:
-        async with async_sessionmaker(engine)() as session, session.begin():
+        async with (
+            session_for_organization(settings.organization_slug, engine=engine) as session,
+            session.begin(),
+        ):
             if project_id is None:
                 projects = (
                     (

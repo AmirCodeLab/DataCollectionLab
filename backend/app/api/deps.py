@@ -1,18 +1,20 @@
 """Shared FastAPI dependencies."""
 
 from collections.abc import AsyncIterator
-from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.database import create_engine, create_session_factory
-
-
-@lru_cache(maxsize=1)
-def _session_factory() -> async_sessionmaker[AsyncSession]:
-    return create_session_factory(create_engine())
+from app.core.config import get_settings
+from app.infrastructure.database import session_for_organization
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
-    async with _session_factory()() as session:
+    """A session scoped to the deployment's organisation, as `dcp_app`.
+
+    Until login exists (item 1's other half) every request carries the
+    organisation-wide principal: everything in the configured organisation,
+    nothing outside it, and nothing at all if that organisation does not
+    exist. A person's own scope replaces this when a session cookie does.
+    """
+    async with session_for_organization(get_settings().organization_slug) as session:
         yield session

@@ -1,0 +1,13 @@
+-- The application role's login, for a fresh docker-compose volume.
+--
+-- 008_identity.sql creates `dcp_app` NOLOGIN and grants it the tables; how it
+-- logs in is a deployment decision, because roles are cluster-wide and a
+-- migration is a fact about one database. For development that decision is
+-- this file, mounted into /docker-entrypoint-initdb.d so that `docker compose
+-- up` alone yields a database the API can connect to as the role the
+-- policies bind. The password matches the default DATABASE_URL in
+-- backend/app/core/config.py, and is as published as `dcp:dcp` beside it.
+--
+-- An existing volume never re-runs this; scripts/reset_dev_db.py does the
+-- same thing for one, and the test suite does it for itself.
+CREATE ROLE dcp_app LOGIN PASSWORD 'dcp_app';

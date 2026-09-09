@@ -729,6 +729,11 @@ scripts/build_sqlcipher_ios.sh             # once, before the first iOS build
 cd web && npm install && npm run dev
 npm run typecheck && npm run lint && npm test && npm run build
 
+# The development database, recreated from nothing (drop, migrate, login for
+# dcp_app, seed). Recreating is the fix for a drifted local database; the
+# script's docstring says why.
+python scripts/reset_dev_db.py --seed
+
 # Full stack
 docker compose up
 ```
@@ -834,6 +839,22 @@ notice. `./scripts/status.sh` section 5 asks locally.
   `backend/tests/test_no_session_generator_loops.py` is the lint; the FastAPI
   dependencies in `api/deps.py` are the one exception, because FastAPI drives
   the generator to completion itself
+- **There is one connection factory, and the application is never the
+  owner.** `backend/app/infrastructure/database.py` hands out every session
+  (`session_as`, `session_for_organization`) and builds every engine; the
+  application role is `dcp_app`, which the row-level security policies bind,
+  and the factory refuses at connect time a superuser, a BYPASSRLS role or the
+  owner of the tables, because those are exempt from every policy and every
+  screen looks correct while none applies. The principal the policies read is
+  declared at the start of every transaction and never at session level (ERD
+  §1.1); the pool discards a connection that comes back still carrying one.
+  `tests/test_one_connection_factory.py` fails on a second engine, a raw
+  asyncpg connection or a `postgresql://` literal in `app/` or `scripts/`;
+  `tests/conftest.py` fails the db suite before its first test if the
+  application connection is privileged; `tests/test_tenant_isolation.py` is
+  the rest. Migrations and provisioning run as the owner through
+  `DATABASE_ADMIN_URL` (`create_admin_engine`, `admin_connection`), and that
+  is the only thing that does
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
 - **Commit the implementation before running a break.** A break is reverted
@@ -892,7 +913,16 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    list in the scope doc, "What item 0 leaves behind", and defects 22–25
 1. **Login and permissions.** Everything below depends on it. A user belongs to
    the organization, not to a project; a role is a set of permissions plus a
-   scope, never a hard-coded branch, and every console screen checks a permission
+   scope, never a hard-coded branch, and every console screen checks a permission.
+   **Status, 9 September 2026:** the schema is merged (PR #40 — migration
+   0008, every policy from one helper, the coverage test that fails closed,
+   `pending_approval` structural on `platform_session`), and the connection
+   layer with it: the application connects as `dcp_app` through the one
+   factory, every request carries the deployment's organisation as its
+   principal (`ORGANIZATION_SLUG`, resolved before anything else is read),
+   and the isolation tests run on that path. What is left is the login itself
+   — sessions from a cookie, a person's own scope replacing the organisation's,
+   permissions on every screen
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot

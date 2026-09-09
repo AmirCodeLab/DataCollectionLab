@@ -23,8 +23,10 @@ Two table families remain:
 
 **Isolation is a policy in the database, not a filter in a query.** Every
 table in the schema has row-level security *enabled and forced*, with at least
-one policy. Three tables carry `organization_id` and are the roots every
-policy resolves through: `project` for everything operational
+one policy. Five tables carry `organization_id` and are the roots every
+policy resolves through — `platform_org_membership` and `audit_event`
+beside the three below, each pinned to its person's organisation — with
+`project` for everything operational
 (`form → project`, `submission → project`, `submission_op → submission →
 project`, …; a child's policy reads `project_id IN (SELECT id FROM project)`
 and inherits), `platform_user` — **a user belongs to one organisation**
@@ -34,13 +36,14 @@ system-role table shared across tenants would be a second isolation model
 living beside the first, one of which gets forgotten; the standard roles are
 seeded per organisation at its creation, six rows duplicated being cheaper
 than an exception to the rule. A test enforces both halves: exactly those
-three carry `organization_id`, and no table lacks row-level security, FORCE,
+five carry `organization_id`, and no table lacks row-level security, FORCE,
 or a policy.
 
 **The coverage test fails closed.** It enumerates `pg_tables`; a table it
-does not know with no policy is a failure, not a skip. The one exemption is
-`alembic_version`, named in the test with the reason: Alembic owns it, it
-holds no tenant data, and the application never reads it.
+does not know with no policy is a failure, not a skip. The exemptions are
+named in the test with their reasons, and there are two: `alembic_version`,
+because Alembic owns it, it holds no tenant data and the application never
+reads it; and PostGIS's `spatial_ref_sys`, which the extension owns.
 
 **There is one connection factory** (`app/infrastructure/database.py`), and
 an AST lint in the shape of `test_form_version_has_one_writer.py` fails on
