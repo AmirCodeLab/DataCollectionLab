@@ -9,7 +9,7 @@ pulls and tombstone delivery. They skip when Postgres is unreachable
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -17,7 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.sync.schemas import PushRequest, SyncOp
-from tests.identity_fixtures import ORG_ID, ensure_organization
+from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
 
 SYNC_DB = "dcp_test_sync"
 
@@ -82,7 +82,7 @@ def test_push_batches_are_bounded() -> None:
 def _admin_dsn() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    return get_settings().database_admin_url.replace("postgresql+asyncpg://", "postgresql://")
 
 
 def _sync_db_url() -> str:
@@ -173,19 +173,7 @@ def sync_api() -> Any:
     from app.api.deps import get_db
     from app.main import app
 
-    async def scratch_db() -> AsyncIterator[Any]:
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        # One engine per request: each test runs in its own event loop, and
-        # pooled asyncpg connections cannot cross loops.
-        engine = create_async_engine(_sync_db_url())
-        try:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-                yield session
-        finally:
-            await engine.dispose()
-
-    app.dependency_overrides[get_db] = scratch_db
+    app.dependency_overrides[get_db] = api_session_override(database_of(_sync_db_url()))
     yield app
     app.dependency_overrides.pop(get_db, None)
 

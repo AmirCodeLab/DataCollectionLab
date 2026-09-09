@@ -28,13 +28,13 @@ and are deselectable with -m "not db".
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
-from tests.identity_fixtures import ORG_ID, ensure_organization
+from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
 
 FORMS_DB = "dcp_test_form_delivery"
 
@@ -98,7 +98,7 @@ def test_pull_response_always_carries_a_forms_list() -> None:
 def _admin_dsn() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    return get_settings().database_admin_url.replace("postgresql+asyncpg://", "postgresql://")
 
 
 def _forms_db_url() -> str:
@@ -201,19 +201,7 @@ def forms_api() -> Any:
     from app.api.deps import get_db
     from app.main import app
 
-    async def scratch_db() -> AsyncIterator[Any]:
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        # One engine per request: each test runs in its own event loop, and
-        # pooled asyncpg connections cannot cross loops.
-        engine = create_async_engine(_forms_db_url())
-        try:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-                yield session
-        finally:
-            await engine.dispose()
-
-    app.dependency_overrides[get_db] = scratch_db
+    app.dependency_overrides[get_db] = api_session_override(database_of(_forms_db_url()))
     yield app
     app.dependency_overrides.pop(get_db, None)
 

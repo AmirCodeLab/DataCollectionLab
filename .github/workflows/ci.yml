@@ -143,12 +143,15 @@ jobs:
           pip install -e backend --no-deps
           pip check
 
-      # The db tests create and drop their own scratch databases, so they need
-      # a role that can CREATE DATABASE — the image's superuser is one.
+      # Two roles (ERD §1). The tests provision their scratch databases as the
+      # owner, which is the image's superuser; the API under test connects as
+      # dcp_app, the role the policies bind, and tests/conftest.py fails the job
+      # before the first db test if that connection turns out to be privileged.
       - name: pytest -m db
         working-directory: backend
         env:
-          DATABASE_URL: postgresql+asyncpg://dcp:dcp@localhost:5432/dcp
+          DATABASE_URL: postgresql+asyncpg://dcp_app:dcp_app@localhost:5432/dcp
+          DATABASE_ADMIN_URL: postgresql+asyncpg://dcp:dcp@localhost:5432/dcp
         run: pytest tests/ -v -m db
 
   kotlin:

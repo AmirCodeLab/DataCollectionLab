@@ -35,7 +35,6 @@ import sys
 import time
 import tracemalloc
 from typing import Any, cast
-from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
@@ -45,6 +44,7 @@ PROJECT_ID = "01PROJMEASURE"
 ENVIRONMENT_ID = "01ENVMEASURE"
 DEVICE_ID = "dev_measure"
 USER_ID = "usr_measure"
+ORG_ID = "01ORGMEASURE"
 
 #: Tanzania's actual shape, and the UCL form's own three cascading questions.
 REGIONS = 26
@@ -54,20 +54,6 @@ WALL_CLOCK = dt.datetime(2026, 9, 3, 9, 0, tzinfo=dt.UTC)
 
 SWAHILI = ["Nyamburi", "Mtakuja", "Kijiji", "Mwanza", "Bagamoyo", "Ng'ombe",
            "Mkuranga", "Chalinze", "Songea", "Ilala", "Msasani", "Kigoma"]
-
-
-def _url(database: str) -> str:
-    from app.core.config import get_settings
-
-    parts = urlsplit(get_settings().database_url)
-    return urlunsplit(parts._replace(scheme="postgresql+asyncpg", path=f"/{database}"))
-
-
-def _admin_dsn() -> str:
-    from app.core.config import get_settings
-
-    parts = urlsplit(get_settings().database_url)
-    return urlunsplit(parts._replace(scheme="postgresql", path="/postgres"))
 
 
 def _villages(count: int, generation: int) -> list[dict[str, Any]]:
@@ -144,23 +130,31 @@ def _form_ir(version: int) -> dict[str, Any]:
             "languages": ["en"], "children": children}
 
 
-async def seed(url: str, *, submissions: int, villages: int, versions: int) -> None:
+async def seed(*, submissions: int, villages: int, versions: int) -> None:
+    # As the owner: this is provisioning, and the rows it writes are the
+    # fixture the measurement reads through the policies.
     from sqlalchemy import text as sql
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.core.ulid import new_ulid
+    from app.infrastructure.database import create_admin_engine
+    from app.modules.auth.models import PlatformOrganization, PlatformUser
     from app.modules.entities import service as entities
     from app.modules.forms import service as forms
     from app.modules.forms.schemas import DatasetPin
     from app.modules.projects.models import Device, Environment, Project
     from app.modules.submissions.models import Submission, SubmissionOp
 
-    engine = create_async_engine(url)
+    engine = create_admin_engine(database=MEASURE_DB)
     version_ids: dict[int, str] = {}
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             async with session.begin():
-                session.add(Project(id=PROJECT_ID, name="Measure", slug="measure"))
+                session.add(PlatformOrganization(id=ORG_ID, name="Measure", slug="measure"))
+                await session.flush()
+                session.add(Project(id=PROJECT_ID, organization_id=ORG_ID, name="Measure",
+                                    slug="measure"))
+                session.add(PlatformUser(id=USER_ID, organization_id=ORG_ID))
                 await session.flush()
                 session.add(Environment(id=ENVIRONMENT_ID, project_id=PROJECT_ID,
                                         kind="production"))
@@ -245,14 +239,13 @@ async def seed(url: str, *, submissions: int, villages: int, versions: int) -> N
         await engine.dispose()
 
 
-async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
+async def measure(fmt: str, shape: str, limit: int) -> dict[str, Any]:
     # The question that decides seconds versus hours: is a code resolved to a
     # name once per dataset VERSION, or once per cell? Counted rather than read
     # off the source, because the source is what you would be checking.
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
     import app.modules.export.service as export_service
     import app.modules.export.shape as shape_module
+    from app.infrastructure.database import Principal, create_engine, session_as
     from app.modules.export.service import export_form
     from app.modules.export.shape import Shape
     from app.modules.export.writers import Format
@@ -282,13 +275,15 @@ async def measure(url: str, fmt: str, shape: str, limit: int) -> dict[str, Any]:
     shape_module._label = counting_label
 
     gc.collect()
-    engine = create_async_engine(url)
+    # The measurement itself is the report nobody thought of: dcp_app, with a
+    # principal, through every policy — the path an export takes in the app.
+    engine = create_engine(database=MEASURE_DB)
     before_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     tracemalloc.start()
     started = time.perf_counter()
     try:
-        maker = async_sessionmaker(engine, expire_on_commit=False)
-        async with maker() as session, session.begin():
+        principal = Principal.organization(ORG_ID)
+        async with session_as(principal, engine=engine) as session, session.begin():
             bundle = await export_form(
                 session,
                 form_key="biomass",
@@ -343,29 +338,22 @@ def main() -> int:
     parser.add_argument("--reuse", action="store_true", help="skip seeding")
     arguments = parser.parse_args()
 
-    import asyncpg
     from alembic import command
     from alembic.config import Config
 
-    url = _url(MEASURE_DB)
+    from app.infrastructure.database import admin_connection, admin_url, recreate_database
 
-    async def prepare() -> None:
-        conn = await asyncpg.connect(_admin_dsn(), timeout=5)
-        try:
-            await conn.execute(f"DROP DATABASE IF EXISTS {MEASURE_DB} WITH (FORCE)")
-            await conn.execute(f"CREATE DATABASE {MEASURE_DB}")
-        finally:
-            await conn.close()
+    url = admin_url(MEASURE_DB)
 
     if not arguments.reuse:
-        asyncio.run(prepare())
+        asyncio.run(recreate_database(MEASURE_DB))
         cfg = Config(str(REPO_ROOT / "backend" / "alembic.ini"))
         cfg.set_main_option("script_location", str(REPO_ROOT / "backend" / "migrations"))
         cfg.set_main_option("sqlalchemy.url", url)
         command.upgrade(cfg, "head")
         print(f"seeding {arguments.versions} form versions, "
               f"{arguments.villages:,} villages each")
-        asyncio.run(seed(url, submissions=arguments.submissions,
+        asyncio.run(seed(submissions=arguments.submissions,
                          villages=arguments.villages, versions=arguments.versions))
 
     print()
@@ -373,7 +361,7 @@ def main() -> int:
           f"{'py MB':>8} {'rss MB':>8} {'zip MB':>8} {'rows':>8}")
     results = []
     for fmt in arguments.formats.split(","):
-        found = asyncio.run(measure(url, fmt, arguments.shape, arguments.limit))
+        found = asyncio.run(measure(fmt, arguments.shape, arguments.limit))
         results.append(found)
         print(f"{found['format']:>7} {found['shape']:>5} {found['build_s']:>9.2f} "
               f"{found['total_s'] - found['build_s']:>8.2f} {found['peak_mb']:>8.1f} "
@@ -401,11 +389,8 @@ def main() -> int:
 
     if not arguments.keep:
         async def drop() -> None:
-            conn = await asyncpg.connect(_admin_dsn(), timeout=5)
-            try:
+            async with admin_connection("postgres") as conn:
                 await conn.execute(f"DROP DATABASE IF EXISTS {MEASURE_DB} WITH (FORCE)")
-            finally:
-                await conn.close()
         asyncio.run(drop())
     else:
         print(f"\n  database kept: {MEASURE_DB} (re-run with --reuse)")

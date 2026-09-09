@@ -109,11 +109,9 @@ def _report(created: bool, kind: str, name: str) -> None:
 async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
     from sqlalchemy import select, text
-    from sqlalchemy.ext.asyncio import create_async_engine
 
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
-    from app.core.config import get_settings
-    from app.infrastructure.database import create_session_factory
+    from app.infrastructure.database import Principal, create_engine, session_as
     from app.modules.auth.models import PlatformOrganization
     from app.modules.forms import service as forms_service
     from app.modules.projects.models import Environment, Project
@@ -125,14 +123,15 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
     # so an encrypting project is a DIFFERENT project, not this one changed.
     # Seeding it into its own database also keeps device self-registration
     # unambiguous: a deployment with two active projects refuses to guess.
-    url = get_settings().database_url
-    if database is not None:
-        from urllib.parse import urlsplit, urlunsplit
-
-        url = urlunsplit(urlsplit(url)._replace(path=f"/{database}"))
-    engine = create_async_engine(url)
+    # As the application role, with the organisation's own principal: the
+    # organisation row is admitted by slug (it does not exist yet) and by id
+    # (it does afterwards), and everything under it by the ordinary policies.
+    # The seed is the first thing to write through the policies rather than
+    # around them; provisioning that cannot pass them is a finding.
+    engine = create_engine(database=database)
+    principal = Principal.organization(ORG_ID, slug=ORG_SLUG)
     try:
-        async with create_session_factory(engine)() as session, session.begin():
+        async with session_as(principal, engine=engine) as session, session.begin():
             org = (
                 await session.execute(
                     select(PlatformOrganization).where(PlatformOrganization.slug == ORG_SLUG)

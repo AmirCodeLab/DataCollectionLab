@@ -71,7 +71,7 @@ def _ir(*dataset_keys: str) -> dict:
 def _database_url() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url
+    return get_settings().database_admin_url
 
 
 def _admin_dsn() -> str:

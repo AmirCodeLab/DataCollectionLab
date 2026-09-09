@@ -50,9 +50,8 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
-
 from app.core.config import get_settings  # noqa: E402
+from app.infrastructure.database import session_for_organization  # noqa: E402
 from app.modules.export.service import (  # noqa: E402
     DEFAULT_LIMIT,
     ExportTooLarge,
@@ -63,23 +62,21 @@ from app.modules.export.writers import Bundle  # noqa: E402
 
 
 async def run(arguments: argparse.Namespace) -> Bundle | None:
-    engine = create_async_engine(get_settings().database_url)
-    try:
-        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-            async with session.begin():
-                return await export_form(
-                    session,
-                    form_key=arguments.form,
-                    project_id=arguments.project,
-                    environment_id=arguments.environment,
-                    status=arguments.status,
-                    language=arguments.language,
-                    shape=arguments.shape,
-                    fmt=arguments.format,
-                    limit=arguments.limit,
-                )
-    finally:
-        await engine.dispose()
+    # The report nobody thought of, on the same connection as every other
+    # request: dcp_app, scoped to the deployment's organisation (ERD §1).
+    async with session_for_organization(get_settings().organization_slug) as session:
+        async with session.begin():
+            return await export_form(
+                session,
+                form_key=arguments.form,
+                project_id=arguments.project,
+                environment_id=arguments.environment,
+                status=arguments.status,
+                language=arguments.language,
+                shape=arguments.shape,
+                fmt=arguments.format,
+                limit=arguments.limit,
+            )
 
 
 def main() -> int:

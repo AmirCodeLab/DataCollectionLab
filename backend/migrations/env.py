@@ -34,7 +34,7 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    return config.get_main_option("sqlalchemy.url") or get_settings().database_url
+    return config.get_main_option("sqlalchemy.url") or get_settings().database_admin_url
 
 
 def _exclude_postgis(obj: object, name: str | None, type_: str, *_: object) -> bool:

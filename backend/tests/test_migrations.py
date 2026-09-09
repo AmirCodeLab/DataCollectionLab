@@ -80,7 +80,7 @@ def _admin_dsn() -> str:
     """asyncpg DSN for the configured server, from app.core.config."""
     from app.core.config import get_settings
 
-    url = get_settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
+    url = get_settings().database_admin_url.replace("postgresql+asyncpg://", "postgresql://")
     return url
 
 

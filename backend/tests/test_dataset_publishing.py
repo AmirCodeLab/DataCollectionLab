@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from app.modules.entities.service import row_hash, version_checksum
-from tests.identity_fixtures import ORG_ID, ensure_organization
+from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
 
 
 def test_the_same_row_hashes_the_same_whatever_order_its_keys_arrive_in() -> None:
@@ -214,7 +214,7 @@ PROJECT_ID = "01PROJDATA"
 def _database_url() -> str:
     from app.core.config import get_settings
 
-    return get_settings().database_url
+    return get_settings().database_admin_url
 
 
 def _admin_dsn() -> str:
@@ -394,18 +394,7 @@ def _api(method: str, url: str, database_url: str, **kwargs):  # noqa: ANN202
     from app.api.deps import get_db
     from app.main import app
 
-    async def override():  # noqa: ANN202
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        engine = create_async_engine(database_url)
-        maker = async_sessionmaker(engine, expire_on_commit=False)
-        try:
-            async with maker() as session:
-                yield session
-        finally:
-            await engine.dispose()
-
-    app.dependency_overrides[get_db] = override
+    app.dependency_overrides[get_db] = api_session_override(database_of(database_url))
 
     async def main():  # noqa: ANN202
         transport = httpx.ASGITransport(app=app)

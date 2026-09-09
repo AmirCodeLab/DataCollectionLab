@@ -22,7 +22,16 @@ class Settings(BaseSettings):
     def http_log_enabled(self) -> bool:
         return self.environment == "development" if self.http_log is None else self.http_log
 
-    database_url: str = "postgresql+asyncpg://dcp:dcp@localhost:5432/dcp"
+    # Two roles, two URLs (ERD §1). The application connects as `dcp_app`,
+    # which the policies bind; the owner runs migrations and provisioning and
+    # nothing else, because a superuser is exempt from row-level security and
+    # every screen would look correct while no policy applied. The factory
+    # (app/infrastructure/database.py) refuses a superuser on the first URL.
+    database_url: str = "postgresql+asyncpg://dcp_app:dcp_app@localhost:5432/dcp"
+    database_admin_url: str = "postgresql+asyncpg://dcp:dcp@localhost:5432/dcp"
+    # The deployment's one organisation, resolved before any user is read
+    # (ERD §1). Single-tenant until provisioning delivers the resolution.
+    organization_slug: str = "dev"
     redis_url: str = "redis://localhost:6379/0"
 
     s3_endpoint: str = "http://localhost:9000"

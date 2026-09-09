@@ -6,7 +6,10 @@ services:
       POSTGRES_PASSWORD: dcp
       POSTGRES_DB: dcp
     ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    volumes:
+      - "pgdata:/var/lib/postgresql/data"
+      # The application role's login, on a fresh volume only (see the file).
+      - "./scripts/db_app_role.sql:/docker-entrypoint-initdb.d/10_app_role.sql:ro"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dcp"]
       interval: 5s
@@ -35,7 +38,9 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgresql+asyncpg://dcp:dcp@postgres:5432/dcp
+      # The role the policies bind, and the owner for migrations (ERD §1).
+      DATABASE_URL: postgresql+asyncpg://dcp_app:dcp_app@postgres:5432/dcp
+      DATABASE_ADMIN_URL: postgresql+asyncpg://dcp:dcp@postgres:5432/dcp
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
     ports: ["8000:8000"]
