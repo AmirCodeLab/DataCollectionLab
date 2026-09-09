@@ -47,6 +47,23 @@ data class DatasetManifestEntry(
 data class MissingDataset(val datasetKey: String, val datasetVersionId: String)
 
 /**
+ * One list a form version pins, and how much of it is on this device.
+ *
+ * [version] and [rowCount] are null when no manifest has landed a placeholder
+ * for the pinned version — the device knows a list is wanted and nothing else
+ * about it. That is not readiness, and it is not an error either: it is a pin
+ * ahead of its manifest.
+ */
+data class PinnedList(
+    val datasetKey: String,
+    val datasetVersionId: String,
+    val version: Int?,
+    val rowCount: Int?,
+    val complete: Boolean,
+    val rowsHeld: Long,
+)
+
+/**
  * The reference data this device holds, and the one way to read it.
  *
  * ## What this class is really for
@@ -355,15 +372,39 @@ class DatasetStore(
     }
 
     /**
+     * Every list [formVersionId] pins, with how much of each is here — the one
+     * query behind item 4's readiness, and the only place either surface asks.
+     *
+     * Read it through `ReferenceData`, never from a screen or a gate directly:
+     * two callers computing readiness separately is how a screen comes to say
+     * ready while the gate refuses (known defect 24's shape). The note in
+     * `datasets.sq` carries the rest of the reason.
+     */
+    fun pinnedLists(formVersionId: String): List<PinnedList> =
+        queries.pinnedListsForFormVersion(formVersionId) {
+            datasetKey, datasetVersionId, version, rowCount, complete, rowsHeld ->
+            PinnedList(
+                datasetKey = datasetKey,
+                datasetVersionId = datasetVersionId,
+                version = version?.toInt(),
+                rowCount = rowCount?.toInt(),
+                complete = complete == 1L,
+                rowsHeld = rowsHeld,
+            )
+        }.executeAsList()
+
+    /**
      * The datasets this form version needs and this device cannot serve.
      *
-     * Asked before a form is offered, so that "the village list has not arrived
-     * yet" is something an enumerator is told at the start rather than
-     * something they infer from an empty dropdown in the middle.
+     * Derived from [pinnedLists] rather than asked separately: one query
+     * answers "is it ready" and "what is it waiting for", and deriving is what
+     * keeps the two answers the same answer. A pin with no placeholder counts
+     * as missing, because a list the device knows nothing about is not held.
      */
     fun missingFor(formVersionId: String): List<MissingDataset> =
-        queries.missingDatasetsForFormVersion(formVersionId) { key, id -> MissingDataset(key, id) }
-            .executeAsList()
+        pinnedLists(formVersionId)
+            .filterNot { it.complete }
+            .map { MissingDataset(it.datasetKey, it.datasetVersionId) }
 
     /** What the server said this form version was published against. */
     fun pinsFor(formVersionId: String): Map<String, String> =

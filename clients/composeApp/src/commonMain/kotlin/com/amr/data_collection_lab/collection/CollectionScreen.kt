@@ -386,6 +386,14 @@ private fun NavigationBar(state: CollectionState, onAction: (CollectionAction) -
     if (state.isLoading) return
     Surface(shadowElevation = 8.dp) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            if (state.referenceDataRefusal != null) {
+                Text(
+                    text = state.referenceDataRefusal,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             if (state.showErrors && !state.canFinalize) {
                 Text(
                     text = UiStrings.invalidRemaining(state.language, state.blockingCount),

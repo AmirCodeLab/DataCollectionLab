@@ -22,12 +22,21 @@ data class StoredFormVersion(
     val formId: String,
     val version: Int,
     val title: String,
-    val irJson: String,
+    /**
+     * The document, or null when the server deploys this version and the
+     * device has not downloaded it yet (item 4, v10). A null document is not
+     * an error state: it is the manifest having arrived without the expensive
+     * half, which is what makes "an update is waiting" sayable offline.
+     */
+    val irJson: String?,
     val irChecksum: String,
     /** False once the server's manifest stopped listing it — see [applyManifest]. */
     val deployed: Boolean,
     val fetchedAt: String,
-)
+) {
+    /** Whether the document is on this device, as opposed to merely deployed. */
+    val held: Boolean get() = irJson != null
+}
 
 /** One entry of the server's manifest (`GET /sync/pull?scope=forms`). */
 data class FormManifestEntry(
@@ -105,6 +114,16 @@ class FormStore(
     fun startable(): List<StoredFormVersion> =
         queries.startableFormVersions(::toStored).executeAsList()
 
+    /**
+     * Deployed to this device and not downloaded (item 4). What the updates
+     * screen offers and what "2 forms waiting" counts; empty is the ordinary
+     * answer. It is also the difference between "this environment deploys no
+     * forms" and "there are forms and none has been fetched", which the
+     * submission list used to say with one sentence for both.
+     */
+    fun deployedNotHeld(): List<StoredFormVersion> =
+        queries.deployedNotHeldFormVersions(::toStored).executeAsList()
+
     /** The exact version a submission was collected under (Form IR §9). */
     fun find(formId: String, version: Int): StoredFormVersion? =
         queries.formVersion(formId, version.toLong(), ::toStored).executeAsOneOrNull()
@@ -149,6 +168,21 @@ class FormStore(
         manifest.forEach { entry ->
             val document = documents[entry.formVersionId]
             if (document == null) {
+                // Either the device already holds it, or it does not and this
+                // pass did not fetch it. INSERT OR IGNORE settles both without
+                // a read: a held version is left exactly as it is and
+                // re-marked below, and one that is absent becomes a
+                // placeholder — deployed, no document, and offered as a
+                // download (item 4, D1). A manifest must never overwrite a
+                // document with a placeholder.
+                queries.insertDeployedPlaceholder(
+                    form_version_id = entry.formVersionId,
+                    form_id = entry.formId,
+                    version = entry.version.toLong(),
+                    title = entry.title,
+                    ir_checksum = entry.irChecksum,
+                    fetched_at = fetchedAt,
+                )
                 queries.markDeployed(entry.formVersionId)
             } else {
                 queries.upsertFormVersion(
@@ -188,7 +222,7 @@ class FormStore(
         formId: String,
         version: Long,
         title: String,
-        irJson: String,
+        irJson: String?,
         irChecksum: String,
         deployed: Long,
         fetchedAt: String,

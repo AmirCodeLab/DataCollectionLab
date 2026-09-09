@@ -35,7 +35,14 @@ CREATE TABLE form_version (
     title TEXT NOT NULL,
     -- The Form IR document. Text rather than something parsed: it is compiled
     -- on demand and cached in memory, and the engine takes a document.
-    ir_json TEXT NOT NULL,
+    --
+    -- NULL means the server deploys this version and this device has not
+    -- downloaded it (item 4, v10). The manifest is a statement about what
+    -- should be held and is applied whether or not the expensive half has been
+    -- fetched — the same shape `dataset_version` has used since v8. Every
+    -- query that decides "do I hold this" must therefore say
+    -- `ir_json IS NOT NULL` and not merely "is there a row".
+    ir_json TEXT,
     -- The server's content address for that document. Compared against the next
     -- manifest to decide whether this device already holds the version, so one
     -- whose content drifted under the same version number cannot pass for the
@@ -74,6 +81,9 @@ startableFormVersions:
 SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
 FROM form_version
 WHERE deployed = 1
+  -- A version whose document has not arrived cannot be rendered, so it cannot
+  -- be started. It is offered on the updates screen instead, as a download.
+  AND ir_json IS NOT NULL
   -- `latest`, not `inner`: INNER is a reserved word in SQLite and the alias
   -- fails to parse at runtime, not at build time.
   AND version = (SELECT MAX(latest.version) FROM form_version latest
@@ -87,8 +97,13 @@ WHERE form_id = ? AND version = ?;
 
 -- The manifest comparison: what this device already holds, id and checksum
 -- only, so deciding what to fetch never reads a single IR document off disk.
+--
+-- `ir_json IS NOT NULL`, and it is load-bearing: a placeholder row carries the
+-- manifest's checksum, so counting it as held would make `missingFrom` return
+-- nothing and the document would never be fetched. The update would be
+-- invisible and the device would sit on the old version for ever.
 heldFormVersionChecksums:
-SELECT form_version_id, ir_checksum FROM form_version;
+SELECT form_version_id, ir_checksum FROM form_version WHERE ir_json IS NOT NULL;
 
 upsertFormVersion:
 INSERT OR REPLACE INTO form_version(form_version_id, form_id, version, title, ir_json,
@@ -118,3 +133,20 @@ WHERE deployed = 0
 
 deleteFormVersion:
 DELETE FROM form_version WHERE form_version_id = ?;
+
+-- Deployed to this device and not downloaded: what the updates screen offers,
+-- and what "3 forms are waiting" counts. Empty is the ordinary answer.
+deployedNotHeldFormVersions:
+SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
+FROM form_version
+WHERE deployed = 1 AND ir_json IS NULL
+ORDER BY title ASC, version DESC;
+
+-- Record a deployed version without its document. INSERT OR IGNORE, so an
+-- entry the device already holds is left exactly as it is and re-marked by
+-- markDeployed instead: the manifest must never overwrite a document with a
+-- placeholder.
+insertDeployedPlaceholder:
+INSERT OR IGNORE INTO form_version(form_version_id, form_id, version, title, ir_json,
+                                   ir_checksum, deployed, fetched_at)
+VALUES (?, ?, ?, ?, NULL, ?, 1, ?);

@@ -690,37 +690,45 @@ async def pull(
     has published. Without a device there is no environment and so no answer,
     and the manifest comes back empty rather than guessing at one.
     """
-    ops = (
-        (
-            await session.execute(
-                select(SubmissionOp)
-                .where(SubmissionOp.server_seq > cursor)
-                .order_by(SubmissionOp.server_seq)
-                .limit(limit + 1)
+    # `limit=0` means "the manifests and nothing else" (item 4 §5.2): a device
+    # whose person tapped "update forms" on a village connection spends bytes
+    # on the form, not on the op stream. Neither stream is even queried, and
+    # `next_cursor` echoes the cursor below, so a manifest-only request cannot
+    # advance past ops it never carried — defect 21's shape at a new door.
+    ops: Sequence[SubmissionOp] = ()
+    tombstones: Sequence[Tombstone] = ()
+    if limit > 0:
+        ops = (
+            (
+                await session.execute(
+                    select(SubmissionOp)
+                    .where(SubmissionOp.server_seq > cursor)
+                    .order_by(SubmissionOp.server_seq)
+                    .limit(limit + 1)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    tombstones = (
-        (
-            await session.execute(
-                select(Tombstone)
-                .where(Tombstone.server_seq > cursor)
-                .order_by(Tombstone.server_seq)
-                .limit(limit + 1)
+        tombstones = (
+            (
+                await session.execute(
+                    select(Tombstone)
+                    .where(Tombstone.server_seq > cursor)
+                    .order_by(Tombstone.server_seq)
+                    .limit(limit + 1)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
 
     merged: list[tuple[int, str, Any]] = sorted(
         [(op.server_seq, "op", op) for op in ops]
         + [(t.server_seq, "tombstone", t) for t in tombstones]
     )
     batch = merged[:limit]
-    has_more = len(merged) > len(batch)
+    has_more = limit > 0 and len(merged) > len(batch)
     next_cursor = batch[-1][0] if batch else cursor
 
     # Pulled ops carry formId/formVersion so a fresh device can validate and

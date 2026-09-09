@@ -1,0 +1,58 @@
+-- v9 -> v10: a deployed form version whose document has not been downloaded,
+-- and a status per sync scope (item 4).
+--
+-- Migrated, never recreated, for the reason 7.sqm gives: a device in the field
+-- carries its op log and its logical counter across upgrades, and operation
+-- nonces are derived from (deviceId, counter) (envelope §4.5).
+--
+-- 1. `form_version.ir_json` becomes nullable. `dataset_version` has recorded
+--    "known but not held" since v8 — a placeholder row with `complete = 0` and
+--    the manifest's `row_count` — and the forms side could not, because the
+--    document column was NOT NULL. That asymmetry is why "a form update is
+--    waiting, and it is not downloaded yet" was not a sentence this device
+--    could say offline, and why the only way to learn a form update existed
+--    was to download it. Item 4 §5.1.
+--
+--    SQLite cannot drop a NOT NULL, so the table is rebuilt. Safe here: every
+--    existing row has a document (nothing could have written one without), the
+--    copy is column-for-column, and it is one transaction. The indexes are
+--    dropped with the old table and recreated after.
+--
+-- 2. `sync_scope`: one row per scope with when it last succeeded and why it
+--    last failed. A table rather than columns on `sync_status`, for
+--    `app_setting`'s reason — the set grows when a scope is added, and a
+--    migration per scope is a migration per screen. `pull_cursor` stays on
+--    `sync_status`: it is the work scope's cursor and belongs to it.
+--
+-- Mirrors the CREATE statements in forms.sq and sync.sq; keep them in step.
+
+ALTER TABLE form_version RENAME TO form_version_v9;
+
+CREATE TABLE form_version (
+    form_version_id TEXT NOT NULL PRIMARY KEY,
+    form_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    ir_json TEXT,
+    ir_checksum TEXT NOT NULL,
+    deployed INTEGER NOT NULL DEFAULT 1,
+    fetched_at TEXT NOT NULL
+);
+
+INSERT INTO form_version(form_version_id, form_id, version, title, ir_json,
+                         ir_checksum, deployed, fetched_at)
+SELECT form_version_id, form_id, version, title, ir_json, ir_checksum, deployed, fetched_at
+FROM form_version_v9;
+
+DROP TABLE form_version_v9;
+
+CREATE UNIQUE INDEX form_version_key ON form_version(form_id, version);
+
+CREATE INDEX form_version_deployed ON form_version(deployed);
+
+CREATE TABLE sync_scope (
+    scope TEXT NOT NULL PRIMARY KEY,
+    last_ok_at TEXT,
+    last_attempt_at TEXT,
+    last_error TEXT
+);

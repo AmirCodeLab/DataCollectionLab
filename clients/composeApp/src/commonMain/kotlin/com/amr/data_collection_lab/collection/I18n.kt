@@ -1,5 +1,7 @@
 package com.amr.data_collection_lab.collection
 
+import com.dcp.core.sync.Readiness
+
 /**
  * Form-language string handling. The form's language is chosen inside the app
  * (a field team shares devices across languages), so these cannot come from the
@@ -57,6 +59,16 @@ object UiStrings {
     fun referenceDataMissing(keys: String, l: String) =
         if (ar(l)) "لم تصل البيانات المرجعية بعد: $keys. زامن الجهاز قبل المتابعة."
         else "Reference data has not arrived yet: $keys. Sync before collecting."
+
+    /**
+     * Why finalisation was refused when the device is missing a list the form
+     * was published against (item 4, D3). The facts come from `Readiness`;
+     * only the frame is here, and the English frame is in `Readiness.refusal`
+     * so the two cannot say different things.
+     */
+    fun cannotFinalizeReferenceData(l: String, readiness: Readiness): String =
+        if (ar(l)) "لا يمكن الإنهاء: ${readiness.shortfalls()} — اضغط \"البيانات المرجعية\"."
+        else readiness.refusal() ?: ""
 
     fun noOptionsMatch(l: String) =
         if (ar(l)) "لا يوجد خيار مطابق" else "No option matches what you typed"

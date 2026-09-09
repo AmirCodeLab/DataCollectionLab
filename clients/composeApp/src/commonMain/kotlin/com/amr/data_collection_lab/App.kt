@@ -104,6 +104,7 @@ private fun Collection(graph: AppGraph) {
                 CollectionViewModel(
                     graph.store, graph.formCatalog, current.submissionId, graph.media,
                     cases = graph.caseStore,
+                    referenceData = graph.referenceData,
                 )
             },
             onNavigateBack = { route = Route.Submissions },

@@ -151,19 +151,10 @@ class FormCatalog(
         return StoredDatasetSource(store, id)
     }
 
-    /**
-     * The lists this submission's form needs and this device cannot serve.
-     *
-     * Empty is the ordinary answer. A non-empty one is what turns "the select
-     * has no options" into a sentence somebody can act on — the reference data
-     * has not finished syncing — rather than a blank space an enumerator has to
-     * interpret (§3.2).
-     */
-    suspend fun missingDatasetsForSubmission(submissionId: String): List<MissingDataset> {
-        val store = datasets ?: return emptyList()
-        val id = formVersionIdForSubmission(submissionId) ?: return emptyList()
-        return withContext(Dispatchers.Default) { store.missingFor(id) }
-    }
+    // Whether this device holds the lists a submission's form pins is asked
+    // through `ReferenceData` in shared core, not here: the finalisation gate
+    // and the updates screen must read one answer, and a second accessor on
+    // this class is how they came to read two (item 4, ReferenceDataOneAnswerTest).
 
     private suspend fun formVersionIdForSubmission(submissionId: String): String? =
         withContext(Dispatchers.Default) {
@@ -197,6 +188,13 @@ class FormCatalog(
     suspend fun titleFor(formId: String, version: Int): String =
         withContext(Dispatchers.Default) { forms.find(formId, version)?.title ?: formId }
 
-    private fun compile(stored: StoredFormVersion): CompiledForm =
-        CompiledForm(FormIr.parse(stored.irJson))
+    /**
+     * Null when the document is not on this device (item 4): since v10 a
+     * version can be deployed and not downloaded, and "not downloaded yet" is
+     * a different state from "no longer held". Both come back as null here and
+     * the caller names which — the collection screen already distinguishes
+     * them, and neither is a form that can be rendered.
+     */
+    private fun compile(stored: StoredFormVersion): CompiledForm? =
+        stored.irJson?.let { CompiledForm(FormIr.parse(it)) }
 }

@@ -106,6 +106,31 @@ data class SyncStatus(
     val lastError: String?,
 )
 
+/** The scopes a sync can be asked for separately (item 4). */
+object SyncScope {
+    /** The outbox, peers' ops, media, and the assignments statement. */
+    const val WORK = "work"
+    const val ASSIGNMENTS = "assignments"
+    const val FORMS = "forms"
+    const val DATASETS = "datasets"
+}
+
+/**
+ * When one scope last succeeded, was last attempted, and why it last failed.
+ *
+ * What a scope HOLDS is deliberately not here: rows held against row_count
+ * lives in `dataset_version` and documents in `form_version`, and a timestamp
+ * that claimed to summarise them is the sentence that lies — "reference data:
+ * updated 3 minutes ago" over 12,400 of 38,000 rows. This is the secondary
+ * half of that line.
+ */
+data class ScopeStatus(
+    val scope: String,
+    val lastOkAt: String?,
+    val lastAttemptAt: String?,
+    val lastError: String?,
+)
+
 /** One recipient a content key is wrapped to (encryption envelope §4.1). */
 data class ProjectKey(
     val keyId: String,
@@ -476,6 +501,40 @@ class SubmissionStore(
         queries.getSyncStatus().asFlow().mapToList(context).map { rows ->
             rows.firstOrNull()?.let { SyncStatus(it.pull_cursor, it.last_sync_at, it.last_error) }
                 ?: SyncStatus(0, null, null)
+        }
+
+    // -- per-scope status (item 4) -----------------------------------------
+
+    /**
+     * Attempt first, outcome second, so a scope that failed keeps its last
+     * success: a screen can say "last updated Tuesday" and "failed just now"
+     * at once, which is what a person deciding whether to retry needs.
+     */
+    fun recordScopeAttempt(scope: String) = queries.transaction {
+        queries.insertScopeIfAbsent(scope)
+        queries.markScopeAttempted(now().toString(), scope)
+    }
+
+    fun recordScopeOk(scope: String) = queries.transaction {
+        queries.insertScopeIfAbsent(scope)
+        queries.markScopeOk(now().toString(), scope)
+    }
+
+    fun recordScopeError(scope: String, message: String) = queries.transaction {
+        queries.insertScopeIfAbsent(scope)
+        queries.markScopeFailed(message, scope)
+    }
+
+    fun scopeStatuses(): List<ScopeStatus> =
+        queries.scopeStatuses().executeAsList().map {
+            ScopeStatus(it.scope, it.last_ok_at, it.last_attempt_at, it.last_error)
+        }
+
+    fun observeScopeStatuses(
+        context: CoroutineContext = Dispatchers.Default,
+    ): Flow<List<ScopeStatus>> =
+        queries.scopeStatuses().asFlow().mapToList(context).map { rows ->
+            rows.map { ScopeStatus(it.scope, it.last_ok_at, it.last_attempt_at, it.last_error) }
         }
 
     fun recordSyncSuccess() = queries.recordSyncSuccess(now().toString())

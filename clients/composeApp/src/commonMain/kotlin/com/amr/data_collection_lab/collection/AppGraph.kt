@@ -14,6 +14,7 @@ import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.sync.DatabaseDriverFactory
 import com.dcp.core.sync.FormSensitivity
 import com.dcp.core.sync.CaseStore
+import com.dcp.core.sync.ReferenceData
 import com.dcp.core.sync.DatasetStore
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.ServerConfig
@@ -93,6 +94,13 @@ class AppGraph(
      * deleted, so a draft on a moved case is kept and says so.
      */
     val caseStore: CaseStore = CaseStore(db)
+
+    /**
+     * The one place either surface asks whether this device holds the
+     * reference data a form version pins (item 4). Built here so the
+     * finalisation gate and the updates screen are handed the same object.
+     */
+    val referenceData: ReferenceData = ReferenceData(formStore, datasetStore, store)
 
     /**
      * Which server this device talks to, and the settings screen's subject.

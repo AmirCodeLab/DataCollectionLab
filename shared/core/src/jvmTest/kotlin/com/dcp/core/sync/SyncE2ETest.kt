@@ -282,7 +282,7 @@ class SyncE2ETest {
             delivered.firstOrNull { it.formId == "household_survey" },
             "expected the seeded household_survey; got ${delivered.map { it.formId }}",
         )
-        val compiled = CompiledForm(FormIr.parse(household.irJson))
+        val compiled = CompiledForm(FormIr.parse(assertNotNull(household.irJson)))
         assertEquals("household_survey", compiled.formId)
         assertTrue(compiled.fields.isNotEmpty(), "a delivered form with no fields is not a form")
 
