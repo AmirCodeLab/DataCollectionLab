@@ -458,9 +458,17 @@ progress are specified in the engine rather than left to each UI.
 RCons's app has separate tabs: enumerators update the sample and the
 questionnaire independently, on instruction. DCP pulls everything on one sync.
 
-Their model is better in the field. A 37,000-row sample over a village
-connection is a different proposition from a small form update, and the person
-holding the handset should decide which they are doing.
+Their model is better in the field. Reference data over a village connection
+is a different proposition from a small form update, and the person holding the
+handset should decide which they are doing.
+
+**The numbers, corrected 9 September 2026.** This section said "a 37,000-row
+sample", and the repository's own measurements say RCons's sample is **1,129
+rows** (`docs/rcons-current-system.md` §2) while the **38,000-row, 11.3 MB**
+artefact is the UCL village *reference list* (`docs/phase2-record.md`, break
+52 — 3.2 s first sync, 2.7 s weekly delta on a Pixel 6 Pro). The reason above
+is unaffected; which scope is the expensive one is not. See
+`docs/phase3-item4-separate-sync.md` §0.
 
 Scope: separate pull scopes, separate progress, separate "last updated", and an
 explicit action per scope rather than one Sync button.
