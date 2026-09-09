@@ -528,6 +528,68 @@ def test_09_logout_revokes_and_a_stale_cookie_is_nobody(auth_app: Any) -> None:
     _with_client(auth_app, scenario)
 
 
+@pytest.mark.db
+def test_08b_an_enumerators_pull_carries_only_their_own_work(auth_app: Any) -> None:
+    """Defect 26. Two enumerators in one team, one submission each. Signed in
+    as the first, the sync pull must not carry the second's op — an
+    enumerator holds no submission.view, and seeing other people's work is
+    that permission (011_own_work_only.sql). Found on merged main by probe:
+    it did, plaintext answer and all."""
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        # A second enumerator in team A with their own submission and an op.
+        await _owner(
+            "INSERT INTO platform_user (id, organization_id, username, display_name, "
+            "password_hash) VALUES ('01USRENUMA2', $1, 'enum-a2', 'enum-a2', $2)",
+            ORG_ID,
+            hash_password(PASSWORD),
+        )
+        await _owner(
+            "INSERT INTO platform_org_membership (organization_id, user_id, org_role, status) "
+            "VALUES ($1, '01USRENUMA2', 'member', 'active')",
+            ORG_ID,
+        )
+        await _owner(
+            "INSERT INTO user_role (id, user_id, role_id, scope_kind, team_id) "
+            "VALUES ('01USRENUMA2_R', '01USRENUMA2', $1 || '_enumerator', 'team', $2)",
+            ORG_ID,
+            TEAM_A,
+        )
+        await _owner(
+            "INSERT INTO project_member (project_id, user_id, team_id) "
+            "VALUES ($1, '01USRENUMA2', $2)",
+            PROJECT_ID,
+            TEAM_A,
+        )
+        await _owner(
+            "INSERT INTO submission (id, project_id, environment_id, form_version_id, "
+            "origin_device_id, created_by) VALUES ('01SUBA2', $1, '01ENVAUTH', '01VERAUTH', $2, "
+            "'01USRENUMA2')",
+            PROJECT_ID,
+            DEVICE_A,
+        )
+        await _owner(
+            "INSERT INTO submission_op (id, submission_id, op_kind, path, value, device_id, "
+            "actor_id, counter, wall_clock) VALUES ('01OPA2SECRET', '01SUBA2', 'set', 'q', "
+            "'\"a2 secret\"'::jsonb, $1, '01USRENUMA2', 7, now())",
+            DEVICE_A,
+        )
+
+        assert (await _login(client, "enum-a", kind="app", device_id=DEVICE_A)).status_code == 200
+        pulled = await client.get("/api/v1/sync/pull", params={"cursor": 0, "limit": 100})
+        assert pulled.status_code == 200, pulled.text
+        actors = {op["actorId"] for op in pulled.json()["ops"]}
+        assert actors <= {ENUM_A, None}, f"an enumerator pulled another person's work: {actors}"
+        assert "a2 secret" not in pulled.text
+
+        # A supervisor holds submission.view: their team's work is theirs to see.
+        assert (await _login(client, "sup-a")).status_code == 200
+        listed = await client.get("/api/v1/submissions")
+        assert "01SUBA2" in {row["id"] for row in listed.json()["submissions"]}
+
+    _with_client(auth_app, scenario)
+
+
 # ---------------------------------------------------------------------------
 # No principal, no route
 # ---------------------------------------------------------------------------
