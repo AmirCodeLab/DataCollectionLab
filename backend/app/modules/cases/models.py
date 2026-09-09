@@ -24,8 +24,19 @@ from app.infrastructure.database import Base
 
 
 class CaseRecord(Base):
+    """A unit of assigned work: a sample row, once (012_cases.sql). Never
+    deleted — a withdrawn sample row closes its case and leaves a tombstone."""
+
     __tablename__ = "case_record"
-    __table_args__ = (UniqueConstraint("project_id", "case_key"),)
+    __table_args__ = (
+        UniqueConstraint("project_id", "case_key"),
+        CheckConstraint(
+            "status IN ('open', 'closed', 'withdrawn')", name="case_record_status_check"
+        ),
+        CheckConstraint(
+            "(dataset_key IS NULL) = (case_key IS NULL)", name="case_record_sample_check"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     project_id: Mapped[str] = mapped_column(
@@ -35,6 +46,8 @@ class CaseRecord(Base):
         Text, ForeignKey("entity.id", ondelete="SET NULL")
     )
     case_key: Mapped[str | None] = mapped_column(Text)
+    #: Which sample the case came from; its key is `case_key`.
+    dataset_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'open'"))
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     location: Mapped[Any | None] = mapped_column(
@@ -51,7 +64,7 @@ class Assignment(Base):
     __tablename__ = "assignment"
     __table_args__ = (
         CheckConstraint(
-            "user_id IS NOT NULL OR team_id IS NOT NULL",
+            "(user_id IS NULL) <> (team_id IS NULL)",
             name="assignment_target_check",
         ),
     )
