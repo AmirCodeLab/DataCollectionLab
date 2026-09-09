@@ -15,6 +15,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
+from tests.identity_fixtures import ORG_ID, ensure_organization
+
 SUBMISSIONS_DB = "dcp_test_submissions"
 
 FORM_KEY = "household_survey"
@@ -70,7 +72,15 @@ async def _seed() -> None:
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
             # No relationship()s on the models, so flush between levels.
-            session.add(Project(id="01PROJECT", name="Household Study", slug="household-study"))
+            await ensure_organization(session)
+            session.add(
+                Project(
+                    organization_id=ORG_ID,
+                    id="01PROJECT",
+                    name="Household Study",
+                    slug="household-study",
+                )
+            )
             await session.flush()
             session.add(Environment(id="01ENVPROD", project_id="01PROJECT", kind="production"))
             session.add(
@@ -85,11 +95,7 @@ async def _seed() -> None:
                 )
             )
             for device_id in ("dev-a", "dev-b"):
-                session.add(
-                    Device(
-                        id=device_id, project_id="01PROJECT", user_id="usr-1", platform="android"
-                    )
-                )
+                session.add(Device(id=device_id, project_id="01PROJECT", platform="android"))
             await session.flush()
             session.add(
                 FormVersion(

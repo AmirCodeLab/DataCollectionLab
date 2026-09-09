@@ -9,7 +9,7 @@ Normative DDL: migrations/schema/001_initial.sql.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,7 +23,9 @@ class AuditEvent(Base):
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    actor_id: Mapped[str | None] = mapped_column(Text)
+    actor_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     subject_type: Mapped[str] = mapped_column(Text, nullable=False)
     subject_id: Mapped[str | None] = mapped_column(Text)
@@ -33,6 +35,11 @@ class AuditEvent(Base):
     ip_address: Mapped[str | None] = mapped_column(INET)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    # An audit trail is an organisation's by nature; it has no project to
+    # resolve through (008_identity.sql §2).
+    organization_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("platform_organization.id", ondelete="RESTRICT"), nullable=False
     )
 
 
@@ -57,3 +64,6 @@ class OutboxEvent(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     last_error: Mapped[str | None] = mapped_column(Text)
+    project_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )

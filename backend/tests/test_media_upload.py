@@ -45,6 +45,7 @@ from app.modules.crypto.envelope import (
     unwrap_content_key,
     wrap_to_recipients,
 )
+from tests.identity_fixtures import ORG_ID, ensure_organization
 
 MEDIA_DB = "dcp_test_media"
 
@@ -66,9 +67,7 @@ BACKUP_PRIVATE = X25519PrivateKey.generate()
 # last-chunk exemption from the fixed size, and multi-chunk hashing are all
 # exercised. Deterministic, because a test that fails should fail the same way
 # twice.
-PHOTO = bytes((i * 37 + 11) % 251 for i in range(1024)) * (
-    (2 * MEDIA_CHUNK_BYTES + 4096) // 1024
-)
+PHOTO = bytes((i * 37 + 11) % 251 for i in range(1024)) * ((2 * MEDIA_CHUNK_BYTES + 4096) // 1024)
 
 # A recognisable run inside it, so "the ciphertext contains none of the
 # plaintext" is a claim about something specific rather than about entropy.
@@ -102,8 +101,10 @@ async def _seed(security_mode: str) -> None:
     engine = create_async_engine(_media_db_url())
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
+            await ensure_organization(session)
             session.add(
                 Project(
+                    organization_id=ORG_ID,
                     id=PROJECT_ID,
                     name="Housing Conditions",
                     slug="housing-conditions",
@@ -116,11 +117,7 @@ async def _seed(security_mode: str) -> None:
                 Form(id="01FORMMEDIA", project_id=PROJECT_ID, form_key=FORM_KEY, title="Housing")
             )
             for device_id in (DEVICE_A, DEVICE_B):
-                session.add(
-                    Device(
-                        id=device_id, project_id=PROJECT_ID, user_id="usr-1", platform="android"
-                    )
-                )
+                session.add(Device(id=device_id, project_id=PROJECT_ID, platform="android"))
             for key_id, private in (
                 (PROJECT_KEY_PRIMARY, PRIMARY_PRIVATE),
                 (PROJECT_KEY_BACKUP, BACKUP_PRIVATE),
@@ -253,9 +250,9 @@ def _recipients() -> dict[str, bytes]:
 
 
 def _chunks(data: bytes) -> list[bytes]:
-    return [
-        data[i : i + MEDIA_CHUNK_BYTES] for i in range(0, len(data), MEDIA_CHUNK_BYTES)
-    ] or [b""]
+    return [data[i : i + MEDIA_CHUNK_BYTES] for i in range(0, len(data), MEDIA_CHUNK_BYTES)] or [
+        b""
+    ]
 
 
 class StagedMedia:
@@ -572,9 +569,7 @@ def test_an_interrupted_upload_resumes_without_resending_completed_chunks(
         assert completed.json()["sizeBytes"] == sum(len(c) for c in staged.chunks)
 
         # The chunks that were already here were never rewritten.
-        mtimes_after = {
-            p.name: p.stat().st_mtime_ns for p in (root / "media" / media_id).iterdir()
-        }
+        mtimes_after = {p.name: p.stat().st_mtime_ns for p in (root / "media" / media_id).iterdir()}
         for name, before in mtimes_before.items():
             assert mtimes_after[name] == before, f"chunk {name} was re-sent and rewritten"
 
@@ -711,9 +706,7 @@ def test_a_stored_chunk_contains_none_of_the_original_image_bytes(media_api: Any
 
     _run_with_client(app, scenario)
 
-    on_disk = b"".join(
-        path.read_bytes() for path in sorted((root / "media" / media_id).iterdir())
-    )
+    on_disk = b"".join(path.read_bytes() for path in sorted((root / "media" / media_id).iterdir()))
     assert on_disk, "nothing was written"
     assert PHOTO_MARKER not in on_disk
     assert plaintext[:64] not in on_disk
@@ -743,9 +736,7 @@ def test_a_stored_chunk_contains_none_of_the_original_image_bytes(media_api: Any
         BACKUP_PRIVATE.private_bytes_raw(),
     )
     assert recovered == staged.media_key
-    assert (
-        decrypt_media_chunk(on_disk, recovered, media_id=media_id, chunk_index=0) == plaintext
-    )
+    assert decrypt_media_chunk(on_disk, recovered, media_id=media_id, chunk_index=0) == plaintext
 
 
 # ---------------------------------------------------------------------------

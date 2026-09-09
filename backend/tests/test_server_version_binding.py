@@ -33,6 +33,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
+from tests.identity_fixtures import ORG_ID, ensure_organization
+
 pytestmark = pytest.mark.db
 
 BINDING_DB = "dcp_test_version_binding"
@@ -157,12 +159,13 @@ async def _seed(url: str) -> tuple[str, str]:
     engine = create_async_engine(url)
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
-            session.add(Project(id=PROJECT_ID, name="Binding", slug="binding"))
+            await ensure_organization(session)
+            session.add(
+                Project(organization_id=ORG_ID, id=PROJECT_ID, name="Binding", slug="binding")
+            )
             await session.flush()
             session.add(Environment(id=ENVIRONMENT_ID, project_id=PROJECT_ID, kind="production"))
-            session.add(
-                Device(id=DEVICE_ID, project_id=PROJECT_ID, user_id=USER_ID, platform="android")
-            )
+            session.add(Device(id=DEVICE_ID, project_id=PROJECT_ID, platform="android"))
             await session.flush()
 
             v1 = await forms_service.publish_version(

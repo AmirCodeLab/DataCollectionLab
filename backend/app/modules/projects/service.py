@@ -41,8 +41,6 @@ from app.modules.projects.schemas import (
 )
 
 # Placeholder until enrollment binds a real user; user_id has no FK.
-_UNASSIGNED_USER = "usr_unassigned"
-
 _SEED_HINT = "Run scripts/seed_dev.py to create the development project."
 
 
@@ -121,7 +119,9 @@ async def register_device(
     device = Device(
         id=request.device_id,
         project_id=await _sole_project_id(session),
-        user_id=_UNASSIGNED_USER,
+        # Registered is not bound: a person binds the device by logging in on
+        # it (008_identity.sql §6). Until then it can register and nothing else.
+        user_id=None,
         platform=request.platform,
         os_version=request.os_version,
         app_version=request.app_version,

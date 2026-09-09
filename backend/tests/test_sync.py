@@ -17,6 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.sync.schemas import PushRequest, SyncOp
+from tests.identity_fixtures import ORG_ID, ensure_organization
 
 SYNC_DB = "dcp_test_sync"
 
@@ -100,11 +101,17 @@ async def _seed() -> None:
         async with async_sessionmaker(engine)() as session, session.begin():
             # The models carry no relationship()s, so flush between dependency
             # levels to control insert order.
-            session.add(Project(id="01PROJECT", name="Household Study", slug="household-study"))
-            await session.flush()
+            await ensure_organization(session)
             session.add(
-                Environment(id="01ENVPROD", project_id="01PROJECT", kind="production")
+                Project(
+                    organization_id=ORG_ID,
+                    id="01PROJECT",
+                    name="Household Study",
+                    slug="household-study",
+                )
             )
+            await session.flush()
+            session.add(Environment(id="01ENVPROD", project_id="01PROJECT", kind="production"))
             session.add(
                 Form(id="01FORM", project_id="01PROJECT", form_key=FORM_KEY, title="Household")
             )
@@ -113,7 +120,6 @@ async def _seed() -> None:
                     Device(
                         id=device_id,
                         project_id="01PROJECT",
-                        user_id="usr-1",
                         platform="android",
                     )
                 )
@@ -325,14 +331,40 @@ def test_two_devices_converge_regardless_of_arrival_order(sync_api: Any) -> None
     async def scenario(client: Any) -> None:
         def edits(sub: str, tag: str, counter_base: int) -> tuple[dict[str, Any], ...]:
             return (
-                _op(f"01A{tag}NAME", sub, "dev-a", counter_base + 5,
-                    value="from-a", wall_clock="2026-08-28T10:00:00Z"),
-                _op(f"01B{tag}NAME", sub, "dev-b", counter_base + 3,
-                    value="from-b", wall_clock="2026-08-28T11:00:00Z"),
-                _op(f"01A{tag}AGE", sub, "dev-a", counter_base + 7,
-                    path="age", value=30, wall_clock="2026-08-28T12:00:00Z"),
-                _op(f"01B{tag}AGE", sub, "dev-b", counter_base + 7,
-                    path="age", value=25, wall_clock="2026-08-28T09:00:00Z"),
+                _op(
+                    f"01A{tag}NAME",
+                    sub,
+                    "dev-a",
+                    counter_base + 5,
+                    value="from-a",
+                    wall_clock="2026-08-28T10:00:00Z",
+                ),
+                _op(
+                    f"01B{tag}NAME",
+                    sub,
+                    "dev-b",
+                    counter_base + 3,
+                    value="from-b",
+                    wall_clock="2026-08-28T11:00:00Z",
+                ),
+                _op(
+                    f"01A{tag}AGE",
+                    sub,
+                    "dev-a",
+                    counter_base + 7,
+                    path="age",
+                    value=30,
+                    wall_clock="2026-08-28T12:00:00Z",
+                ),
+                _op(
+                    f"01B{tag}AGE",
+                    sub,
+                    "dev-b",
+                    counter_base + 7,
+                    path="age",
+                    value=25,
+                    wall_clock="2026-08-28T09:00:00Z",
+                ),
             )
 
         a_name, b_name, a_age, b_age = edits("01SUBORDERAB", "AB", 300)
@@ -433,9 +465,7 @@ def test_a_brand_new_device_registers_and_pushes_in_one_flow(sync_api: Any) -> N
             client, "dev-unseen", [_op("01OPUNSEEN1", "01SUBUNSEEN", "dev-unseen", 1, value="x")]
         )
         assert unregistered["accepted"] == []
-        assert unregistered["rejected"] == [
-            {"opId": "01OPUNSEEN1", "reason": "not_authorized"}
-        ]
+        assert unregistered["rejected"] == [{"opId": "01OPUNSEEN1", "reason": "not_authorized"}]
 
         payload = {
             "deviceId": "dev-unseen",
@@ -485,7 +515,7 @@ def test_registration_refusals_name_a_machine_readable_reason(sync_api: Any) -> 
 
         # Two active projects: the target cannot be inferred, so nothing is guessed.
         await _execute(
-            "INSERT INTO project (id, name, slug) VALUES ('01OTHERPROJ', 'Other', 'other')"
+            "INSERT INTO project (id, organization_id, name, slug) VALUES ('01OTHERPROJ', '01ORGTEST', 'Other', 'other')"
         )
         ambiguous = await register("dev-brand-new")
         assert ambiguous.status_code == 409, ambiguous.text

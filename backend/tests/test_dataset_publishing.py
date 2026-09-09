@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from app.modules.entities.service import row_hash, version_checksum
+from tests.identity_fixtures import ORG_ID, ensure_organization
 
 
 def test_the_same_row_hashes_the_same_whatever_order_its_keys_arrive_in() -> None:
@@ -68,7 +69,7 @@ def test_non_ascii_survives_the_hash() -> None:
 
 
 def test_a_version_checksum_does_not_depend_on_insert_order() -> None:
-    """"Is this the same dataset" must not depend on how the rows arrived."""
+    """ "Is this the same dataset" must not depend on how the rows arrived."""
     rows = [("tz01", "sha256:a"), ("tz02", "sha256:b"), ("tz03", "sha256:c")]
     assert version_checksum(rows) == version_checksum(list(reversed(rows)))
 
@@ -131,23 +132,33 @@ def test_publishing_is_immutable_and_idempotent(dataset_db: str) -> None:
     async def run() -> None:
         async with _session(dataset_db) as session:
             first = await publish_dataset_version(
-                session, project_id=PROJECT_ID, dataset_key="regions",
-                rows=rows, key_column="code",
+                session,
+                project_id=PROJECT_ID,
+                dataset_key="regions",
+                rows=rows,
+                key_column="code",
             )
             assert first.created and first.version == 1 and first.row_count == 2
 
             again = await publish_dataset_version(
-                session, project_id=PROJECT_ID, dataset_key="regions",
-                rows=rows, key_column="code", version=1,
+                session,
+                project_id=PROJECT_ID,
+                dataset_key="regions",
+                rows=rows,
+                key_column="code",
+                version=1,
             )
             assert not again.created, "same content under the same number is a no-op"
             assert again.dataset_version_id == first.dataset_version_id
 
             with pytest.raises(DatasetRefused, match="immutable"):
                 await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="regions",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="regions",
                     rows=[{"code": "tz01", "name": "Arusha Region"}],
-                    key_column="code", version=1,
+                    key_column="code",
+                    version=1,
                 )
 
     asyncio.run(run())
@@ -168,18 +179,27 @@ def test_a_dataset_without_usable_keys_is_refused(dataset_db: str) -> None:
         async with _session(dataset_db) as session:
             with pytest.raises(DatasetRefused, match="no value in the key column"):
                 await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="blank",
-                    rows=[{"code": "a"}, {"code": "  "}], key_column="code",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="blank",
+                    rows=[{"code": "a"}, {"code": "  "}],
+                    key_column="code",
                 )
             with pytest.raises(DatasetRefused, match="more than once"):
                 await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="dup",
-                    rows=[{"code": "a"}, {"code": "a"}], key_column="code",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="dup",
+                    rows=[{"code": "a"}, {"code": "a"}],
+                    key_column="code",
                 )
             with pytest.raises(DatasetRefused, match="no rows"):
                 await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="empty",
-                    rows=[], key_column="code",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="empty",
+                    rows=[],
+                    key_column="code",
                 )
 
     asyncio.run(run())
@@ -268,7 +288,8 @@ def dataset_db():  # noqa: ANN201 - pytest fixture
         from app.modules.projects.models import Project
 
         async with _session(_dataset_db_url()) as session:
-            session.add(Project(id=PROJECT_ID, name="Data", slug="data"))
+            await ensure_organization(session)
+            session.add(Project(organization_id=ORG_ID, id=PROJECT_ID, name="Data", slug="data"))
 
     asyncio.run(seed())
     return _dataset_db_url()
@@ -306,12 +327,16 @@ def test_a_key_is_stored_exactly_and_never_trimmed(dataset_db: str) -> None:
                 key_column="code",
             )
             keys = (
-                await session.execute(
-                    select(DatasetRecord.record_key).where(
-                        DatasetRecord.dataset_version_id == published.dataset_version_id
+                (
+                    await session.execute(
+                        select(DatasetRecord.record_key).where(
+                            DatasetRecord.dataset_version_id == published.dataset_version_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return sorted(keys), published.warnings
 
     keys, warnings = asyncio.run(run())
@@ -340,8 +365,11 @@ def test_a_key_that_is_only_whitespace_is_still_refused(dataset_db: str) -> None
         async with _session(dataset_db) as session:
             with pytest.raises(DatasetRefused, match="no value in the key column"):
                 await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="ws",
-                    rows=[{"code": "a"}, {"code": "   "}], key_column="code",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="ws",
+                    rows=[{"code": "a"}, {"code": "   "}],
+                    key_column="code",
                 )
 
     asyncio.run(run())

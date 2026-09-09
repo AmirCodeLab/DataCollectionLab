@@ -60,9 +60,13 @@ class Assignment(Base):
     case_id: Mapped[str] = mapped_column(
         Text, ForeignKey("case_record.id", ondelete="CASCADE"), nullable=False
     )
-    user_id: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
     team_id: Mapped[str | None] = mapped_column(Text, ForeignKey("team.id", ondelete="SET NULL"))
-    assigned_by: Mapped[str | None] = mapped_column(Text)
+    assigned_by: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
