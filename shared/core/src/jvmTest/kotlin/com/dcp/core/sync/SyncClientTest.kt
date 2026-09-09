@@ -688,4 +688,40 @@ class SyncClientTest {
         assertEquals(1, store.getSubmission(cased)!!.pendingOps)
         assertEquals(0, store.getSubmission(uncased)!!.pendingOps)
     }
+
+    @Test
+    fun `a server that does not know the device makes the next sign-in register it again`() = runBlocking {
+        val store = store()
+        store.markDeviceRegistered() // an old install, against a server since recreated
+        var registrations = 0
+        var known = false
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("/devices") -> {
+                        registrations += 1; known = true
+                        jsonResponse("""{"deviceId":"dev-test","status":"registered"}""")
+                    }
+                    request.url.encodedPath.endsWith("/auth/login") ->
+                        if (known) jsonResponse("""{"userId":"u1","displayName":"Enum"}""")
+                        else respond(
+                            """{"detail":{"reason":"device_unknown","message":"Sync once first."}}""",
+                            HttpStatusCode.Forbidden,
+                            headersOf(HttpHeaders.ContentType, "application/json"),
+                        )
+                    else -> jsonResponse(emptyPull())
+                }
+            }
+        ) { expectSuccess = true; install(ContentNegotiation) { json(SyncJson) } }
+        val client = SyncClient(store, fixedServerConfig("http://test"), fastRetry, httpClient = http)
+
+        val first = client.signIn("enumerator", "pw")
+        assertTrue(first is SignInResult.Refused && first.reason == "device_unknown", "$first")
+        assertEquals(0, registrations)
+        assertTrue(!store.isDeviceRegistered(), "the server's word beats the local flag")
+
+        val second = client.signIn("enumerator", "pw")
+        assertTrue(second is SignInResult.Signed, "$second")
+        assertEquals(1, registrations)
+    }
 }

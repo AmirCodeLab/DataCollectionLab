@@ -440,6 +440,14 @@ class SubmissionStore(
     fun markDeviceRegistered() = queries.markDeviceRegistered()
 
     /**
+     * The server does not know this device after all. Seen on a handset
+     * whose server had been recreated: the local flag said registered, so
+     * no sync re-introduced it, and every sign-in was refused with "sync
+     * once first" — a loop with no way out but clearing the app's data.
+     */
+    fun markDeviceUnregistered() = queries.markDeviceUnregistered()
+
+    /**
      * Writes one pulled batch and advances the cursor in the SAME transaction,
      * so the cursor is persisted only once the batch is durable (sync §5).
      * Replays are no-ops via INSERT OR IGNORE on opId.

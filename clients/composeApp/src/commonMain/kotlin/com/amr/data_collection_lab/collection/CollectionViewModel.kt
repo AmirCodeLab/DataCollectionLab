@@ -257,6 +257,17 @@ class CollectionViewModel(
     private val commitJobs = mutableMapOf<String, Job>()
 
     init {
+        // The case line under the title follows the store rather than being
+        // read once: this ViewModel outlives one visit to the screen, and a
+        // sync between two visits can move the case. Seen on a device — the
+        // list said "no longer assigned" while the open draft still said
+        // "Case S3|1|1" and nothing else.
+        viewModelScope.launch {
+            store.observeSubmissions().collect { rows ->
+                val mine = rows.firstOrNull { it.submissionId == submissionId } ?: return@collect
+                _state.update { it.copy(caseNote = caseNoteFor(mine.caseKey, mine.caseAssigned)) }
+            }
+        }
         viewModelScope.launch {
             val summaryFirst = withContext(Dispatchers.Default) { store.getSubmission(submissionId) }
             // Resolved from the submission by the catalog, never chosen here.
@@ -290,9 +301,6 @@ class CollectionViewModel(
             // rowSource filter compares (Form IR §2.3), and it has to name the
             // case the work was opened on even after the case moved.
             val caseKey = summaryFirst?.caseId?.let { id -> cases?.caseKeyFor(id) }
-            _state.update {
-                it.copy(caseNote = caseNoteFor(summaryFirst?.caseKey ?: caseKey, summaryFirst?.caseAssigned))
-            }
             val (loadedInstance, summary) = withContext(Dispatchers.Default) {
                 val inst = FormInstance(
                     compiled,

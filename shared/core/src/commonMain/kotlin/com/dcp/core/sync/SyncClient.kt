@@ -245,6 +245,12 @@ class SyncClient(
                 val raw = runCatching { response.bodyAsText() }.getOrDefault("")
                 val detail = runCatching { SyncJson.decodeFromString<WireErrorBody>(raw).detail }
                     .getOrNull()
+                if (detail?.reason == "device_unknown") {
+                    // The server's word beats the local flag: the next sync
+                    // or sign-in registers again instead of looping on
+                    // "sync once first" against a server that lost us.
+                    store.markDeviceUnregistered()
+                }
                 SignInResult.Refused(
                     reason = detail?.reason ?: "http_${response.status.value}",
                     message = detail?.message?.takeIf { it.isNotBlank() }

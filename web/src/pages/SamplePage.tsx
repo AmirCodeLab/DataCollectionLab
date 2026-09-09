@@ -269,10 +269,13 @@ function Cases({
     });
   };
 
-  const scopeNote =
-    me.scopeKind === "organization"
-      ? "You see the whole sample, the unassigned pool included."
-      : "You see the cases held by your team.";
+  // A team-scoped viewer — a supervisor — sees their team's cases and can
+  // give them to people in it; assigning at the team level needs the project
+  // in scope, which the database refuses them, so the option is not offered.
+  const teamScoped = me.scopeKind === "team";
+  const scopeNote = teamScoped
+    ? "You see the cases held by your team."
+    : "You see the whole sample, the unassigned pool included.";
 
   return (
     <div className="mt-4">
@@ -303,7 +306,7 @@ function Cases({
             className="rounded border border-slate-300 px-2 py-1"
           >
             <option value="">— choose —</option>
-            {teams.length > 0 && (
+            {!teamScoped && teams.length > 0 && (
               <optgroup label="Teams">
                 {teams.map((team) => (
                   <option key={team.id} value={`team:${team.id}`}>

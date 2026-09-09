@@ -380,6 +380,24 @@ def test_03_an_assignment_outside_scope_or_beyond_the_model_is_refused(cases_app
             await _refused(engine, pm, ASSIGN, c=C3, team=None, person=ENUM_A, id="01ASGX")
             # A supervisor cannot assign at the team level.
             await _refused(engine, sup_a, ASSIGN, c=C2, team=TEAM_A, person=None, id="01ASGX")
+            # A person who cannot sign in cannot hold a case (014, found in
+            # the browser run): a pending membership refuses the assignment,
+            # for the manager too; approval makes the same assignment valid.
+            await _owner(
+                "UPDATE platform_org_membership SET status = 'pending_approval', "
+                "approved_by = NULL, approved_at = NULL WHERE user_id = $1",
+                ENUM_A2,
+            )
+            await _refused(engine, sup_a, ASSIGN, c=C2, team=None, person=ENUM_A2, id="01ASGX")
+            await _refused(engine, pm, ASSIGN, c=C2, team=None, person=ENUM_A2, id="01ASGX")
+            await _owner(
+                "UPDATE platform_org_membership SET status = 'active', approved_by = $2, "
+                "approved_at = now() WHERE user_id = $1",
+                ENUM_A2,
+                PM,
+            )
+            # (Approved again, enum-a2 holds C1 a few lines down — the same
+            # assignment shape the pending membership just refused.)
 
             # At most one live holder per level: a second live person
             # assignment on C1 is refused by the index, not by a service.

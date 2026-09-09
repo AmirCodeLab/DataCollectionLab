@@ -146,6 +146,10 @@ describe("what is listed", () => {
     expect(screen.getByText(/2 cases\. You see the cases held by your team\./)).toBeInTheDocument();
     expect(within(screen.getByRole("table")).getByText("Enum A")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "upload a sample" })).not.toBeInTheDocument();
+    // Nor a team-level assignment, which the database would refuse a supervisor.
+    const holder = screen.getByRole("combobox", { name: "holder" });
+    expect(within(holder).queryByRole("option", { name: "Team A" })).not.toBeInTheDocument();
+    expect(within(holder).getByRole("option", { name: "Enum A" })).toBeInTheDocument();
     // The list came from the one request, with the project named and nothing else.
     expect(escapes.requests.filter((r) => r.includes("/api/v1/cases?"))).toEqual([
       `GET /api/v1/cases?projectId=${PROJECT_ID} `,
