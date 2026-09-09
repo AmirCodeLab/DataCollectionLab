@@ -50,6 +50,11 @@ type RejectReason = Literal[
     # (contentKeyId, nonce) is already taken. Envelope §4.5 — the last line of
     # defence against a device with a broken counter.
     "nonce_reused",
+    # The op opens a submission against a case that is not assigned to the
+    # session's person (item 2, 012_cases.sql): the case moved since the
+    # device last pulled its assignments. Work already opened is never refused
+    # for this; only the first op of new work is.
+    "not_assigned",
 ]
 
 # Kinds that address a field or repeat instance and therefore need a path.
@@ -89,6 +94,9 @@ class SyncOp(BaseModel):
     nonce: str | None = None
     device_id: str = Field(alias="deviceId", min_length=1)
     actor_id: str | None = Field(default=None, alias="actorId")
+    #: The case this submission was opened against (item 2). Read on the op
+    #: that opens the submission; carried on the rest for the record.
+    case_id: str | None = Field(default=None, alias="caseId", max_length=64)
     # Monotonic logical counter per device; the basis of ordering, never reset.
     counter: int = Field(ge=0)
     # Diagnostic and audit only — never used for ordering (spec §3).
@@ -241,6 +249,9 @@ class PulledTombstone(BaseModel):
     server_seq: int = Field(serialization_alias="serverSeq")
 
 
+from app.modules.cases.schemas import AssignedCase  # noqa: E402
+
+
 class PullResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -256,6 +267,11 @@ class PullResponse(BaseModel):
     # because a device has to be able to notice a version being *withdrawn*, and
     # a stream of additions cannot say that.
     forms: list[DeployedFormVersion]
+    # The assignment statement, when the request asked for `scope=assignments`
+    # (item 2): every case held by the session's person, complete, so that a
+    # release is noticed by absence — the same argument as `forms`. Null when
+    # not asked, never an empty list standing in for "not asked".
+    assignments: list[AssignedCase] | None = None
     # The dataset manifest, when the request asked for `scope=datasets`.
     #
     # **Nullable, and `forms` above is not** — the asymmetry is deliberate and

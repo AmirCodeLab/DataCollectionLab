@@ -12,9 +12,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.access import access
+from app.api.access import Identity, access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
+from app.modules.cases import service as cases_service
+from app.modules.cases.schemas import CaseError, CaseErrorResponse, SampleUploadResponse
 from app.modules.entities import service as dataset_service
 from app.modules.entities.schemas import DatasetRefusedError, PublishDatasetResponse
 from app.modules.forms.xlsform.datasets import (
@@ -324,3 +326,64 @@ async def publish_dataset(
         warnings=[*parsed.warnings, *published.warnings],
         published_at=published.published_at,
     )
+
+
+@router.post(
+    "/{project_id}/samples",
+    response_model=SampleUploadResponse,
+    response_model_by_alias=True,
+    status_code=201,
+    responses={400: {"model": CaseErrorResponse}, 403: {"model": CaseErrorResponse}},
+    description=(
+        "Upload the sample: one CSV, published as an immutable dataset version the way "
+        "POST /projects/{id}/datasets publishes reference data, keyed by the composite "
+        "key the upload names (Form IR §3.1: the parts joined with `|`, escaped), and "
+        "one case per row (pilot scope §4.3). A re-upload keeps the cases whose keys it "
+        "still holds, makes cases for new keys, and withdraws — never deletes — the "
+        "cases whose keys are gone."
+    ),
+)
+async def upload_sample(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    project_id: Annotated[str, Path(min_length=1, max_length=64)],
+    identity: Annotated[Identity, Depends(access(permission="sample.upload"))],
+    file: Annotated[UploadFile, File(description="The sample, as CSV")],
+    dataset_key: Annotated[
+        str,
+        Form(alias="datasetKey", min_length=1, max_length=200,
+             description="The key this sample is published under, e.g. `hh_sample`."),
+    ],
+    key_columns: Annotated[
+        str,
+        Form(alias="keyColumns", min_length=1, max_length=1000,
+             description="The columns that together identify a row, comma-separated, "
+             "in the order they compose: `settlementCode,structureId,hhId`."),
+    ],
+    name: Annotated[str | None, Form(description="Display name. Defaults to the key.")] = None,
+) -> SampleUploadResponse:
+    """Turn one CSV into cases."""
+    data = await file.read()
+    try:
+        parsed = read_companion_csv(file.filename or f"{dataset_key}.csv", data)
+    except CsvUnreadable as failure:
+        raise HTTPException(
+            status_code=400,
+            detail=CaseError(reason="bad_request", message=str(failure)).model_dump(),
+        ) from failure
+    columns = [c.strip() for c in key_columns.split(",") if c.strip()]
+    async with session.begin():
+        try:
+            return await cases_service.upload_sample(
+                session,
+                project_id=project_id,
+                dataset_key=dataset_key,
+                key_columns=columns,
+                rows=[dict(row) for row in parsed.rows],
+                name=name,
+                principal=identity.principal,
+            )
+        except cases_service.Refused as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=CaseError(reason=error.reason, message=error.message).model_dump(),
+            ) from error

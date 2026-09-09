@@ -606,3 +606,227 @@ async def _refused_delete(engine: AsyncEngine, principal: Principal) -> None:
     async with session_as(principal, engine=engine) as s, s.begin():
         result = await s.execute(text("DELETE FROM case_record WHERE id = :c"), {"c": C4})
         assert result.rowcount == 0, "a case was deleted"
+
+
+# ---------------------------------------------------------------------------
+# 7. The routes: the sample upload, the split, the statement a device pulls,
+#    and the one scope refusal in the push path — named, not a 500
+# ---------------------------------------------------------------------------
+
+
+async def _console_login(client: httpx.AsyncClient, username: str) -> None:
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "organization": ORG_SLUG},
+    )
+    assert response.status_code == 200, response.text
+
+
+SAMPLE_CSV = (
+    "settlementCode,structureId,hhId,headName\n"
+    "S3,1,1,Amina\n"
+    "S3,1,2,Bakari\n"
+    "S3,2,1,Chausiku\n"
+)
+
+
+@pytest.mark.db
+def test_07_the_sample_upload_makes_cases_the_manager_splits_by_route(cases_app: Any) -> None:
+    async def scenario(client: httpx.AsyncClient) -> None:
+        # A supervisor cannot upload: the route refuses before the policy would.
+        await _console_login(client, "sup-a")
+        refused = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/samples",
+            files={"file": ("sample.csv", SAMPLE_CSV, "text/csv")},
+            data={"datasetKey": "village", "keyColumns": "settlementCode,structureId,hhId"},
+        )
+        assert refused.status_code == 403, refused.text
+
+        await _console_login(client, "pm")
+        uploaded = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/samples",
+            files={"file": ("sample.csv", SAMPLE_CSV, "text/csv")},
+            data={"datasetKey": "village", "keyColumns": "settlementCode,structureId,hhId"},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        body = uploaded.json()
+        assert (body["casesCreated"], body["casesWithdrawn"], body["rowCount"]) == (3, 0, 3)
+        assert body["keyColumns"] == ["settlementCode", "structureId", "hhId"]
+
+        listed = await client.get("/api/v1/cases", params={"projectId": PROJECT_ID})
+        assert listed.status_code == 200, listed.text
+        village = {c["caseKey"]: c for c in listed.json()["cases"] if c["datasetKey"] == "village"}
+        assert set(village) == {"S3|1|1", "S3|1|2", "S3|2|1"}
+        assert village["S3|1|1"]["data"]["headName"] == "Amina"
+        assert village["S3|1|1"]["holder"]["teamId"] is None
+
+        # A row with no identity in a key column refuses the upload, naming it.
+        bad = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/samples",
+            files={"file": ("bad.csv", "settlementCode,hhId\nS9,\n", "text/csv")},
+            data={"datasetKey": "bad", "keyColumns": "settlementCode,hhId"},
+        )
+        assert bad.status_code == 400 and bad.json()["detail"]["reason"] == "bad_key_row"
+        assert "hhId" in bad.json()["detail"]["message"]
+
+        # The split by team, in one request; then supervisor A splits by person.
+        ids = [village[k]["id"] for k in ("S3|1|1", "S3|1|2")]
+        split = await client.post("/api/v1/cases/assign", json={"caseIds": ids, "teamId": TEAM_A})
+        assert split.status_code == 200 and split.json()["assigned"] == 2
+        other = await client.post(
+            "/api/v1/cases/assign", json={"caseIds": [village["S3|2|1"]["id"]], "teamId": TEAM_B}
+        )
+        assert other.status_code == 200
+
+        await _console_login(client, "sup-a")
+        mine = await client.get("/api/v1/cases", params={"projectId": PROJECT_ID})
+        seen = {c["caseKey"] for c in mine.json()["cases"] if c["datasetKey"] == "village"}
+        assert seen == {"S3|1|1", "S3|1|2"}, "supervisor A sees another team's or the pool"
+        assigned = await client.post(
+            f"/api/v1/cases/{ids[0]}/assign",
+            params={"projectId": PROJECT_ID},
+            json={"userId": ENUM_A},
+        )
+        assert assigned.status_code == 200, assigned.text
+        holder = next(c for c in assigned.json()["cases"] if c["id"] == ids[0])["holder"]
+        assert (holder["teamName"], holder["userName"]) == ("Team A", "enum-a")
+        # Outside their team: refused by the database, named.
+        outside = await client.post(
+            f"/api/v1/cases/{village['S3|2|1']['id']}/assign",
+            params={"projectId": PROJECT_ID},
+            json={"userId": ENUM_A},
+        )
+        assert outside.status_code == 403
+        assert outside.json()["detail"]["reason"] == "outside_your_authority"
+
+    _with_client(cases_app, scenario)
+
+
+@pytest.mark.db
+def test_08_a_device_pulls_its_assignments_as_a_statement_and_notices_a_release(
+    cases_app: Any,
+) -> None:
+    """The piece §4.3 of the analysis rests on: a release is an absence."""
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _login(client, "enum-a", ENUM_A)
+        pulled = await client.get(
+            "/api/v1/sync/pull", params={"cursor": 0, "limit": 10, "scope": "assignments"}
+        )
+        assert pulled.status_code == 200, pulled.text
+        statement = pulled.json()["assignments"]
+        assert statement is not None
+        held = {a["caseKey"]: a for a in statement}
+        assert "S3|1|1" in held and held["S3|1|1"]["data"]["headName"] == "Amina"
+        assert "S3|1|2" not in held  # team A's, but nobody's personally
+        # Without the scope: null, not an empty statement.
+        plain = await client.get("/api/v1/sync/pull", params={"cursor": 0, "limit": 10})
+        assert plain.json()["assignments"] is None
+
+        # Opening work against a held case, over push, with caseId on the wire.
+        case_id = held["S3|1|1"]["caseId"]
+        opened = await client.post(
+            "/api/v1/sync/push",
+            json={
+                "deviceId": DEVICES[ENUM_A],
+                "ops": [
+                    {
+                        "opId": "01OPS311",
+                        "submissionId": "01SUBS311",
+                        "formId": "hh",
+                        "formVersion": 1,
+                        "kind": "set",
+                        "path": "q",
+                        "value": "first",
+                        "deviceId": DEVICES[ENUM_A],
+                        "actorId": "usr_local",
+                        "caseId": case_id,
+                        "counter": 10,
+                        "wallClock": "2026-09-09T13:00:00Z",
+                    }
+                ],
+            },
+        )
+        assert opened.status_code == 200 and opened.json()["accepted"] == ["01OPS311"], opened.text
+        rows = await _owner("SELECT case_id FROM submission WHERE id = '01SUBS311'")
+        assert rows[0]["case_id"] == case_id
+
+        # The supervisor moves the case to enum-a2. The next statement lacks
+        # it; the submission and its op are still enum-a's to see and push.
+        engine = create_engine(database=CASES_DB)
+        try:
+            sup_a = await _principal_of(engine, "sup-a")
+            await _as(engine, sup_a, ASSIGN, c=case_id, team=None, person=ENUM_A2, id="01ASGS")
+        finally:
+            await engine.dispose()
+        after = await client.get(
+            "/api/v1/sync/pull", params={"cursor": 0, "limit": 10, "scope": "assignments"}
+        )
+        assert "S3|1|1" not in {a["caseKey"] for a in after.json()["assignments"]}
+        assert "01OPS311" in {op["opId"] for op in after.json()["ops"]}
+        more = await client.post(
+            "/api/v1/sync/push",
+            json={
+                "deviceId": DEVICES[ENUM_A],
+                "ops": [
+                    {
+                        "opId": "01OPS311B",
+                        "submissionId": "01SUBS311",
+                        "formId": "hh",
+                        "formVersion": 1,
+                        "kind": "set",
+                        "path": "q2",
+                        "value": "finished after the move",
+                        "deviceId": DEVICES[ENUM_A],
+                        "actorId": "usr_local",
+                        "caseId": case_id,
+                        "counter": 11,
+                        "wallClock": "2026-09-09T13:05:00Z",
+                    }
+                ],
+            },
+        )
+        assert more.json()["accepted"] == ["01OPS311B"], more.text
+
+        # New work against the moved case: the named refusal, not a 500, and
+        # the rest of the batch is untouched.
+        fresh = await client.post(
+            "/api/v1/sync/push",
+            json={
+                "deviceId": DEVICES[ENUM_A],
+                "ops": [
+                    {
+                        "opId": "01OPNEW1",
+                        "submissionId": "01SUBNEW1",
+                        "formId": "hh",
+                        "formVersion": 1,
+                        "kind": "set",
+                        "path": "q",
+                        "value": "x",
+                        "deviceId": DEVICES[ENUM_A],
+                        "actorId": "usr_local",
+                        "caseId": case_id,
+                        "counter": 12,
+                        "wallClock": "2026-09-09T13:06:00Z",
+                    },
+                    {
+                        "opId": "01OPNEW2",
+                        "submissionId": "01SUBNEW2",
+                        "formId": "hh",
+                        "formVersion": 1,
+                        "kind": "set",
+                        "path": "q",
+                        "value": "uncased, still mine to open",
+                        "deviceId": DEVICES[ENUM_A],
+                        "actorId": "usr_local",
+                        "counter": 13,
+                        "wallClock": "2026-09-09T13:07:00Z",
+                    },
+                ],
+            },
+        )
+        assert fresh.status_code == 200, fresh.text
+        assert fresh.json()["rejected"] == [{"opId": "01OPNEW1", "reason": "not_assigned"}]
+        assert fresh.json()["accepted"] == ["01OPNEW2"]
+
+    _with_client(cases_app, scenario)

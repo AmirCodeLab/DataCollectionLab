@@ -8,7 +8,7 @@ from typing import Any
 
 from geoalchemy2 import Geography
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -81,6 +81,9 @@ class Dataset(Base):
     )
     dataset_key: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The columns a composite key was composed from, in order (013): what an
+    #: export splits the key back with. NULL for a single-column key.
+    key_columns: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

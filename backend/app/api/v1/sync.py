@@ -50,9 +50,13 @@ async def pull(
     the form versions this device should be running.
 
     `scope` is the comma-separated list of spec §5: `assignments`, `forms`,
-    `datasets`. `assignments` is accepted and ignored, so a newer client asking
-    for all three still works against this server rather than failing on an
-    unknown word.
+    `datasets`.
+
+    `scope=assignments` returns the complete statement of the cases held by
+    the session's person (item 2): a device notices a case it no longer holds
+    by its absence, keeps whatever it collected against it, and stops
+    starting new work on it. Complete rather than a delta for the reason the
+    form manifest is.
 
     `scope=datasets` returns the dataset versions the form versions deployed to
     this device were **published against** (`form_version_dataset`), not the
@@ -92,4 +96,5 @@ async def pull(
             device_id=device_id,
             want_forms="forms" in wanted,
             want_datasets="datasets" in wanted,
+            assignments_for=identity.user_id if "assignments" in wanted else None,
         )
