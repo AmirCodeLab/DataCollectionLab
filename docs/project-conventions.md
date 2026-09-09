@@ -970,8 +970,14 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    rule, `dcp_case_in_scope`, decides what is in scope for every table under
    a case; reassignment moves the view and not the rows; an enumerator sees
    only their own work (defect 26, fixed ahead of this item). Breaks 172–180.
-   Next: the routes (sample upload, cases, assignment, `scope=assignments`),
-   then the screens, then a browser run and a handset run
+   The routes are on `feat/item2-routes` (stacked on #47): the sample upload
+   (CSV, key columns, `case_key` on every row, migration 013 keeps the key
+   columns on the dataset), cases with their holders, the split by team and by
+   person, `GET /sync/pull?scope=assignments` as a complete statement of the
+   live assignments, and `not_assigned` — the push path's one scope refusal,
+   named, one op's cost. Breaks 181–183. Next: the screens (console sample
+   page; handset case list, draft marked and kept on release), then a browser
+   run and a handset run
 3. **Repeat screen flow**, and the roster it unblocks. **Spec and engines done,
    5 September 2026; the UI is what is left.** Form IR §11.3 decides it — a
    repeat is one screen holding the instance list, an instance is entered and

@@ -52,7 +52,7 @@ PM, SUP_A, SUP_B, ENUM_A, ENUM_A2, ENUM_B = (
     "01UCENUMA2",
     "01UCENUMB",
 )
-DEVICES = {ENUM_A: "dev-ca", ENUM_A2: "dev-ca2", ENUM_B: "dev-cb"}
+DEVICES = {ENUM_A: "dev-ca", ENUM_A2: "dev-ca2", ENUM_B: "dev-cb", SUP_A: "dev-csa"}
 K1, K2, K3, K4 = "S1|1|1", "S1|1|2", "S2|1|1", "S2|2|1"
 C1, C2, C3, C4 = "01CASE1", "01CASE2", "01CASE3", "01CASE4"
 
@@ -828,5 +828,33 @@ def test_08_a_device_pulls_its_assignments_as_a_statement_and_notices_a_release(
         assert fresh.status_code == 200, fresh.text
         assert fresh.json()["rejected"] == [{"opId": "01OPNEW1", "reason": "not_assigned"}]
         assert fresh.json()["accepted"] == ["01OPNEW2"]
+
+        # The statement is the live assignments, not the visible ones. An
+        # enumerator loses sight of a released case with the release; a
+        # supervisor who held one personally still sees the case through the
+        # team — and must still notice the release by its absence.
+        rows = await _owner("SELECT id FROM case_record WHERE case_key = 'S3|1|2'")
+        team_case = rows[0]["id"]
+        engine = create_engine(database=CASES_DB)
+        try:
+            pm = await _principal_of(engine, "pm")
+            await _as(engine, pm, ASSIGN, c=team_case, team=None, person=SUP_A, id="01ASGSA")
+        finally:
+            await engine.dispose()
+        await _login(client, "sup-a", SUP_A)
+        held_by_sup = await client.get(
+            "/api/v1/sync/pull", params={"cursor": 0, "limit": 10, "scope": "assignments"}
+        )
+        assert {a["caseKey"] for a in held_by_sup.json()["assignments"]} == {"S3|1|2"}
+        engine = create_engine(database=CASES_DB)
+        try:
+            pm = await _principal_of(engine, "pm")
+            await _as(engine, pm, ASSIGN, c=team_case, team=None, person=ENUM_A2, id="01ASGSB")
+        finally:
+            await engine.dispose()
+        released = await client.get(
+            "/api/v1/sync/pull", params={"cursor": 0, "limit": 10, "scope": "assignments"}
+        )
+        assert released.json()["assignments"] == [], "a released case is still in the statement"
 
     _with_client(cases_app, scenario)
