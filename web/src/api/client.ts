@@ -112,3 +112,23 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   }
   return (await response.json()) as T;
 }
+
+/** POST a multipart form — the sample upload, whose body is a file. The
+ *  browser sets the boundary, so no Content-Type is named here. */
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: form,
+    });
+  } catch (cause) {
+    throw new ApiError(0, `API unreachable (${String(cause)})`);
+  }
+
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as T;
+}

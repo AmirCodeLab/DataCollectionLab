@@ -16,7 +16,14 @@ export const NAV: ReadonlyArray<{ to: Section; label: string; any: Permission[] 
   {
     to: "/projects",
     label: "Projects",
-    any: ["project.manage", "form.edit", "form.publish", "sample.upload", "team.manage"],
+    any: [
+      "project.manage",
+      "form.edit",
+      "form.publish",
+      "sample.upload",
+      "sample.assign",
+      "team.manage",
+    ],
   },
   { to: "/forms", label: "Forms", any: ["form.edit", "form.publish", "submission.view"] },
   {

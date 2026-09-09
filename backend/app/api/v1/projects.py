@@ -61,6 +61,7 @@ _KEY_ERRORS: dict[int | str, dict[str, Any]] = {
                     "form.publish",
                     "project.manage",
                     "sample.upload",
+                    "sample.assign",
                     "team.manage",
                 )
             )

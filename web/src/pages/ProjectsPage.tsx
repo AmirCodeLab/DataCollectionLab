@@ -35,6 +35,7 @@ export function ProjectsPage() {
                 <Th>Name</Th>
                 <Th>Security mode</Th>
                 <Th>Recipient keys</Th>
+                <Th>Sample</Th>
                 <Th>Created</Th>
               </tr>
             </thead>
@@ -58,6 +59,15 @@ export function ProjectsPage() {
                   </Td>
                   <Td>
                     <KeyCount project={project} />
+                  </Td>
+                  <Td>
+                    <Link
+                      to="/projects/$projectId/sample"
+                      params={{ projectId: project.id }}
+                      className="text-blue-700 hover:underline"
+                    >
+                      cases
+                    </Link>
                   </Td>
                   <Td className="whitespace-nowrap text-xs">
                     {formatTimestamp(project.createdAt)}
