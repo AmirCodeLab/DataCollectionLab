@@ -15,7 +15,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 SUBMISSIONS_DB = "dcp_test_submissions"
 
@@ -148,12 +154,11 @@ def console_api() -> Any:
 
     asyncio.run(_seed())
 
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(_db_url()))
+    install_api_overrides(app, database_of(_db_url()))
     yield app
-    app.dependency_overrides.pop(get_db, None)
+    remove_api_overrides(app)
 
     async def drop() -> None:
         conn = await asyncpg.connect(_admin_dsn())

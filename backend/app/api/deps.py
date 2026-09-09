@@ -1,20 +1,13 @@
-"""Shared FastAPI dependencies."""
+"""Shared FastAPI dependencies.
 
-from collections.abc import AsyncIterator
+`get_db` is `app.api.access.get_db`, re-exported: one session per request,
+scoped to the request's organisation before anything is read, and to the
+person once their cookie resolves. It lives in `access` because who is
+asking and what they may see are one decision (ERD §1), and is imported from
+here so that every route's `Depends(get_db)` is the same object FastAPI
+caches per request.
+"""
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.access import get_db
 
-from app.core.config import get_settings
-from app.infrastructure.database import session_for_organization
-
-
-async def get_db() -> AsyncIterator[AsyncSession]:
-    """A session scoped to the deployment's organisation, as `dcp_app`.
-
-    Until login exists (item 1's other half) every request carries the
-    organisation-wide principal: everything in the configured organisation,
-    nothing outside it, and nothing at all if that organisation does not
-    exist. A person's own scope replaces this when a session cookie does.
-    """
-    async with session_for_organization(get_settings().organization_slug) as session:
-        yield session
+__all__ = ["get_db"]

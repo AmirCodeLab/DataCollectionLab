@@ -1,9 +1,11 @@
 # Item 1 — login and permissions: the schema, before the code
 
-**Status:** the schema (§2, §4, §7) and the connection layer (§2.3, §2.4) are
-implemented and merged — 9 September 2026, PRs #40 and the one after it; §3
-(sessions from a cookie) and §5's per-person scope are not yet. The document
-is kept as written, as the decision record. The decisions it rests on are the ones in
+**Status:** implemented, 9 September 2026 — the schema (§2, §4, §7) on PR #40,
+the connection layer (§2.3, §2.4) on PR #41, and the login (§3, §4, §5's
+per-person scope, `require` as `access(...)` with a route-table lint) on the
+PR after. Not yet: the console's users, teams, roles and approval screens
+(§9), which the seed and psql stand in for. The document is kept as written,
+as the decision record. The decisions it rests on are the ones in
 `docs/phase3-pilot-scope.md` §3 from the design session plus the three below;
 what this document adds is the DDL those decisions become, what in the
 current schema and runtime has to move for them, and the questions the DDL

@@ -58,6 +58,16 @@ object SyncFailure {
         val hint = addressHint(host)
 
         return when {
+            // Not a network failure at all: the server answered, and said this
+            // device has no session. The fix is a person's, on the settings
+            // screen, and nothing about retrying will change the answer.
+            "401" in signature ->
+                "Not signed in on this device. Open Settings and sign in, then sync again. ($baseUrl)"
+
+            "403" in signature ->
+                "The server refused this device's session — the account may be pending " +
+                    "approval or deactivated. Sign in again from Settings. ($baseUrl)"
+
             // Name resolution. The address is syntactically fine and there is
             // nothing at that name on this network.
             "unresolvedaddress" in signature ||

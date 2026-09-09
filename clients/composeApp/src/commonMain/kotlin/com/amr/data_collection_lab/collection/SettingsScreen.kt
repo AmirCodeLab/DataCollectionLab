@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -84,6 +85,11 @@ fun SettingsScreen(
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
+            AccountSection(state, onAction)
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
             SyncSection(state)
 
             Spacer(Modifier.height(24.dp))
@@ -104,6 +110,74 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * Who this device is signed in as, and the form to become someone.
+ *
+ * The session is a cookie the server set at login, kept in the encrypted
+ * local database (proposal §3.3); nothing here holds a password past the
+ * moment it is sent. A device that is not signed in can still collect — the
+ * answers are the irreplaceable part — and finds out at sync time that it
+ * cannot push, in a sentence that points back here.
+ */
+@Composable
+private fun AccountSection(state: SettingsState, onAction: (SettingsAction) -> Unit) {
+    Text("Account", style = MaterialTheme.typography.titleMedium)
+    Spacer(Modifier.height(8.dp))
+    val signedInAs = state.signedInAs
+    if (signedInAs != null) {
+        Text(
+            text = "Signed in as $signedInAs on this device.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = { onAction(SettingsAction.OnSignOut) }) { Text("Sign out") }
+        return
+    }
+    OutlinedTextField(
+        value = state.usernameDraft,
+        onValueChange = { onAction(SettingsAction.OnUsernameChanged(it)) },
+        label = { Text("Username") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next,
+        ),
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Username" },
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = state.passwordDraft,
+        onValueChange = { onAction(SettingsAction.OnPasswordChanged(it)) },
+        label = { Text("Password") },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done,
+        ),
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Password" },
+    )
+    state.signInError?.let { error ->
+        Text(
+            text = error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+    Button(
+        onClick = { onAction(SettingsAction.OnSignIn) },
+        enabled = state.canSignIn,
+    ) {
+        if (state.isSigningIn) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+            Text("Sign in")
         }
     }
 }

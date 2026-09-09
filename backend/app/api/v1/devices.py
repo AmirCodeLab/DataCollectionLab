@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import Identity, access, bound_device, public
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.media import service as media_service
@@ -31,6 +32,14 @@ router = APIRouter()
         403: {"model": DeviceRegisterErrorResponse},
         409: {"model": DeviceRegisterErrorResponse},
     },
+    dependencies=[
+        Depends(
+            public(
+                "registration precedes login: a device introduces itself and can do "
+                "nothing until a person logs in on it (proposal §4)"
+            )
+        )
+    ],
 )
 async def register(
     request: DeviceRegisterRequest, session: Annotated[AsyncSession, Depends(get_db)]
@@ -69,6 +78,7 @@ async def register(
 async def crypto_config(
     session: Annotated[AsyncSession, Depends(get_db)],
     device_id: Annotated[str, Path(min_length=1, max_length=64)],
+    identity: Annotated[Identity, Depends(access(app=True))],
 ) -> DeviceCryptoResponse:
     """The security mode and public project keys this device wraps content keys to.
 
@@ -85,6 +95,7 @@ async def crypto_config(
     everyone has, which is the same choice it makes when a project has no keys
     at all.
     """
+    bound_device(identity, device_id)
     async with session.begin():
         try:
             config = await service.device_crypto(session, device_id)
@@ -111,6 +122,7 @@ async def crypto_config(
 async def media_policy(
     session: Annotated[AsyncSession, Depends(get_db)],
     device_id: Annotated[str, Path(min_length=1, max_length=64)],
+    identity: Annotated[Identity, Depends(access(app=True))],
 ) -> MediaPolicyResponse:
     """The capture settings this device must apply, and the chunk size.
 
@@ -128,6 +140,7 @@ async def media_policy(
     404 when the device is unknown or revoked — a device the server will not
     accept data from has no business learning a project's settings either.
     """
+    bound_device(identity, device_id)
     async with session.begin():
         policy = await media_service.device_media_policy(session, device_id)
     if policy is None:

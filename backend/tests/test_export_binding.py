@@ -35,8 +35,16 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
+from sqlalchemy import func
 
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    TEST_USER_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 pytestmark = pytest.mark.db
 
@@ -195,7 +203,13 @@ async def _seed(url: str) -> None:
         session.add(Project(organization_id=ORG_ID, id=PROJECT_ID, name="Export", slug="export"))
         await session.flush()
         session.add(Environment(id=ENVIRONMENT_ID, project_id=PROJECT_ID, kind="production"))
-        session.add(Device(id=DEVICE_ID, project_id=PROJECT_ID, platform="android"))
+        session.add(Device(
+            id=DEVICE_ID,
+            project_id=PROJECT_ID,
+            platform="android",
+            user_id=TEST_USER_ID,
+            bound_at=func.now(),
+        ))
         for key_id, label in ((KEY_ALPHA, "alpha"), (KEY_BETA, "beta")):
             session.add(
                 ProjectKey(
@@ -443,12 +457,11 @@ def test_a_stata_export_reaches_the_same_answers_through_the_same_pins(
 @pytest.fixture(scope="module")
 def export_api(export_db: str) -> Any:
     """The real app, with its session pointed at this module's database."""
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(export_db))
+    install_api_overrides(app, database_of(export_db))
     yield app
-    app.dependency_overrides.pop(get_db, None)
+    remove_api_overrides(app)
 
 
 def _get(app: Any, url: str) -> Any:

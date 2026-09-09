@@ -45,7 +45,13 @@ from app.modules.crypto.envelope import (
     unwrap_content_key,
     wrap_to_recipients,
 )
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 MEDIA_DB = "dcp_test_media"
 
@@ -183,12 +189,11 @@ def media_api() -> Any:
     root = tempfile.TemporaryDirectory(prefix="dcp-media-test-")
     set_media_store(FilesystemMediaStore(pathlib.Path(root.name)))
 
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(_media_db_url()))
+    install_api_overrides(app, database_of(_media_db_url()))
     yield app, pathlib.Path(root.name)
-    app.dependency_overrides.pop(get_db, None)
+    remove_api_overrides(app)
     set_media_store(None)
     root.cleanup()
 

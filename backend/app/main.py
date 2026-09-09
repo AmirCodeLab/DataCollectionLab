@@ -13,10 +13,10 @@ from app.infrastructure.http_logging import HttpLoggingMiddleware, configure_log
 
 settings = get_settings()
 
-# Before anything is wired up: a deployment left on the published signing key
-# works perfectly and is forgeable by anyone. There is no later moment where
-# this becomes visible, so it is refused here.
-_refusal = refusal_for_published_secret(settings.environment, settings.jwt_secret)
+# Before anything is wired up: a deployment left on the published database
+# password works perfectly and is open to anyone. There is no later moment
+# where this becomes visible, so it is refused here.
+_refusal = refusal_for_published_secret(settings.environment, settings.database_url)
 if _refusal is not None:
     raise RuntimeError(_refusal)
 

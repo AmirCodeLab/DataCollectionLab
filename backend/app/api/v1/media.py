@@ -22,6 +22,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import Identity, access, bound_device
 from app.api.deps import get_db
 from app.modules.media import service
 from app.modules.media.schemas import (
@@ -63,7 +64,9 @@ def _refuse(error: service.MediaError) -> HTTPException:
     responses=_ERRORS,
 )
 async def open_upload_session(
-    request: MediaUploadSessionRequest, session: Annotated[AsyncSession, Depends(get_db)]
+    request: MediaUploadSessionRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    identity: Annotated[Identity, Depends(access(app=True))],
 ) -> MediaUploadSessionResponse:
     """Open, or resume, the upload of one file.
 
@@ -83,6 +86,7 @@ async def open_upload_session(
     documented here rather than declared for the same reason: only one body
     shape can be declared under one status.
     """
+    bound_device(identity, request.device_id)
     async with session.begin():
         try:
             return await service.open_session(session, request)
@@ -95,6 +99,7 @@ async def open_upload_session(
     response_model=MediaChunkResponse,
     response_model_by_alias=True,
     responses=_ERRORS,
+    dependencies=[Depends(access(app=True))],
 )
 async def put_chunk(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -130,6 +135,7 @@ async def put_chunk(
     response_model=MediaCompleteResponse,
     response_model_by_alias=True,
     responses=_ERRORS,
+    dependencies=[Depends(access(app=True))],
 )
 async def complete_upload(
     session: Annotated[AsyncSession, Depends(get_db)],

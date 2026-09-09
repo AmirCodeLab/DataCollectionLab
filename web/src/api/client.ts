@@ -52,8 +52,16 @@ export async function apiGet<T>(
   return (await response.json()) as T;
 }
 
+/** Fired on any 401. The layout listens and drops the cached session, so the
+ *  page returns to the sign-in form instead of showing a screen of failures.
+ *  The sign-in POST is excluded: a wrong password is not a lost session. */
+export const SIGNED_OUT_EVENT = "dcp:signed-out";
+
 /** FastAPI puts the useful part under `detail`; fall back to the status text. */
 async function failure(response: Response): Promise<ApiError> {
+  if (response.status === 401 && !response.url.endsWith("/auth/login")) {
+    window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  }
   let detail: unknown = `${response.status} ${response.statusText}`;
   try {
     const body: unknown = await response.json();

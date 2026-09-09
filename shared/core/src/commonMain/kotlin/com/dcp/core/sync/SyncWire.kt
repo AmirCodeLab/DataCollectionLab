@@ -274,6 +274,29 @@ data class WireFormVersionDocument(
  * works and the address is wrong: a phone pointed at staging syncs perfectly
  * and files a morning's interviews where nobody is looking for them.
  */
+/** POST /api/v1/auth/login, from a handset: an `app` session on this device. */
+@Serializable
+data class WireLoginRequest(
+    val username: String,
+    val password: String,
+    val kind: String = "app",
+    val deviceId: String,
+)
+
+/** What the login answers: who, and what they may do. Never a token — that
+ *  travels in Set-Cookie and lands in [SessionStore]. */
+@Serializable
+data class WireMe(
+    val userId: String,
+    val username: String? = null,
+    val displayName: String = "",
+    val sessionKind: String = "app",
+    val deviceId: String? = null,
+    val scopeKind: String = "none",
+    val permissions: List<String> = emptyList(),
+    val expiresAt: String = "",
+)
+
 @Serializable
 data class WireHealth(
     val status: String,

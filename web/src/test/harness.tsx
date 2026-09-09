@@ -19,6 +19,7 @@ import {
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
 
+import { PERMISSIONS, type Me } from "@/api/types";
 import { routeTree } from "@/app/router";
 
 /** A stubbed answer with a status the test chose. */
@@ -45,6 +46,20 @@ export interface Escapes {
   /** Restore the real sinks. */
   restore(): void;
 }
+
+/** The harness's default session: an admin, every permission. */
+export const SIGNED_IN_AS_ADMIN: Me = {
+  userId: "01USRADMIN",
+  username: "admin",
+  displayName: "Test Admin",
+  organizationId: "01ORGTEST",
+  organizationSlug: "test",
+  sessionKind: "console",
+  deviceId: null,
+  scopeKind: "organization",
+  permissions: [...PERMISSIONS],
+  expiresAt: "2099-01-01T00:00:00Z",
+};
 
 /** Wrap the storage, IndexedDB and fetch sinks so anything leaving is recorded.
  *
@@ -91,7 +106,13 @@ export function watchForEscapes(
     const url = String(input);
     const body = typeof init?.body === "string" ? init.body : "";
     requests.push(`${init?.method ?? "GET"} ${url} ${body}`);
-    const payload = handle(url, init);
+    // Signed in as an admin holding every permission unless the test answers
+    // `/auth/me` itself: the layout gates every screen on that query, and a
+    // page test is about the page. The gate has its own tests (LoginPage,
+    // Layout), where the handler answers 401 on purpose.
+    const answered = handle(url, init);
+    const payload =
+      answered === undefined && url === "/api/v1/auth/me" ? SIGNED_IN_AS_ADMIN : answered;
     if (payload instanceof Reply) {
       return Promise.resolve(
         new Response(JSON.stringify(payload.body), {

@@ -98,6 +98,21 @@ FORM_JSON = (
 ORG_ID, ORG_SLUG = "01ORGDEV", "dev"
 PROJECT_ID, PROJECT_SLUG = "01PROJDEV", "dev"
 ENVIRONMENT_IDS = {"development": "01ENVDEV", "staging": "01ENVSTG", "production": "01ENVPROD"}
+TEAM_ID, TEAM_NAME = "01TEAMDEV", "Team A"
+
+#: The people the chain is walked with (proposal §9): one of each role, and
+#: one waiting for approval. The password is published — it is the same kind
+#: of default as `dcp:dcp` — and the seed refuses to run outside development
+#: for exactly that reason.
+DEV_PASSWORD = "dcp-dev"
+PEOPLE: tuple[tuple[str, str, str, str, str | None, str], ...] = (
+    # id, username, display name, role suffix, team, membership status
+    ("01USRADMIN", "admin", "Dev Admin", "admin", None, "active"),
+    ("01USRPM", "pm", "Dev Programme Manager", "pm", None, "active"),
+    ("01USRSUPER", "supervisor", "Dev Supervisor", "supervisor", TEAM_ID, "active"),
+    ("01USRENUM", "enumerator", "Dev Enumerator", "enumerator", TEAM_ID, "active"),
+    ("01USRPENDING", "pending", "Waiting Enumerator", "enumerator", TEAM_ID, "pending_approval"),
+)
 FORM_ID = "01FORMHH"
 FORM_VERSION_ID = "01FORMHHV1"
 
@@ -111,10 +126,23 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
     from sqlalchemy import select, text
 
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
+    from app.core.config import get_settings
     from app.infrastructure.database import Principal, create_engine, session_as
-    from app.modules.auth.models import PlatformOrganization
+    from app.modules.auth.models import (
+        PlatformOrganization,
+        PlatformOrgMembership,
+        PlatformUser,
+        UserRole,
+    )
+    from app.modules.auth.passwords import hash_password
     from app.modules.forms import service as forms_service
-    from app.modules.projects.models import Environment, Project
+    from app.modules.projects.models import Environment, Project, ProjectMember, Team
+
+    if get_settings().environment != "development":
+        raise SystemExit(
+            f"Refusing to seed: environment is {get_settings().environment!r}, not "
+            "'development'. The seed creates people whose password is published."
+        )
 
     ir: dict[str, Any] = json.loads(FORM_JSON.read_text())
     form_key, version = str(ir["formId"]), int(ir["version"])
@@ -221,6 +249,66 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
                     session.add(Environment(id=env_id, project_id=project.id, kind=kind))
                 _report(kind not in existing_kinds, "environment", kind)
 
+            await session.flush()
+
+            # The people. Created the way provisioning will create them — as
+            # rows under the policies — and matched by username so a re-run
+            # changes nothing. The pending one is the approval flow's fixture:
+            # refused at login by the session policy, approved by an admin,
+            # then pushing.
+            team = await session.get(Team, TEAM_ID)
+            team_created = team is None
+            if team is None:
+                team = Team(id=TEAM_ID, project_id=project.id, name=TEAM_NAME)
+                session.add(team)
+                await session.flush()
+            _report(team_created, "team", TEAM_NAME)
+            for user_id, username, display_name, role_suffix, team_id, status in PEOPLE:
+                user = (
+                    await session.execute(
+                        select(PlatformUser).where(PlatformUser.username == username)
+                    )
+                ).scalar_one_or_none()
+                created = user is None
+                if user is None:
+                    user = PlatformUser(
+                        id=user_id,
+                        organization_id=ORG_ID,
+                        username=username,
+                        display_name=display_name,
+                        password_hash=hash_password(DEV_PASSWORD),
+                    )
+                    session.add(user)
+                    await session.flush()
+                    session.add(
+                        PlatformOrgMembership(
+                            organization_id=ORG_ID,
+                            user_id=user.id,
+                            org_role="admin" if role_suffix == "admin" else "member",
+                            status=status,
+                        )
+                    )
+                    role_id = f"{ORG_ID}_{role_suffix}"
+                    scope_kind = {"admin": "organization", "pm": "project"}.get(
+                        role_suffix, "team"
+                    )
+                    session.add(
+                        UserRole(
+                            id=f"{user.id}_ROLE",
+                            user_id=user.id,
+                            role_id=role_id,
+                            scope_kind=scope_kind,
+                            project_id=project.id if scope_kind == "project" else None,
+                            team_id=team_id if scope_kind == "team" else None,
+                        )
+                    )
+                    if role_suffix != "admin":
+                        session.add(
+                            ProjectMember(project_id=project.id, user_id=user.id, team_id=team_id)
+                        )
+                    await session.flush()
+                _report(created, "user", f"{username} ({role_suffix}, {status})")
+
             # Through the same gate the API uses, so the seed cannot install a
             # form the publish endpoint would refuse — including one with a
             # sensitivity leak (encryption envelope §5.2). A published version
@@ -251,6 +339,10 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
                 print(f"    warning: {warning}")
     finally:
         await engine.dispose()
+    print(
+        f"  sign in as any of {', '.join(p[1] for p in PEOPLE)} with the password "
+        f"{DEV_PASSWORD!r} (published; development only)"
+    )
 
 
 if __name__ == "__main__":

@@ -20,7 +20,13 @@ from contextlib import asynccontextmanager
 import pytest
 
 from app.modules.entities.service import row_hash, version_checksum
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 
 def test_the_same_row_hashes_the_same_whatever_order_its_keys_arrive_in() -> None:
@@ -391,10 +397,9 @@ def _api(method: str, url: str, database_url: str, **kwargs):  # noqa: ANN202
 
     import httpx
 
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(database_url))
+    install_api_overrides(app, database_of(database_url))
 
     async def main():  # noqa: ANN202
         transport = httpx.ASGITransport(app=app)
@@ -404,7 +409,7 @@ def _api(method: str, url: str, database_url: str, **kwargs):  # noqa: ANN202
     try:
         return asyncio.run(main())
     finally:
-        app.dependency_overrides.pop(get_db, None)
+        remove_api_overrides(app)
 
 
 @pytest.mark.db

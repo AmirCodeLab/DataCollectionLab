@@ -5,6 +5,9 @@ import { queryOptions } from "@tanstack/react-query";
 import { ApiError, apiGet, apiPost, apiPut } from "./client";
 import type {
   CompileResponse,
+  LoginRequest,
+  LogoutResponse,
+  Me,
   CreateFormRequest,
   DraftDocument,
   ExpressionRequest,
@@ -26,6 +29,26 @@ import type {
   SubmissionListResponse,
   SubmissionStatus,
 } from "./types";
+
+/** Who this session is. One query, read by the layout to gate every screen
+ *  and by each screen to decide what to render; a 401 anywhere invalidates
+ *  it (client.ts), which is how a session revoked under the page ends up at
+ *  the sign-in form rather than at a screen full of failed requests. */
+export const ME_QUERY_KEY = ["auth", "me"] as const;
+
+export const meQuery = () =>
+  queryOptions({
+    queryKey: ME_QUERY_KEY,
+    queryFn: () => apiGet<Me>("/api/v1/auth/me"),
+    // A session is not something to poll for; it changes when this tab
+    // signs in or out, and both write the cache directly.
+    staleTime: Infinity,
+    retry: false,
+  });
+
+export const login = (request: LoginRequest) => apiPost<Me>("/api/v1/auth/login", request);
+
+export const logout = () => apiPost<LogoutResponse>("/api/v1/auth/logout", {});
 
 /** How often an auto-refreshing view re-reads. Field syncs are not fast. */
 export const REFRESH_INTERVAL_MS = 10_000;

@@ -26,6 +26,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from sqlalchemy import func
 
 from app.modules.crypto.envelope import (
     EnvelopeError,
@@ -36,7 +37,14 @@ from app.modules.crypto.envelope import (
     unwrap_content_key,
     wrap_to_recipients,
 )
-from tests.identity_fixtures import ORG_ID, api_session_override, database_of, ensure_organization
+from tests.identity_fixtures import (
+    ORG_ID,
+    TEST_USER_ID,
+    database_of,
+    ensure_organization,
+    install_api_overrides,
+    remove_api_overrides,
+)
 
 CRYPTO_DB = "dcp_test_crypto"
 
@@ -106,7 +114,13 @@ async def _seed(security_mode: str) -> None:
                 Form(id="01FORMCRYPTO", project_id=PROJECT_ID, form_key=FORM_KEY, title="Intake")
             )
             for device_id in (DEVICE_A, DEVICE_B):
-                session.add(Device(id=device_id, project_id=PROJECT_ID, platform="android"))
+                session.add(Device(
+                    id=device_id,
+                    project_id=PROJECT_ID,
+                    platform="android",
+                    user_id=TEST_USER_ID,
+                    bound_at=func.now(),
+                ))
             # Two recipients: a lost private key means permanently unrecoverable
             # data, and multi-recipient wrapping is the answer (envelope §4.3).
             session.add(
@@ -175,12 +189,11 @@ def crypto_api() -> Any:
 
     asyncio.run(_seed("project_e2e"))
 
-    from app.api.deps import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = api_session_override(database_of(_crypto_db_url()))
+    install_api_overrides(app, database_of(_crypto_db_url()))
     yield app
-    app.dependency_overrides.pop(get_db, None)
+    remove_api_overrides(app)
 
     async def drop() -> None:
         conn = await asyncpg.connect(_admin_dsn())

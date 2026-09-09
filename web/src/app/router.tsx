@@ -15,6 +15,7 @@ import { ProjectsPage } from "@/pages/ProjectsPage";
 import { ProjectKeysPage } from "@/pages/ProjectKeysPage";
 import { FormsPage } from "@/pages/FormsPage";
 import { BuilderPage } from "@/pages/BuilderPage";
+import { LoginPage } from "@/pages/LoginPage";
 
 export const PAGE_SIZE = 50;
 
@@ -37,6 +38,12 @@ const indexRoute = createRoute({
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw redirect({ to: "/submissions", search: {} });
   },
+});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  component: LoginPage,
 });
 
 const submissionsRoute = createRoute({
@@ -101,6 +108,7 @@ const builderRoute = createRoute({
  *  the browser history this module's `router` is bound to. */
 export const routeTree = rootRoute.addChildren([
   indexRoute,
+  loginRoute,
   submissionsRoute,
   submissionRoute,
   projectsRoute,

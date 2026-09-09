@@ -24,8 +24,18 @@ import httpx
 import pytest
 
 from app.main import app
+from tests.identity_fixtures import install_identity_override, remove_api_overrides
 
 VECTORS = pathlib.Path(__file__).resolve().parents[2] / "conformance" / "vectors"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def signed_in() -> Any:
+    """These routes are guarded like every other (`form.edit`); what they
+    answer is the engine's business, and the guard is tested elsewhere."""
+    install_identity_override(app)
+    yield
+    remove_api_overrides(app)
 
 
 def call(method: str, url: str, **kwargs: Any) -> httpx.Response:

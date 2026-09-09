@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.access import access
 from app.api.deps import get_db
 from app.api.schemas import MessageError
 from app.modules.entities import service
@@ -39,6 +40,7 @@ MAX_ROW_LIMIT = 10_000
     response_model=DatasetRowsPage,
     response_model_by_alias=True,
     responses={404: {"model": MessageError}},
+    dependencies=[Depends(access(app=True, permission=("form.edit", "submission.view")))],
 )
 async def dataset_rows(
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -108,6 +110,7 @@ async def dataset_rows(
         "understands — and re-sending the whole list would make that state look "
         "fine. 'No changes' and 'I could not ask' must not be the same silence."
     ),
+    dependencies=[Depends(access(app=True, permission=("form.edit", "submission.view")))],
 )
 async def dataset_delta(
     session: Annotated[AsyncSession, Depends(get_db)],
