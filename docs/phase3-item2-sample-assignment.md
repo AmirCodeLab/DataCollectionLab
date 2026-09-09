@@ -1,6 +1,7 @@
 # Item 2 — sample assignment and supervisor isolation: the analysis, before the schema
 
-**Status:** analysis, 9 September 2026. Nothing here is implemented. It answers
+**Status:** analysis, 9 September 2026, approved the same day with A1–A7
+(A4 with the escaping rule). The schema is migration 012. It answers
 the three questions asked before any route is written, and the one asked
 before those: what would pass every test. The decisions it rests on are pilot
 scope §4 (`docs/phase3-pilot-scope.md`), the Form IR's `_metadata.case_key`
@@ -156,12 +157,17 @@ visit            one per collection event against the case (ERD §5)
 - **Composite keys are composed at upload** (pilot scope §4.4, decided
   here): the upload names the key columns in order (`keyColumns:
   ["settlementCode", "structureId", "hhId"]`), the importer joins them with
-  `|` into `record_key`, and the parts stay as ordinary columns. Composition
-  over widening the schema because a case key is an identity the enumerator
-  never types and the roster filter compares whole (`$row.case_key =
-  _metadata.case_key`); a three-column identity would be three comparisons in
-  every place one is enough. The rule is recorded on the dataset (`key_columns`
-  beside the existing `key_column`), so an export can split it back.
+  `|` into `record_key` **under Form IR §3.1's escaping rule** — `\` written
+  `\\`, `|` written `\|`, split left to right — and the parts stay as
+  ordinary columns. The escape is in the spec, not the importer, for the
+  reason §3.1's exact-match rule is: a part is the cell's value exactly and
+  may contain a pipe, and without the escape `("A|B")` and `("A", "B")`
+  collide into one key silently. Composition over widening the schema because
+  a case key is an identity the enumerator never types and the roster filter
+  compares whole (`$row.case_key = _metadata.case_key`); a three-column
+  identity would be three comparisons in every place one is enough. The
+  columns are recorded on the dataset (`key_columns` beside the existing
+  `key_column`), so an export can split the key back.
 - **Two assignment levels, one table.** The programme manager assigns cases
   to a team (`team_id`); the supervisor assigns their team's cases to a person
   (`user_id`). Both are rows in `assignment`, distinguished by which column is
@@ -475,8 +481,10 @@ start from a case, and the "No longer assigned to you" section.
 - **A3.** A case is assigned to at most one team and at most one person at a
   time. Two enumerators on one household is two visits on one case held by
   one of them, or the case moved between them; it is not two live holders.
-- **A4.** The composite key is composed at upload with `|`, and recorded so
-  it can be split (§3.1). The parts remain columns.
+- **A4.** The composite key is composed at upload with `|` under Form IR
+  §3.1's escaping rule (backslash escapes; approved with the escape added 9
+  September 2026), and recorded so it can be split (§3.1). The parts remain
+  columns.
 - **A5.** A sample's writable columns (`upMemberAge` and the rest,
   `docs/rcons-current-system.md` §6) are answers, not sample edits: the import
   leaves them out of the dataset and the form collects them. Nothing in this

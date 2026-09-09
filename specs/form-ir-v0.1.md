@@ -419,6 +419,24 @@ So the two are one decision, not two. A key of `"moshi "` and a key of
 A key that is empty, or contains only whitespace, is refused: a row with no
 identity cannot be selected, referred to, or deleted in a later version.
 
+**A composite key is the parts joined with `|`, escaped.** A sample whose row
+identity is several columns (RCons's `settlementCode + structureId + hhId`)
+is published against a key composed from them, in the order the publisher
+names the columns: each part has `\` written as `\\` and `|` written as `\|`,
+and the escaped parts are joined with a single `|`. Splitting reads left to
+right: a backslash takes the next character literally, an unescaped `|` is a
+boundary. The escape is the rule, not the importer's choice, for the reason
+the exact-match rule above is: a part is the cell's value exactly, and a value
+may contain a pipe. Without the escape `("A|B")` as one column and
+`("A", "B")` as two compose to the same key, silently, and an export that
+splits the key back gets a different row. Doubling the pipe instead of
+escaping it is not enough — `("A|", "B")` and `("A", "|B")` would both read
+`A|||B` — which is why the escape character is a backslash and the backslash
+escapes itself. Every part is held to the rule above: an empty or
+whitespace-only part refuses the row, naming the column. The parts stay as
+ordinary columns of the row; the composed key is what `_metadata.case_key`
+carries and what a `rowSource` filter compares whole.
+
 Keys that differ from one another *only* by surrounding whitespace or by case
 are **reported at publish and not merged**. They are almost always a data
 error — the same village entered twice — but merging them would be the platform
