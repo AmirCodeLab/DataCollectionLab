@@ -88,6 +88,33 @@ describe("the sign-in page", () => {
   });
 });
 
+describe("a person the console has nothing for", () => {
+  it("is told their work is on the handset, not shown a screen of refusals", async () => {
+    let signedIn = false;
+    escapes = watchForEscapes((url, init) => {
+      if (url.startsWith("/health")) return { status: "ok", environment: "test" };
+      if (url === "/api/v1/auth/login" && init?.method === "POST") {
+        signedIn = true;
+        return { ...SIGNED_IN_AS_ADMIN, permissions: [], displayName: "Amina" };
+      }
+      if (url === "/api/v1/auth/me") {
+        return signedIn
+          ? { ...SIGNED_IN_AS_ADMIN, permissions: [], displayName: "Amina" }
+          : reply(401, { detail: { reason: "not_signed_in", message: "" } });
+      }
+      return undefined;
+    });
+    renderAt("/login");
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "amina" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText(/Your work is on the handset/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Submissions" })).not.toBeInTheDocument();
+    // Nothing was asked of the API that the person may not ask.
+    expect(escapes.requests.some((r) => r.includes("/api/v1/submissions"))).toBe(false);
+  });
+});
+
 describe("the gate", () => {
   it("sends a visitor with no session to the sign-in form", async () => {
     escapes = watchForEscapes(makeServer());

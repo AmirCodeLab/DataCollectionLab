@@ -18,29 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { SIGNED_OUT_EVENT } from "@/api/client";
 import { healthQuery, logout, ME_QUERY_KEY, meQuery } from "@/api/queries";
-import type { Permission } from "@/api/types";
-import { may } from "@/lib/permissions";
-
-/** What each section needs: any one of these opens it. */
-const NAV: ReadonlyArray<{
-  to: "/submissions" | "/projects" | "/forms" | "/people" | "/roles";
-  label: string;
-  any: Permission[];
-}> = [
-  { to: "/submissions", label: "Submissions", any: ["submission.view"] },
-  {
-    to: "/projects",
-    label: "Projects",
-    any: ["project.manage", "form.edit", "form.publish", "sample.upload", "team.manage"],
-  },
-  { to: "/forms", label: "Forms", any: ["form.edit", "form.publish", "submission.view"] },
-  {
-    to: "/people",
-    label: "People",
-    any: ["user.create", "user.approve", "user.deactivate", "user.assign_role", "team.manage"],
-  },
-  { to: "/roles", label: "Roles", any: ["user.assign_role"] },
-];
+import { homeFor, sectionsFor } from "@/lib/permissions";
 
 export function Layout() {
   const health = useQuery(healthQuery());
@@ -75,15 +53,17 @@ export function Layout() {
   });
 
   const signedIn = me.data ?? null;
+  const sections = signedIn ? sectionsFor(signedIn) : [];
+  const home = signedIn ? homeFor(signedIn) : null;
 
   useEffect(() => {
     if (!onLoginPage && !me.isPending && signedIn === null) {
       void navigate({ to: "/login" });
     }
     if (onLoginPage && signedIn !== null) {
-      void navigate({ to: "/submissions", search: {} });
+      void navigate({ to: home ?? "/", search: {} });
     }
-  }, [onLoginPage, me.isPending, signedIn, navigate]);
+  }, [onLoginPage, me.isPending, signedIn, home, navigate]);
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -93,7 +73,7 @@ export function Layout() {
         </Link>
         {signedIn && (
           <nav className="text-sm text-slate-600">
-            {NAV.filter((item) => may(signedIn, ...item.any)).map((item, index) => (
+            {sections.map((item, index) => (
               <Link
                 key={item.to}
                 to={item.to}
@@ -131,7 +111,18 @@ export function Layout() {
         </span>
       </header>
       <main className="px-6 py-5">
-        {onLoginPage || signedIn ? (
+        {signedIn && sections.length === 0 ? (
+          // An enumerator: their access is their handset's session, not a
+          // console permission (pilot scope §3.5). Saying so beats a screen
+          // of refused requests.
+          <section aria-label="nothing to do here" className="max-w-lg text-sm">
+            <h1 className="text-xl font-semibold">Signed in as {signedIn.displayName}</h1>
+            <p className="mt-2 text-slate-700">
+              Your account holds no console permissions. Your work is on the handset: sign in
+              there with the same username and password, and sync.
+            </p>
+          </section>
+        ) : onLoginPage || signedIn ? (
           <Outlet />
         ) : me.isPending ? (
           <p className="text-sm text-slate-500">Checking your session…</p>

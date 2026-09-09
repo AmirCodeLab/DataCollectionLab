@@ -99,6 +99,7 @@ ORG_ID, ORG_SLUG = "01ORGDEV", "dev"
 PROJECT_ID, PROJECT_SLUG = "01PROJDEV", "dev"
 ENVIRONMENT_IDS = {"development": "01ENVDEV", "staging": "01ENVSTG", "production": "01ENVPROD"}
 TEAM_ID, TEAM_NAME = "01TEAMDEV", "Team A"
+TEAM_B_ID, TEAM_B_NAME = "01TEAMDEVB", "Team B"
 
 #: The people the chain is walked with (proposal §9): one of each role, and
 #: one waiting for approval. The password is published — it is the same kind
@@ -112,6 +113,10 @@ PEOPLE: tuple[tuple[str, str, str, str, str | None, str], ...] = (
     ("01USRSUPER", "supervisor", "Dev Supervisor", "supervisor", TEAM_ID, "active"),
     ("01USRENUM", "enumerator", "Dev Enumerator", "enumerator", TEAM_ID, "active"),
     ("01USRPENDING", "pending", "Waiting Enumerator", "enumerator", TEAM_ID, "pending_approval"),
+    # A second team, so that "a supervisor sees only their team" has a team
+    # not to see, and an admin has both to see (pilot scope §4.2).
+    ("01USRSUPERB", "supervisor-b", "Dev Supervisor B", "supervisor", TEAM_B_ID, "active"),
+    ("01USRENUMB", "enumerator-b", "Dev Enumerator B", "enumerator", TEAM_B_ID, "active"),
 )
 FORM_ID = "01FORMHH"
 FORM_VERSION_ID = "01FORMHHV1"
@@ -288,13 +293,13 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
             # changes nothing. The pending one is the approval flow's fixture:
             # refused at login by the session policy, approved by an admin,
             # then pushing.
-            team = await session.get(Team, TEAM_ID)
-            team_created = team is None
-            if team is None:
-                team = Team(id=TEAM_ID, project_id=project.id, name=TEAM_NAME)
-                session.add(team)
-                await session.flush()
-            _report(team_created, "team", TEAM_NAME)
+            for seed_team_id, team_name in ((TEAM_ID, TEAM_NAME), (TEAM_B_ID, TEAM_B_NAME)):
+                team = await session.get(Team, seed_team_id)
+                team_created = team is None
+                if team is None:
+                    session.add(Team(id=seed_team_id, project_id=project.id, name=team_name))
+                    await session.flush()
+                _report(team_created, "team", team_name)
             for user_id, username, display_name, role_suffix, team_id, status in PEOPLE:
                 user = (
                     await session.execute(

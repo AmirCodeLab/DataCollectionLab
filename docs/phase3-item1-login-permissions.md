@@ -3,9 +3,10 @@
 **Status:** implemented, 9 September 2026 — the schema (§2, §4, §7) on PR #40,
 the connection layer (§2.3, §2.4) on PR #41, and the login (§3, §4, §5's
 per-person scope, `require` as `access(...)` with a route-table lint) on the
-PR after. Not yet: the console's users, teams, roles and approval screens
-(§9), which the seed and psql stand in for. The document is kept as written,
-as the decision record. The decisions it rests on are the ones in
+PR after, and the people screens (§9: users, teams, roles, the approval
+queue) on the one after that, with migration 0010 putting the person's
+authority on the principal so the database decides what the screens offer.
+Item 1 is complete. The document is kept as written, as the decision record. The decisions it rests on are the ones in
 `docs/phase3-pilot-scope.md` §3 from the design session plus the three below;
 what this document adds is the DDL those decisions become, what in the
 current schema and runtime has to move for them, and the questions the DDL
