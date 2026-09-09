@@ -384,7 +384,7 @@ The reference scheme: per-submission AES-256-GCM key; instance data and each med
 
 | Model | Approach |
 |---|---|
-| SaaS | Schema-per-tenant in shared PostgreSQL, with application authorization and database controls |
+| SaaS | Shared PostgreSQL schema; isolation by row-level security set from the connection (ERD §1, decided 7 September 2026 — it replaced schema-per-tenant because scope authorization needs the same mechanism), plus application authorization |
 | Enterprise / private cloud | Dedicated database or infrastructure |
 | Self-hosted | Dedicated installation |
 
@@ -689,7 +689,7 @@ The critical expertise is form engineering, offline synchronisation, data modell
 | Entities | First-class entity / relationship / case / visit model |
 | Analytics | PostgreSQL → Parquet / DuckDB |
 | Events | Transactional outbox |
-| Tenancy | Schema-per-tenant (SaaS); dedicated (enterprise, self-host) |
+| Tenancy | Shared schema with row-level security (SaaS, ERD §1); dedicated (enterprise, self-host) |
 | Self-hosting | In scope from v1 packaging; a product differentiator, not an ops note |
 | Migration Center | Phase 1, customer-facing, with compatibility report |
 | Microservices / Kafka / Kubernetes | Deferred until measured need |

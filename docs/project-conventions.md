@@ -887,7 +887,9 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    after, closing the gap under the publish gate the scope doc's §0 describes
    — `conformance/reachability` is the six shapes it probed, and
    `docs/known-breaks.md` 133–136 the guards; step 7 (preview, trace, test
-   mode) is not started
+   mode) landed 7 September 2026 on the handset's engine compiled to Wasm
+   (PR #36, breaks 137–150). **Item 0 is done**; what it leaves behind is one
+   list in the scope doc, "What item 0 leaves behind", and defects 22–25
 1. **Login and permissions.** Everything below depends on it. A user belongs to
    the organization, not to a project; a role is a set of permissions plus a
    scope, never a hard-coded branch, and every console screen checks a permission

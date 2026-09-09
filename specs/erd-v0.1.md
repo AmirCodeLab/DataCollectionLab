@@ -7,30 +7,137 @@
 
 ---
 
-## 1. Tenancy
+## 1. Tenancy and isolation
 
-Two schema families:
+**Decided 7 September 2026: one shared schema, isolation by row-level
+security set from the connection.** This section replaced schema-per-tenant
+in its own commit, with the reason below, the way Form IR §6.2 and §10.3 were
+changed — a decision, not an edit.
+
+Two table families remain:
 
 | Prefix | Scope | Contents |
 |---|---|---|
-| `platform_*` | Global, one instance | Organisations, user accounts, org membership |
-| everything else | One schema per organisation | Projects, forms, submissions, everything operational |
+| `platform_*` | Global | Organisations, user accounts, org membership, sessions |
+| everything else | Operational, every organisation in the same tables | Projects, forms, submissions, everything operational |
 
-**Isolation is at the schema level.** Tenant tables carry no `organization_id`
-column, and a test enforces that.
+**Isolation is a policy in the database, not a filter in a query.** Every
+table in the schema has row-level security *enabled and forced*, with at least
+one policy. Three tables carry `organization_id` and are the roots every
+policy resolves through: `project` for everything operational
+(`form → project`, `submission → project`, `submission_op → submission →
+project`, …; a child's policy reads `project_id IN (SELECT id FROM project)`
+and inherits), `platform_user` — **a user belongs to one organisation**
+(pilot scope §3.1) and is as tenant-scoped as a submission — and `role`,
+because a custom role is an organisation's own (pilot scope §3.5) and a
+system-role table shared across tenants would be a second isolation model
+living beside the first, one of which gets forgotten; the standard roles are
+seeded per organisation at its creation, six rows duplicated being cheaper
+than an exception to the rule. A test enforces both halves: exactly those
+three carry `organization_id`, and no table lacks row-level security, FORCE,
+or a policy.
 
-The reasoning: with a shared table and a discriminator column, tenant isolation
-depends on every query remembering its `WHERE organization_id = ?`. One forgotten
-clause in one report leaks another customer's data. With schema-per-tenant, the
-connection's `search_path` decides, and a query that omits a filter simply
-cannot reach another tenant's rows.
+**The coverage test fails closed.** It enumerates `pg_tables`; a table it
+does not know with no policy is a failure, not a skip. The one exemption is
+`alembic_version`, named in the test with the reason: Alembic owns it, it
+holds no tenant data, and the application never reads it.
 
-The cost is that migrations run once per schema. That is a real operational
-burden at thousands of tenants, and it is the right trade for a product whose
-buyers include health ministries.
+**There is one connection factory** (`app/infrastructure/database.py`), and
+an AST lint in the shape of `test_form_version_has_one_writer.py` fails on
+any `create_async_engine`, `asyncpg.connect` or `postgresql://` literal
+outside it, naming the file and line. A second connection is a route around
+every policy above — an export script with its own engine is exactly the
+"one report nobody thought of" — so it is refused where it is written, not
+found where it leaks. `migrations/env.py` is the named exemption: migrations
+run as the owner, by design.
 
-SurveyCTO provisions a whole VM per customer. Schema-per-tenant gives most of
-that isolation at a fraction of the cost and provisioning time.
+**Cross-organisation login is resolved before authentication, never by an
+unrestricted table.** With a principal of nothing the application role can
+see no user, so the login flow must know the organisation before it reads
+`platform_user`: from the hostname (per-customer hostnames, as SurveyCTO
+does) or from an organisation identifier in the login form, set on the
+connection as `app.org_slug` so that one organisation row becomes visible and
+its id becomes `app.org_id`. This deployment is single-tenant with
+provisioning deliberately unbuilt, so the slug is the deployment's one
+organisation; **multi-tenant provisioning has to deliver the resolution, and
+nothing may be built in the meantime that reads a user without an
+organisation** — an unrestricted table "temporarily" is the shape the
+private-key fallback would have shipped in.
+
+The policies read the principal from the connection:
+
+```
+app.org_id            the organisation the session belongs to
+app.user_id           the person
+app.scope_kind        'organization' | 'project' | 'team' — the widest live grant
+app.visible_user_ids  comma-joined: the people whose work this principal may see
+```
+
+set by one layer (`app/infrastructure/database.py`) from the authenticated
+session, and by nothing else. **An absent principal is no access.** A policy
+compares through `coalesce(current_setting(name, true), '') <> ''` and never
+through `IS NOT NULL`, because a setting that has been set once in a session
+reads back as `''` for the rest of it, not NULL (probed 7 September 2026; see
+§1.1). A query with no principal set returns nothing, never everything, and a
+test holds that on a fresh connection and on a reused one.
+
+**The application connects as a non-owner, non-superuser role.** A superuser
+is exempt from row-level security and `FORCE` does not change that (probed:
+the owner role, a superuser, read every row with FORCE on). The isolation test
+asserts `NOT rolsuper` on its own connection before any other assertion; a
+suite connecting as the owner would pass every isolation test whether or not
+isolation worked.
+
+### 1.1 The principal is transaction-local, never session-level
+
+The settings above are set with `SET LOCAL` or `set_config(…, true)` inside
+the request's transaction, and never at session level. This is a rule with
+evidence, not a preference. Probed on 7 September 2026 through SQLAlchemy's
+asyncpg pool with one connection: a principal set with `is_local => true` was
+gone when the next request took the same connection (the setting read `''`,
+the policy returned zero rows); a principal set at session level
+(`is_local => false`) rode the connection into the next request and showed it
+another person's row. There is no reset step to optimise away, because the
+transaction's end is the reset; a session-level set anywhere reintroduces the
+leak. `docs/phase3-item1-login-permissions.md` §5.1 has the probe in full.
+
+### 1.2 What this replaced, and what changed the answer
+
+v0.1 as first written chose **schema-per-tenant**: one PostgreSQL schema per
+organisation, the connection's `search_path` deciding which `submission` the
+word names, and tenant tables carrying no `organization_id` so that a query
+which omitted a filter could not reach another customer's rows. The rationale
+was sound for the requirement it had: one forgotten `WHERE organization_id`
+in one report leaks another customer's data, and a schema boundary cannot be
+forgotten.
+
+**What changed is the requirement.** The ERD chose schema-per-tenant before
+scope authorization was one: the pilot scope (§3.5, §4.2) requires that a
+supervisor sees only their own team — their sample, their enumerators, their
+submissions, their rows in an export — and that this be a *scope* a query
+cannot skip, not a filter applied in the UI. A `search_path` cannot help
+inside a schema; the forgotten-`WHERE` failure the original rationale named
+recurs one level down, between two supervisors of the same organisation, on
+the first export nobody thought of. Row-level security answers that, and once
+it is there it answers the organisation boundary too, with the same
+mechanism, the same connection layer, and the same test. Schema-per-tenant on
+top of it would be two mechanisms for one property, the second paid for in
+per-schema migrations, provisioning, and — since the runtime never actually
+set a `search_path` — a table move out of `public` that was about to be
+scheduled.
+
+What the decision costs, stated: a policy is evaluated on every query, and a
+child table's policy is a subselect chain to `project` (indexes on
+`project_id` throughout, which the schema mostly has); and the whole property
+now rests on the application role never being the owner, which the test
+asserts first. It was never otherwise — a superuser could always name another
+schema — so this is not new exposure, only a named one. Enterprise and
+self-hosted deployments keep a dedicated database or installation
+(architecture §15), which is a stronger boundary than either mechanism.
+
+SurveyCTO provisions a whole VM per customer. Row-level security in a shared
+database gives an organisation and a team the same guarantee at a fraction of
+the cost, and gives it to the export as well as the screen.
 
 ## 2. Primary keys are client-generated ULIDs
 
