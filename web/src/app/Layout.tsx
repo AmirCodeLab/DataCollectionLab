@@ -22,7 +22,11 @@ import type { Permission } from "@/api/types";
 import { may } from "@/lib/permissions";
 
 /** What each section needs: any one of these opens it. */
-const NAV: ReadonlyArray<{ to: "/submissions" | "/projects" | "/forms"; label: string; any: Permission[] }> = [
+const NAV: ReadonlyArray<{
+  to: "/submissions" | "/projects" | "/forms" | "/people" | "/roles";
+  label: string;
+  any: Permission[];
+}> = [
   { to: "/submissions", label: "Submissions", any: ["submission.view"] },
   {
     to: "/projects",
@@ -30,6 +34,12 @@ const NAV: ReadonlyArray<{ to: "/submissions" | "/projects" | "/forms"; label: s
     any: ["project.manage", "form.edit", "form.publish", "sample.upload", "team.manage"],
   },
   { to: "/forms", label: "Forms", any: ["form.edit", "form.publish", "submission.view"] },
+  {
+    to: "/people",
+    label: "People",
+    any: ["user.create", "user.approve", "user.deactivate", "user.assign_role", "team.manage"],
+  },
+  { to: "/roles", label: "Roles", any: ["user.assign_role"] },
 ];
 
 export function Layout() {

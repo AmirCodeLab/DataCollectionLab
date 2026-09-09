@@ -19,9 +19,13 @@ Three rules, each somewhere a query cannot skip:
   nobody thought of.
 
 The organisation is known before any of this runs: the session this module is
-handed is already scoped to one (`app.api.access.get_db`), so `platform_user`
-is readable by username under the ordinary policy and never by an
-unrestricted read (ERD §1).
+handed is already scoped to one (`app.api.access.get_db`). A person is scoped
+too (010_people.sql: supervisor A does not see B's enumerators), which is why
+a login cannot read `platform_user` under the ordinary policy — there is no
+person on the connection yet. The five SECURITY DEFINER functions named in
+010 §2 are the only reads of a person without a principal, and this module is
+their only caller: find the login, find the session, compute the principal,
+name a refusal, note the login. Everything else here runs under the person's own policies.
 """
 
 from __future__ import annotations
@@ -31,13 +35,13 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import insert, select, text
+from sqlalchemy import insert, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ulid import new_ulid
 from app.infrastructure.database import Principal
-from app.modules.auth.models import PlatformSession, PlatformUser
+from app.modules.auth.models import PlatformSession
 from app.modules.auth.passwords import verify_password
 from app.modules.auth.schemas import LoginFailure
 from app.modules.projects.models import Device
@@ -95,67 +99,38 @@ def hash_token(token: str) -> str:
 # The principal a person's roles amount to
 # ---------------------------------------------------------------------------
 
-_SCOPE_SQL = text(
-    """
-    WITH RECURSIVE grants AS (
-        SELECT ur.scope_kind, ur.project_id, ur.team_id
-        FROM user_role ur
-        WHERE ur.user_id = :user_id AND ur.revoked_at IS NULL
-    ),
-    teams AS (
-        SELECT g.team_id AS id FROM grants g WHERE g.team_id IS NOT NULL
-        UNION
-        SELECT t.id FROM team t JOIN teams ON t.parent_team_id = teams.id
-    )
-    SELECT
-        (SELECT bool_or(scope_kind = 'organization') FROM grants) AS org_wide,
-        (SELECT bool_or(scope_kind = 'project') FROM grants) AS project_wide,
-        (SELECT bool_or(scope_kind = 'team') FROM grants) AS team_wide,
-        (SELECT coalesce(array_agg(DISTINCT pm.user_id), '{}')
-           FROM project_member pm
-          WHERE pm.status = 'active'
-            AND (pm.project_id IN (SELECT project_id FROM grants WHERE scope_kind = 'project')
-                 OR pm.team_id IN (SELECT id FROM teams))) AS visible
-    """
-)
+_PRINCIPAL_SQL = text("SELECT * FROM dcp_principal_for(:user_id)")
 
-_PERMISSIONS_SQL = text(
-    """
-    SELECT DISTINCT rp.permission
-    FROM user_role ur
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    WHERE ur.user_id = :user_id AND ur.revoked_at IS NULL
-    """
-)
+
+@dataclass(frozen=True)
+class Person:
+    """What the auth path knows about a person before their principal exists."""
+
+    id: str
+    organization_id: str
+    username: str | None
+    display_name: str
 
 
 async def principal_for(
-    session: AsyncSession, user: PlatformUser, org_slug: str
+    session: AsyncSession, person: Person, org_slug: str
 ) -> tuple[Principal, frozenset[str]]:
-    """The widest live grant decides `scope_kind`; the people in every granted
-    project and team (and its sub-teams) are `visible_user_ids`, plus the
-    person themself — one's own work is always one's own to see."""
-    row = (await session.execute(_SCOPE_SQL, {"user_id": user.id})).mappings().one()
-    if row["org_wide"]:
-        scope_kind = "organization"
-    elif row["project_wide"]:
-        scope_kind = "project"
-    elif row["team_wide"]:
-        scope_kind = "team"
-    else:
-        scope_kind = ""
-    visible = tuple(sorted({user.id, *row["visible"]}))
-    permissions = frozenset(
-        (await session.execute(_PERMISSIONS_SQL, {"user_id": user.id})).scalars()
-    )
+    """The principal a person's live grants amount to, computed by the
+    database (`dcp_principal_for`, 010 §2): the widest grant is the scope
+    kind; the people in every granted project and team are who they may see;
+    the union of their roles' permissions is what they may do."""
+    row = (await session.execute(_PRINCIPAL_SQL, {"user_id": person.id})).mappings().one()
     principal = Principal(
-        org_id=user.organization_id,
+        org_id=person.organization_id,
         org_slug=org_slug,
-        user_id=user.id,
-        scope_kind=scope_kind,
-        visible_user_ids=visible,
+        user_id=person.id,
+        scope_kind=row["scope_kind"],
+        visible_user_ids=tuple(row["visible_user_ids"] or ()),
+        permissions=tuple(row["permissions"] or ()),
+        project_ids=tuple(row["project_ids"] or ()),
+        team_ids=tuple(row["team_ids"] or ()),
     )
-    return principal, permissions
+    return principal, frozenset(principal.permissions)
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +152,21 @@ async def login(
     org_slug: str,
     ttl: timedelta,
 ) -> Login:
-    user = (
-        await session.execute(select(PlatformUser).where(PlatformUser.username == username))
-    ).scalar_one_or_none()
+    found = (
+        await session.execute(
+            text("SELECT * FROM dcp_login_lookup(:username)"), {"username": username}
+        )
+    ).mappings().one_or_none()
     # One answer for "no such person" and "wrong password", and the hash is
     # checked either way so the two take the same time.
-    if not verify_password(user.password_hash if user else None, password) or user is None:
+    if not verify_password(found["password_hash"] if found else None, password) or found is None:
         raise LoginRefused(401, "invalid_credentials", "Wrong username or password.")
+    user = Person(
+        id=found["id"],
+        organization_id=found["organization_id"],
+        username=found["username"],
+        display_name=found["display_name"],
+    )
 
     if kind == "app":
         if device_id is None:
@@ -221,11 +204,7 @@ async def login(
             raise
         status = (
             await session.execute(
-                text(
-                    "SELECT status FROM platform_org_membership "
-                    "WHERE user_id = :user_id AND organization_id = :org_id"
-                ),
-                {"user_id": user.id, "org_id": user.organization_id},
+                text("SELECT dcp_membership_status(:user_id)"), {"user_id": user.id}
             )
         ).scalar_one_or_none()
         if status == "pending_approval":
@@ -247,7 +226,7 @@ async def login(
         assert device is not None
         device.user_id = user.id
         device.bound_at = now
-    user.last_login_at = now
+    await session.execute(text("SELECT dcp_note_login(:user_id)"), {"user_id": user.id})
 
     principal, permissions = await principal_for(session, user, org_slug)
     identity = Identity(
@@ -279,34 +258,38 @@ async def resolve(
     longer active, because the policy on `platform_session` hides the row.
     """
     now = datetime.now(UTC)
-    row = (
+    found = (
         await session.execute(
-            select(PlatformSession).where(
-                PlatformSession.token_hash == hash_token(token),
-                PlatformSession.revoked_at.is_(None),
-                PlatformSession.expires_at > now,
-            )
+            text("SELECT * FROM dcp_session_lookup(:hash)"), {"hash": hash_token(token)}
         )
-    ).scalar_one_or_none()
-    if row is None:
+    ).mappings().one_or_none()
+    if found is None:
         return None
-    user = await session.get(PlatformUser, row.user_id)
-    if user is None:
-        return None
-    if row.last_used_at is None or now - row.last_used_at > TOUCH_INTERVAL:
-        row.last_used_at = now
-        row.expires_at = now + ttl
+    expires_at = found["expires_at"]
+    if found["last_used_at"] is None or now - found["last_used_at"] > TOUCH_INTERVAL:
+        expires_at = now + ttl
+        await session.execute(
+            update(PlatformSession)
+            .where(PlatformSession.id == found["session_id"])
+            .values(last_used_at=now, expires_at=expires_at)
+        )
+    user = Person(
+        id=found["user_id"],
+        organization_id=found["organization_id"],
+        username=found["username"],
+        display_name=found["display_name"],
+    )
     principal, permissions = await principal_for(session, user, org_slug)
     return Identity(
-        session_id=row.id,
+        session_id=found["session_id"],
         user_id=user.id,
         username=user.username,
         display_name=user.display_name,
-        kind=row.kind,
-        device_id=row.device_id,
+        kind=found["kind"],
+        device_id=found["device_id"],
         principal=principal,
         permissions=permissions,
-        expires_at=row.expires_at,
+        expires_at=expires_at,
     )
 
 

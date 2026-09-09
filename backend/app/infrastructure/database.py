@@ -95,13 +95,23 @@ class Principal:
     scope_kind: str = ""
     #: The people whose work this principal may see.
     visible_user_ids: tuple[str, ...] = ()
+    #: What this person may do (010_people.sql §1): the policies on people,
+    #: memberships, grants and roles read it, so a screen and the database
+    #: answer from the same list.
+    permissions: tuple[str, ...] = ()
+    #: The projects a project-scope grant names.
+    project_ids: tuple[str, ...] = ()
+    #: The teams a team-scope grant names, and their sub-teams.
+    team_ids: tuple[str, ...] = ()
 
     @classmethod
-    def organization(cls, org_id: str, *, slug: str = "") -> Principal:
+    def organization(
+        cls, org_id: str, *, slug: str = "", permissions: tuple[str, ...] = ()
+    ) -> Principal:
         """Organisation-wide scope: everything in one organisation, nothing
-        outside it. What a request carries until login exists (item 1's
-        remaining half), and what provisioning runs as."""
-        return cls(org_id=org_id, org_slug=slug, scope_kind="organization")
+        outside it. What provisioning runs as; with `permissions`, what an
+        organisation-wide administrator's session amounts to."""
+        return cls(org_id=org_id, org_slug=slug, scope_kind="organization", permissions=permissions)
 
     def as_settings(self) -> dict[str, str]:
         return {
@@ -110,6 +120,9 @@ class Principal:
             "user_id": self.user_id,
             "scope_kind": self.scope_kind,
             "visible_user_ids": ",".join(self.visible_user_ids),
+            "permissions": ",".join(self.permissions),
+            "project_ids": ",".join(self.project_ids),
+            "team_ids": ",".join(self.team_ids),
         }
 
 
@@ -118,15 +131,26 @@ class Principal:
 NOBODY = Principal()
 
 #: The settings, in the order the policies name them.
-PRINCIPAL_SETTINGS = ("app.org_id", "app.org_slug", "app.user_id", "app.scope_kind",
-                      "app.visible_user_ids")
+PRINCIPAL_SETTINGS = (
+    "app.org_id",
+    "app.org_slug",
+    "app.user_id",
+    "app.scope_kind",
+    "app.visible_user_ids",
+    "app.permissions",
+    "app.project_ids",
+    "app.team_ids",
+)
 
 _DECLARE_PRINCIPAL = text(
     "SELECT set_config('app.org_id', :org_id, true),"
     "       set_config('app.org_slug', :org_slug, true),"
     "       set_config('app.user_id', :user_id, true),"
     "       set_config('app.scope_kind', :scope_kind, true),"
-    "       set_config('app.visible_user_ids', :visible_user_ids, true)"
+    "       set_config('app.visible_user_ids', :visible_user_ids, true),"
+    "       set_config('app.permissions', :permissions, true),"
+    "       set_config('app.project_ids', :project_ids, true),"
+    "       set_config('app.team_ids', :team_ids, true)"
 )
 
 _READ_PRINCIPAL = "SELECT " + ", ".join(

@@ -121,13 +121,87 @@ def _report(created: bool, kind: str, name: str) -> None:
     print(f"  {'created' if created else 'exists '}  {kind}: {name}")
 
 
+async def _provision_organization(database: str | None) -> None:
+    """The organisation and its standard roles, as the owner.
+
+    Provisioning is the owner's job (ERD §1): the standard roles are seeded
+    per organisation at its creation — by 008 for the organisation that
+    existed then, here for a fresh database — and 010_people.sql makes them
+    the one thing no application principal may write. Idempotent by id.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.infrastructure.database import create_admin_engine
+
+    engine = create_admin_engine(database=database)
+    try:
+        async with async_sessionmaker(engine)() as session, session.begin():
+            created = await session.execute(
+                text(
+                    "INSERT INTO platform_organization (id, name, slug) "
+                    "VALUES (:id, 'Dev Organisation', :slug) ON CONFLICT (id) DO NOTHING"
+                ),
+                {"id": ORG_ID, "slug": ORG_SLUG},
+            )
+            _report(bool(getattr(created, "rowcount", 0)), "organisation", ORG_SLUG)
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO role (id, organization_id, name, scope_kind, builtin)
+                    SELECT :org || '_' || r.suffix, :org, r.name, r.scope_kind, true
+                    FROM (VALUES ('admin', 'Admin', 'organization'),
+                                 ('pm', 'Programme manager', 'project'),
+                                 ('supervisor', 'Supervisor', 'team'),
+                                 ('enumerator', 'Enumerator', 'team'))
+                         AS r(suffix, name, scope_kind)
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {"org": ORG_ID},
+            )
+            # Admin: everything. PM: everything but device.revoke. Supervisor
+            # (§3.2, 010 §3): creates enumerators in their own team, assigns
+            # sample, sees submissions. Enumerator: nothing — their access is
+            # their device's session.
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO role_permission (role_id, permission)
+                    SELECT r.id, p.name
+                    FROM role r,
+                         (VALUES ('user.create'), ('user.approve'), ('user.deactivate'),
+                                 ('user.assign_role'), ('team.manage'), ('sample.upload'),
+                                 ('sample.assign'), ('form.edit'), ('form.publish'),
+                                 ('form.deploy'), ('submission.view'), ('submission.review'),
+                                 ('export.download'), ('device.revoke'), ('project.manage'))
+                         AS p(name)
+                    WHERE r.organization_id = :org AND r.builtin AND (
+                        r.name = 'Admin'
+                        OR (r.name = 'Programme manager' AND p.name <> 'device.revoke')
+                        OR (r.name = 'Supervisor' AND p.name IN
+                            ('user.create', 'user.assign_role', 'sample.assign', 'submission.view'))
+                    )
+                    ON CONFLICT DO NOTHING
+                    """
+                ),
+                {"org": ORG_ID},
+            )
+    finally:
+        await engine.dispose()
+
+
 async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
-    from sqlalchemy import select, text
+    from sqlalchemy import select
 
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
     from app.core.config import get_settings
-    from app.infrastructure.database import Principal, create_engine, session_as
+    from app.infrastructure.database import (
+        Principal,
+        create_engine,
+        session_as,
+    )
     from app.modules.auth.models import (
         PlatformOrganization,
         PlatformOrgMembership,
@@ -135,6 +209,7 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
         UserRole,
     )
     from app.modules.auth.passwords import hash_password
+    from app.modules.auth.schemas import PERMISSIONS
     from app.modules.forms import service as forms_service
     from app.modules.projects.models import Environment, Project, ProjectMember, Team
 
@@ -151,65 +226,22 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
     # so an encrypting project is a DIFFERENT project, not this one changed.
     # Seeding it into its own database also keeps device self-registration
     # unambiguous: a deployment with two active projects refuses to guess.
-    # As the application role, with the organisation's own principal: the
-    # organisation row is admitted by slug (it does not exist yet) and by id
-    # (it does afterwards), and everything under it by the ordinary policies.
-    # The seed is the first thing to write through the policies rather than
-    # around them; provisioning that cannot pass them is a finding.
+    # Two halves. The organisation and its standard roles are provisioning,
+    # which is the owner's job (ERD §1; 010_people.sql: the standard roles
+    # are not the application's to make). Everything after — project,
+    # environments, people, form — runs as the application role with an
+    # administrator's authority, through the policies rather than around
+    # them: provisioning that cannot pass them is a finding.
+    await _provision_organization(database)
     engine = create_engine(database=database)
-    principal = Principal.organization(ORG_ID, slug=ORG_SLUG)
+    principal = Principal.organization(ORG_ID, slug=ORG_SLUG, permissions=tuple(PERMISSIONS))
     try:
         async with session_as(principal, engine=engine) as session, session.begin():
-            org = (
+            (
                 await session.execute(
                     select(PlatformOrganization).where(PlatformOrganization.slug == ORG_SLUG)
                 )
-            ).scalar_one_or_none()
-            if org is None:
-                org = PlatformOrganization(id=ORG_ID, name="Dev Organisation", slug=ORG_SLUG)
-                session.add(org)
-                await session.flush()
-                # The standard roles are an organisation's own and are seeded
-                # at its creation (008_identity.sql §4) — by the migration for
-                # an organisation that already existed, by whoever creates one
-                # otherwise. This is the only place the seed creates one.
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO role (id, organization_id, name, scope_kind, builtin)
-                        SELECT :org || '_' || r.suffix, :org, r.name, r.scope_kind, true
-                        FROM (VALUES ('admin', 'Admin', 'organization'),
-                                     ('pm', 'Programme manager', 'project'),
-                                     ('supervisor', 'Supervisor', 'team'),
-                                     ('enumerator', 'Enumerator', 'team'))
-                             AS r(suffix, name, scope_kind)
-                        """
-                    ),
-                    {"org": ORG_ID},
-                )
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO role_permission (role_id, permission)
-                        SELECT r.id, p.name
-                        FROM role r,
-                             (VALUES ('user.create'), ('user.approve'), ('user.deactivate'),
-                                     ('user.assign_role'), ('team.manage'), ('sample.upload'),
-                                     ('sample.assign'), ('form.edit'), ('form.publish'),
-                                     ('form.deploy'), ('submission.view'),
-                                     ('submission.review'), ('export.download'),
-                                     ('device.revoke')) AS p(name)
-                        WHERE r.organization_id = :org AND r.builtin AND (
-                            (r.name = 'Admin')
-                            OR (r.name = 'Programme manager' AND p.name <> 'device.revoke')
-                            OR (r.name = 'Supervisor'
-                                AND p.name IN ('user.create', 'sample.assign', 'submission.view'))
-                        )
-                        """
-                    ),
-                    {"org": ORG_ID},
-                )
-            _report(org in session.new, "organisation", ORG_SLUG)
+            ).scalar_one()
 
             project = (
                 await session.execute(select(Project).where(Project.slug == PROJECT_SLUG))

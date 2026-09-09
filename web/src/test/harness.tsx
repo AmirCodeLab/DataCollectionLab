@@ -58,6 +58,8 @@ export const SIGNED_IN_AS_ADMIN: Me = {
   deviceId: null,
   scopeKind: "organization",
   permissions: [...PERMISSIONS],
+  projectIds: [],
+  teamIds: [],
   expiresAt: "2099-01-01T00:00:00Z",
 };
 
