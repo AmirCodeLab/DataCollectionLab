@@ -108,7 +108,7 @@ def _report(created: bool, kind: str, name: str) -> None:
 
 async def seed(security_mode: str = "standard", database: str | None = None) -> None:
     # Deferred so sys.path points at backend/ before app imports resolve.
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     from sqlalchemy.ext.asyncio import create_async_engine
 
     import app.infrastructure.registry  # noqa: F401  (completes Base.metadata)
@@ -139,14 +139,49 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
                 )
             ).scalar_one_or_none()
             if org is None:
-                # Isolation is by schema and tenant tables carry no
-                # organization_id (ERD §1), so the organisation is not linked
-                # to the project by a column — schema_name is the link. Phase 0
-                # migrates everything into public, so that is where it points.
-                org = PlatformOrganization(
-                    id=ORG_ID, name="Dev Organisation", slug=ORG_SLUG, schema_name="public"
-                )
+                org = PlatformOrganization(id=ORG_ID, name="Dev Organisation", slug=ORG_SLUG)
                 session.add(org)
+                await session.flush()
+                # The standard roles are an organisation's own and are seeded
+                # at its creation (008_identity.sql §4) — by the migration for
+                # an organisation that already existed, by whoever creates one
+                # otherwise. This is the only place the seed creates one.
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO role (id, organization_id, name, scope_kind, builtin)
+                        SELECT :org || '_' || r.suffix, :org, r.name, r.scope_kind, true
+                        FROM (VALUES ('admin', 'Admin', 'organization'),
+                                     ('pm', 'Programme manager', 'project'),
+                                     ('supervisor', 'Supervisor', 'team'),
+                                     ('enumerator', 'Enumerator', 'team'))
+                             AS r(suffix, name, scope_kind)
+                        """
+                    ),
+                    {"org": ORG_ID},
+                )
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO role_permission (role_id, permission)
+                        SELECT r.id, p.name
+                        FROM role r,
+                             (VALUES ('user.create'), ('user.approve'), ('user.deactivate'),
+                                     ('user.assign_role'), ('team.manage'), ('sample.upload'),
+                                     ('sample.assign'), ('form.edit'), ('form.publish'),
+                                     ('form.deploy'), ('submission.view'),
+                                     ('submission.review'), ('export.download'),
+                                     ('device.revoke')) AS p(name)
+                        WHERE r.organization_id = :org AND r.builtin AND (
+                            (r.name = 'Admin')
+                            OR (r.name = 'Programme manager' AND p.name <> 'device.revoke')
+                            OR (r.name = 'Supervisor'
+                                AND p.name IN ('user.create', 'sample.assign', 'submission.view'))
+                        )
+                        """
+                    ),
+                    {"org": ORG_ID},
+                )
             _report(org in session.new, "organisation", ORG_SLUG)
 
             project = (
@@ -155,6 +190,7 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
             if project is None:
                 project = Project(
                     id=PROJECT_ID,
+                    organization_id=ORG_ID,
                     name="Dev Project",
                     slug=PROJECT_SLUG,
                     security_mode=security_mode,

@@ -36,6 +36,7 @@ from app.modules.crypto.envelope import (
     unwrap_content_key,
     wrap_to_recipients,
 )
+from tests.identity_fixtures import ORG_ID, ensure_organization
 
 CRYPTO_DB = "dcp_test_crypto"
 
@@ -89,8 +90,10 @@ async def _seed(security_mode: str) -> None:
     engine = create_async_engine(_crypto_db_url())
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
+            await ensure_organization(session)
             session.add(
                 Project(
+                    organization_id=ORG_ID,
                     id=PROJECT_ID,
                     name="Clinic Study",
                     slug="clinic-study",
@@ -103,11 +106,7 @@ async def _seed(security_mode: str) -> None:
                 Form(id="01FORMCRYPTO", project_id=PROJECT_ID, form_key=FORM_KEY, title="Intake")
             )
             for device_id in (DEVICE_A, DEVICE_B):
-                session.add(
-                    Device(
-                        id=device_id, project_id=PROJECT_ID, user_id="usr-1", platform="android"
-                    )
-                )
+                session.add(Device(id=device_id, project_id=PROJECT_ID, platform="android"))
             # Two recipients: a lost private key means permanently unrecoverable
             # data, and multi-recipient wrapping is the answer (envelope §4.3).
             session.add(
@@ -386,9 +385,7 @@ def test_encrypted_ops_survive_a_server_that_cannot_read_them(crypto_api: Any) -
     _run_with_client(crypto_api, scenario)
 
 
-def _decrypt(
-    pulled_ops: list[dict], keys: dict[str, Any], private_key: bytes
-) -> dict[str, Any]:
+def _decrypt(pulled_ops: list[dict], keys: dict[str, Any], private_key: bytes) -> dict[str, Any]:
     """The client side of envelope §7: unwrap, then fold, decrypting as we go."""
     content_keys: dict[str, bytes] = {}
     for key in keys["contentKeys"]:
@@ -507,9 +504,7 @@ def test_the_console_read_api_carries_everything_a_key_holder_needs(crypto_api: 
     ]
 
     async def scenario(client: Any) -> None:
-        result = await _push(
-            client, DEVICE_A, ops, [a.wrapped(submission), b.wrapped(submission)]
-        )
+        result = await _push(client, DEVICE_A, ops, [a.wrapped(submission), b.wrapped(submission)])
         assert result["rejected"] == []
 
         detail = (await client.get(f"/api/v1/submissions/{submission}")).json()
@@ -580,9 +575,9 @@ def test_a_key_added_later_opens_nothing_older(crypto_api: Any) -> None:
             _decrypt_from_console_api(detail, keys, latecomer.private_bytes_raw())
 
         # The keys that existed at collection time still open it, and always will.
-        assert _decrypt_from_console_api(
-            detail, keys, PRIMARY_PRIVATE.private_bytes_raw()
-        ) == {"resp_name": "collected first"}
+        assert _decrypt_from_console_api(detail, keys, PRIMARY_PRIVATE.private_bytes_raw()) == {
+            "resp_name": "collected first"
+        }
 
         # A submission collected after the rotation reaches all three.
         rotated = {
@@ -637,9 +632,7 @@ def test_a_repeated_nonce_is_refused_with_a_reason(crypto_api: Any) -> None:
         assert result["rejected"] == [{"opId": "01OPNONCE2", "reason": "nonce_reused"}]
 
         # The accepted op is untouched — a rejection is not a write.
-        rows = await _fetch(
-            f"SELECT id FROM submission_op WHERE submission_id = '{submission}'"
-        )
+        rows = await _fetch(f"SELECT id FROM submission_op WHERE submission_id = '{submission}'")
         assert [row["id"] for row in rows] == ["01OPNONCE1"]
 
         # And the same pair inside a single batch is caught too, before the
@@ -798,9 +791,7 @@ def test_field_level_keeps_the_non_sensitive_remainder_queryable(crypto_api: Any
     ]
 
     async def scenario(client: Any) -> None:
-        result = await _push(
-            client, DEVICE_A, encrypted + plaintext, [device.wrapped(submission)]
-        )
+        result = await _push(client, DEVICE_A, encrypted + plaintext, [device.wrapped(submission)])
         assert result["rejected"] == []
 
         # The fold holds exactly the non-sensitive answers, and nothing else.
@@ -912,9 +903,12 @@ def test_two_pushes_racing_for_one_nonce_still_get_a_reason(crypto_api: Any) -> 
         accepted = [op for r in outcomes for op in r["accepted"]]
         rejected = [op for r in outcomes for op in r["rejected"]]
         assert len(accepted) == 1, outcomes
-        assert rejected == [{"opId": next(
-            op for op in ("01OPRACE1", "01OPRACE2") if op not in accepted
-        ), "reason": "nonce_reused"}]
+        assert rejected == [
+            {
+                "opId": next(op for op in ("01OPRACE1", "01OPRACE2") if op not in accepted),
+                "reason": "nonce_reused",
+            }
+        ]
 
         # Exactly one row holds that nonce, which is the property that matters.
         rows = await _fetch(

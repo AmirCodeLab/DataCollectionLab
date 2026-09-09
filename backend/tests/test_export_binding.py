@@ -36,6 +36,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
+from tests.identity_fixtures import ORG_ID, ensure_organization
+
 pytestmark = pytest.mark.db
 
 EXPORT_DB = "dcp_test_export"
@@ -189,12 +191,11 @@ async def _seed(url: str) -> None:
     )
 
     async with _session(url) as session, session.begin():
-        session.add(Project(id=PROJECT_ID, name="Export", slug="export"))
+        await ensure_organization(session)
+        session.add(Project(organization_id=ORG_ID, id=PROJECT_ID, name="Export", slug="export"))
         await session.flush()
         session.add(Environment(id=ENVIRONMENT_ID, project_id=PROJECT_ID, kind="production"))
-        session.add(
-            Device(id=DEVICE_ID, project_id=PROJECT_ID, user_id=USER_ID, platform="android")
-        )
+        session.add(Device(id=DEVICE_ID, project_id=PROJECT_ID, platform="android"))
         for key_id, label in ((KEY_ALPHA, "alpha"), (KEY_BETA, "beta")):
             session.add(
                 ProjectKey(
@@ -229,9 +230,7 @@ async def _seed(url: str) -> None:
                 session,
                 project_id=PROJECT_ID,
                 ir=_roster_ir(number),
-                datasets=[
-                    DatasetPin(key="villages", dataset_version_id=pin.dataset_version_id)
-                ],
+                datasets=[DatasetPin(key="villages", dataset_version_id=pin.dataset_version_id)],
             )
             versions[number] = published.id
         await session.flush()
@@ -283,9 +282,7 @@ async def _seed(url: str) -> None:
                 {"op_kind": "finalize"},
             ]
             if number == 2:
-                ops.insert(
-                    0, {"op_kind": "set", "path": "head_name", "value": "Asha Mollel"}
-                )
+                ops.insert(0, {"op_kind": "set", "path": "head_name", "value": "Asha Mollel"})
             for op in ops:
                 counter += 1
                 session.add(
@@ -351,9 +348,7 @@ def test_columns_are_the_union_and_a_v1_submission_is_not_read_through_v2(
     assert rows["sub_on_v1"]["form_version"] == 1
 
     described = {
-        column.column: column
-        for table in bundle.manifest.tables
-        for column in table.columns
+        column.column: column for table in bundle.manifest.tables for column in table.columns
     }
     assert described["head_name"].versions == (2,)
     assert described["village"].versions == (1, 2)
@@ -376,9 +371,7 @@ def test_an_encrypted_answer_exports_as_the_token_and_names_the_keys_that_open_i
     assert rows["sub_on_v1"]["income"] == ENCRYPTED
 
     described = {
-        column.column: column
-        for table in bundle.manifest.tables
-        for column in table.columns
+        column.column: column for table in bundle.manifest.tables for column in table.columns
     }
     assert described["income"].unreadable == "encrypted"
     assert described["income"].openable_by == (KEY_ALPHA, KEY_BETA)
@@ -388,7 +381,7 @@ def test_an_encrypted_answer_exports_as_the_token_and_names_the_keys_that_open_i
 def test_an_unknown_form_is_none_and_a_filter_that_matches_nothing_is_an_empty_file(
     export_db: str,
 ) -> None:
-    """"No such form" and "no submissions" are different answers.
+    """ "No such form" and "no submissions" are different answers.
 
     A customer whose filter matched nothing needs a file with its columns in it,
     not an error; a customer who mistyped the form key needs to be told.
@@ -434,9 +427,7 @@ def test_a_stata_export_reaches_the_same_answers_through_the_same_pins(
     assert read["sub_on_v1"].top["income"] == ENCRYPTED
 
     described = {
-        column.column: column
-        for table in bundle.manifest.tables
-        for column in table.columns
+        column.column: column for table in bundle.manifest.tables for column in table.columns
     }
     assert described["income"].storage_type == "string"
     assert described["income"].declared_storage_type == "numeric"

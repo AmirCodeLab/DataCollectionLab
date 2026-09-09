@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from app.modules.crypto.envelope import is_usable_recipient_key
 from app.modules.projects.schemas import ProjectKeyCreate
+from tests.identity_fixtures import ORG_ID, ensure_organization
 
 KEYS_DB = "dcp_test_keys"
 PROJECT_ID = "01PROJKEYS"
@@ -78,9 +79,7 @@ def test_a_key_container_is_refused_rather_than_parsed() -> None:
 def test_the_public_key_must_be_thirty_two_bytes_of_hex() -> None:
     for bad in ("", "zz" * 32, _public_hex()[:-2], _public_hex() + "00"):
         with pytest.raises(ValidationError):
-            ProjectKeyCreate.model_validate(
-                {"publicKey": bad, "role": "primary", "label": "x"}
-            )
+            ProjectKeyCreate.model_validate({"publicKey": bad, "role": "primary", "label": "x"})
 
 
 def test_the_role_is_closed_and_the_label_is_required() -> None:
@@ -136,8 +135,10 @@ async def _seed() -> None:
     engine = create_async_engine(_keys_db_url())
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
+            await ensure_organization(session)
             session.add(
                 Project(
+                    organization_id=ORG_ID,
                     id=PROJECT_ID,
                     name="Key Study",
                     slug="key-study",
@@ -146,6 +147,7 @@ async def _seed() -> None:
             )
             session.add(
                 Project(
+                    organization_id=ORG_ID,
                     id=ARCHIVED_PROJECT_ID,
                     name="Finished Study",
                     slug="finished-study",
@@ -171,8 +173,10 @@ async def _make_project(project_id: str, security_mode: str) -> None:
     engine = create_async_engine(_keys_db_url())
     try:
         async with async_sessionmaker(engine)() as session, session.begin():
+            await ensure_organization(session)
             session.add(
                 Project(
+                    organization_id=ORG_ID,
                     id=project_id,
                     name=project_id,
                     slug=project_id.lower(),
@@ -284,9 +288,7 @@ def test_a_project_holds_primary_backup_and_recovery_keys(keys_api: Any) -> None
         assert [k["role"] for k in listed.json()["keys"]] == ["primary", "backup", "recovery"]
 
         # The device-facing endpoint offers the same set to wrap to.
-        await client.post(
-            "/api/v1/devices", json={"deviceId": "dev-keys", "platform": "android"}
-        )
+        await client.post("/api/v1/devices", json={"deviceId": "dev-keys", "platform": "android"})
         crypto = await client.get("/api/v1/devices/dev-keys/crypto")
         assert crypto.status_code == 200, crypto.text
         assert {k["publicKey"] for k in crypto.json()["projectKeys"]} == {
@@ -507,9 +509,7 @@ def test_a_revoked_key_stops_receiving_wraps_but_keeps_opening_what_it_has(
             created.append(response.json()["keyId"])
         leaving, remaining = created
 
-        revoked = await client.post(
-            f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke"
-        )
+        revoked = await client.post(f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke")
         assert revoked.status_code == 200, revoked.text
         assert revoked.json()["revokedAt"] is not None
         stamp = revoked.json()["revokedAt"]
@@ -519,9 +519,7 @@ def test_a_revoked_key_stops_receiving_wraps_but_keeps_opening_what_it_has(
         assert leaving not in [k["keyId"] for k in active]
         assert remaining in [k["keyId"] for k in active]
 
-        await client.post(
-            "/api/v1/devices", json={"deviceId": "dev-revoke", "platform": "android"}
-        )
+        await client.post("/api/v1/devices", json={"deviceId": "dev-revoke", "platform": "android"})
         crypto = await client.get("/api/v1/devices/dev-revoke/crypto")
         assert crypto.status_code == 200, crypto.text
         assert retiring not in {k["publicKey"] for k in crypto.json()["projectKeys"]}
@@ -529,9 +527,7 @@ def test_a_revoked_key_stops_receiving_wraps_but_keeps_opening_what_it_has(
 
         # ...and still there, named, for anyone holding an old submission.
         including = (
-            await client.get(
-                f"/api/v1/projects/{PROJECT_ID}/keys", params={"includeRevoked": True}
-            )
+            await client.get(f"/api/v1/projects/{PROJECT_ID}/keys", params={"includeRevoked": True})
         ).json()["keys"]
         retired = next(k for k in including if k["keyId"] == leaving)
         assert retired["revokedAt"] == stamp
@@ -539,9 +535,7 @@ def test_a_revoked_key_stops_receiving_wraps_but_keeps_opening_what_it_has(
         assert retired["label"] == "Leaving — Priya"
 
         # Idempotent: a retry does not move when the revocation happened.
-        again = await client.post(
-            f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke"
-        )
+        again = await client.post(f"/api/v1/projects/{PROJECT_ID}/keys/{leaving}/revoke")
         assert again.status_code == 200, again.text
         assert again.json()["revokedAt"] == stamp
 
@@ -573,9 +567,7 @@ def test_the_last_recipient_of_an_encrypting_project_cannot_be_revoked(
         assert first.status_code == 201, first.text
         only_key = first.json()["keyId"]
 
-        refused = await client.post(
-            f"/api/v1/projects/{project_id}/keys/{only_key}/revoke"
-        )
+        refused = await client.post(f"/api/v1/projects/{project_id}/keys/{only_key}/revoke")
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"]["reason"] == "last_active_key"
 
@@ -587,9 +579,7 @@ def test_the_last_recipient_of_an_encrypting_project_cannot_be_revoked(
         )
         assert second.status_code == 201, second.text
 
-        now_allowed = await client.post(
-            f"/api/v1/projects/{project_id}/keys/{only_key}/revoke"
-        )
+        now_allowed = await client.post(f"/api/v1/projects/{project_id}/keys/{only_key}/revoke")
         assert now_allowed.status_code == 200, now_allowed.text
         assert now_allowed.json()["revokedAt"] is not None
 
@@ -601,9 +591,7 @@ def test_revoking_something_that_is_not_there_says_which_thing(keys_api: Any) ->
     """A 404 with no reason leaves you guessing which id was wrong."""
 
     async def scenario(client: Any) -> None:
-        missing_key = await client.post(
-            f"/api/v1/projects/{PROJECT_ID}/keys/01NOSUCHKEY/revoke"
-        )
+        missing_key = await client.post(f"/api/v1/projects/{PROJECT_ID}/keys/01NOSUCHKEY/revoke")
         assert missing_key.status_code == 404, missing_key.text
         assert missing_key.json()["detail"]["reason"] == "key_not_found"
 

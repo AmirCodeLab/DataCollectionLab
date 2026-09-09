@@ -34,6 +34,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
+from tests.identity_fixtures import ORG_ID, ensure_organization
+
 FORMS_DB = "dcp_test_form_delivery"
 
 PROJECT_ID = "01PROJECT"
@@ -82,9 +84,9 @@ def test_pull_response_always_carries_a_forms_list() -> None:
     """
     from app.modules.sync.schemas import PullResponse
 
-    body = PullResponse(
-        ops=[], tombstones=[], forms=[], next_cursor=0, has_more=False
-    ).model_dump(by_alias=True)
+    body = PullResponse(ops=[], tombstones=[], forms=[], next_cursor=0, has_more=False).model_dump(
+        by_alias=True
+    )
     assert body["forms"] == []
 
 
@@ -117,7 +119,15 @@ async def _seed() -> None:
         async with async_sessionmaker(engine)() as session, session.begin():
             # The models carry no relationship()s, so flush between dependency
             # levels to control insert order.
-            session.add(Project(id=PROJECT_ID, name="Household Study", slug="household-study"))
+            await ensure_organization(session)
+            session.add(
+                Project(
+                    organization_id=ORG_ID,
+                    id=PROJECT_ID,
+                    name="Household Study",
+                    slug="household-study",
+                )
+            )
             await session.flush()
             session.add(Environment(id=ENV_PROD, project_id=PROJECT_ID, kind="production"))
             session.add(Environment(id=ENV_STAGING, project_id=PROJECT_ID, kind="staging"))
@@ -126,11 +136,8 @@ async def _seed() -> None:
                     Device(
                         id=device_id,
                         project_id=PROJECT_ID,
-                        user_id="usr-1",
                         platform="android",
-                        revoked_at=(
-                            datetime.now(tz=UTC) if device_id == REVOKED_DEVICE else None
-                        ),
+                        revoked_at=(datetime.now(tz=UTC) if device_id == REVOKED_DEVICE else None),
                     )
                 )
             await session.flush()
@@ -486,9 +493,7 @@ def test_deploying_to_an_environment_the_project_lacks_is_skipped_not_invented(
         assert response.status_code == 201, response.text
         assert "development" not in response.json()["deployments"]
 
-        rows = await _db_snapshot(
-            f"SELECT id FROM environment WHERE project_id = '{PROJECT_ID}'"
-        )
+        rows = await _db_snapshot(f"SELECT id FROM environment WHERE project_id = '{PROJECT_ID}'")
         assert sorted(r["id"] for r in rows) == sorted([ENV_PROD, ENV_STAGING])
 
     _run_with_client(forms_api, scenario)

@@ -26,6 +26,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from tests.identity_fixtures import ORG_ID, ensure_organization
+
 DATASET_DB = "dcp_test_pinning"
 PROJECT_ID = "01PROJPIN"
 OTHER_PROJECT_ID = "01PROJPIN2"
@@ -142,8 +144,13 @@ def pinning_db():  # noqa: ANN201 - pytest fixture
         from app.modules.projects.models import Project
 
         async with _session(_db_url()) as session, session.begin():
-            session.add(Project(id=PROJECT_ID, name="Pinning", slug="pinning"))
-            session.add(Project(id=OTHER_PROJECT_ID, name="Other", slug="other"))
+            await ensure_organization(session)
+            session.add(
+                Project(organization_id=ORG_ID, id=PROJECT_ID, name="Pinning", slug="pinning")
+            )
+            session.add(
+                Project(organization_id=ORG_ID, id=OTHER_PROJECT_ID, name="Other", slug="other")
+            )
 
     asyncio.run(seed())
     return _db_url()
@@ -233,9 +240,9 @@ def test_a_pinned_form_records_which_version_each_list_resolves_to(
     async def stored() -> dict[str, str]:
         async with _session(pinning_db) as session:
             rows = await session.execute(
-                select(
-                    FormVersionDataset.dataset_key, FormVersionDataset.dataset_version_id
-                ).where(FormVersionDataset.form_version_id == response.id)
+                select(FormVersionDataset.dataset_key, FormVersionDataset.dataset_version_id).where(
+                    FormVersionDataset.form_version_id == response.id
+                )
             )
             return {key: version for key, version in rows}
 
@@ -265,9 +272,7 @@ def test_a_form_that_names_a_dataset_and_pins_nothing_is_refused(
 
 
 @pytest.mark.db
-def test_every_missing_pin_is_named_in_one_pass(
-    pinning_db: str, versions: dict[str, str]
-) -> None:
+def test_every_missing_pin_is_named_in_one_pass(pinning_db: str, versions: dict[str, str]) -> None:
     # One refusal listing both, not two round trips.
     from app.modules.forms.service import PublishRefused
 
@@ -511,7 +516,6 @@ def test_the_manifest_is_derived_from_the_pins_and_not_from_the_project(
                 Device(
                     id="01DEVPIN",
                     project_id=PROJECT_ID,
-                    user_id="01USERPIN",
                     platform="android",
                 )
             )
@@ -705,8 +709,11 @@ def two_versions(pinning_db: str) -> dict[str, str]:
         async with _session(pinning_db) as session, session.begin():
             for name, rows in (("v1", v1), ("v2", v2)):
                 published = await publish_dataset_version(
-                    session, project_id=PROJECT_ID, dataset_key="places",
-                    rows=rows, key_column="name",
+                    session,
+                    project_id=PROJECT_ID,
+                    dataset_key="places",
+                    rows=rows,
+                    key_column="name",
                 )
                 out[name] = published.dataset_version_id
         return out
@@ -718,17 +725,33 @@ def _places_form(key: str = "places") -> dict:
     """A form reading `name` and `label` and filtering on `region` — three of
     the four columns. `note` is the one nothing reads."""
     return {
-        "irVersion": "0.1", "formId": "places", "version": 1,
-        "title": {"en": "Places"}, "defaultLanguage": "en", "languages": ["en"],
+        "irVersion": "0.1",
+        "formId": "places",
+        "version": 1,
+        "title": {"en": "Places"},
+        "defaultLanguage": "en",
+        "languages": ["en"],
         "children": [
             {"type": "question", "id": "region", "dataType": "text", "label": {"en": "R"}},
-            {"type": "question", "id": "place", "dataType": "select_one",
-             "label": {"en": "P"},
-             "choices": {"kind": "dataset", "dataset": key, "valueColumn": "name",
-                         "labelColumn": {"en": "label"},
-                         "filter": {"op": "eq", "args": [
-                             {"op": "ref", "path": "$row.region"},
-                             {"op": "ref", "path": "region"}]}}},
+            {
+                "type": "question",
+                "id": "place",
+                "dataType": "select_one",
+                "label": {"en": "P"},
+                "choices": {
+                    "kind": "dataset",
+                    "dataset": key,
+                    "valueColumn": "name",
+                    "labelColumn": {"en": "label"},
+                    "filter": {
+                        "op": "eq",
+                        "args": [
+                            {"op": "ref", "path": "$row.region"},
+                            {"op": "ref", "path": "region"},
+                        ],
+                    },
+                },
+            },
         ],
     }
 
@@ -744,12 +767,8 @@ def test_a_delta_carries_only_rows_whose_read_columns_changed(
     field connection, shipping every row whose hash moved is the difference
     between a delta and a full transfer wearing a delta's name.
     """
-    published = _publish(
-        pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_form"
-    )
-    delta = _delta(
-        pinning_db, form_version_id=published.id, key="places", frm=two_versions["v1"]
-    )
+    published = _publish(pinning_db, _places_form(), [("places", two_versions["v2"])], "delta_form")
+    delta = _delta(pinning_db, form_version_id=published.id, key="places", frm=two_versions["v1"])
 
     assert delta.columns == ["label", "name", "region"], (
         "the projection is the columns the form reads; `note` is not one"
@@ -765,13 +784,9 @@ def test_a_delta_carries_only_rows_whose_read_columns_changed(
 def test_deletions_are_explicit(pinning_db: str, two_versions: dict[str, str]) -> None:
     """Inferring a deletion from absence needs the whole set present to compare
     against, which is the thing a delta exists to avoid sending."""
-    published = _publish(
-        pinning_db, _places_form(), [("places", two_versions["v1"])], "delta_back"
-    )
+    published = _publish(pinning_db, _places_form(), [("places", two_versions["v1"])], "delta_back")
     # v2 -> v1: `D` is gone, and the device has to be told rather than work it out.
-    delta = _delta(
-        pinning_db, form_version_id=published.id, key="places", frm=two_versions["v2"]
-    )
+    delta = _delta(pinning_db, form_version_id=published.id, key="places", frm=two_versions["v2"])
     assert delta.deleted == ["D"]
 
 
@@ -823,8 +838,11 @@ def versions_of_another_dataset(url: str) -> str:
     async def run() -> str:
         async with _session(url) as session, session.begin():
             published = await publish_dataset_version(
-                session, project_id=PROJECT_ID, dataset_key="unrelated",
-                rows=[{"name": "X"}], key_column="name",
+                session,
+                project_id=PROJECT_ID,
+                dataset_key="unrelated",
+                rows=[{"name": "X"}],
+                key_column="name",
             )
             return published.dataset_version_id
 
@@ -842,7 +860,9 @@ def test_a_form_version_that_pins_no_such_list_is_refused(
     )
     with pytest.raises(DeltaRefused) as refusal:
         _delta(
-            pinning_db, form_version_id=published.id, key="villages",
+            pinning_db,
+            form_version_id=published.id,
+            key="villages",
             frm=two_versions["v1"],
         )
     assert "not published against" in refusal.value.reason
@@ -863,8 +883,12 @@ def test_a_delta_pages_through_changes_and_then_deletions(
     cursor = None
     while True:
         page = _delta(
-            pinning_db, form_version_id=published.id, key="places",
-            frm=two_versions["v2"], cursor=cursor, limit=1,
+            pinning_db,
+            form_version_id=published.id,
+            key="places",
+            frm=two_versions["v2"],
+            cursor=cursor,
+            limit=1,
         )
         seen_changed += [r["name"] for r in page.changed]
         seen_deleted += page.deleted

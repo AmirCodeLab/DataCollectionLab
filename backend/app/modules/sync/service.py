@@ -368,6 +368,7 @@ async def push(
         session.add(
             OutboxEvent(
                 id=new_ulid(),
+                project_id=submissions[submission_id].project_id,
                 topic="sync.submission.ops_accepted",
                 payload={
                     "submissionId": submission_id,

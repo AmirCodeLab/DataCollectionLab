@@ -44,7 +44,9 @@ class FormVersion(Base):
     ir: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     ir_checksum: Mapped[str] = mapped_column(Text, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    published_by: Mapped[str | None] = mapped_column(Text)
+    published_by: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
 
     # How this version got here, when it came from a spreadsheet. All NULL for
     # a version published from hand-written IR, which is the honest record of
@@ -96,7 +98,9 @@ class FormDraft(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    updated_by: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
     #: The author's test cases — steps and expectations the builder replays
     #: after every edit. Stored and returned, never run here; never a
     #: conformance vector (`migrations/schema/007_form_draft_test_cases.sql`).
@@ -118,5 +122,7 @@ class FormDeployment(Base):
     deployed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    deployed_by: Mapped[str | None] = mapped_column(Text)
+    deployed_by: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("platform_user.id", ondelete="RESTRICT")
+    )
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
