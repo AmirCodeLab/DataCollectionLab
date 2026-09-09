@@ -721,6 +721,55 @@ identity does not match must treat its cursor as void and start from zero,
 saying so. Until then, `pm clear` on the device is the only remedy, and it is
 one nobody will know to apply.
 
+## 22. No test calls the engine's Wasm exports, and CI never builds the bundle
+
+| | |
+|---|---|
+| **Where** | `shared/form-engine/src/wasmJsMain/.../WasmFacade.kt` (13 `@JsExport` functions), `scripts/build_engine_wasm.sh`, `web/src/builder/engine/facade.ts` |
+| **Status** | Open |
+| **Why not fixed** | Item 0 step 7 shipped the console side against a fake engine (`web/src/builder/preview/fixture.ts`) and the Kotlin side under `PreviewSessionTest`/`TraceTest` on the JVM; the wasmJs target runs the 116 vectors and nothing else. The contract between the two — export names, JSON shapes — was verified in a browser three times and by no test |
+| **Blocks** | Renaming or re-shaping any facade export is red nowhere until somebody opens the preview; a deployed console has no engine unless the deploy pipeline runs the build script by hand |
+
+The gap is exactly the one `conformance/` exists to close for evaluation:
+two sides of a contract, each tested against a stand-in for the other. The
+fix is a `wasmJsNodeTest` that calls the real exports with a real form and
+asserts the JSON the console's `facade.ts` types describe, and a CI step that
+runs `scripts/build_engine_wasm.sh` and runs vitest against the produced
+bundle rather than the fake. Until then "the preview runs the handset's
+engine" is true of every developer's machine and asserted for none.
+
+## 23. A group's relevance cannot be traced
+
+| | |
+|---|---|
+| **Where** | `shared/form-engine/.../Runtime.kt` `FormInstance.trace`, `web/src/builder/preview/QuestionTrace.tsx` |
+| **Status** | Open |
+| **Why not fixed** | `trace(path, key)` resolves a field or a repeat's `countExpr`. A group is neither: its `relevant` hides every question inside it (Form IR §4.4) and there is no path the trace can be asked for. The group panel offers no trace and says nothing |
+| **Blocks** | The question the trace exists for — "why is this hidden?" — when the answer is "its page is" |
+
+Seen on `clinic_intake` v2: the `page` group's `relevant` reads consent, and
+the questions inside it appeared or vanished with no question-level
+expression to trace. The engine has the value; the facade has no path shape
+for a container.
+
+## 24. After a replay that re-adds a row, the preview stands inside that row
+
+| | |
+|---|---|
+| **Where** | `web/src/builder/engine/session.ts` (replay on document change), `shared/form-engine/.../PreviewSession.kt` `addRow` |
+| **Status** | Open |
+| **Why not fixed** | §11.3 says adding a row enters it, and the replay re-applies `addRow` as the enumerator would have. The position is a side effect of a faithful replay, not a stored part of the walk; keeping it would mean recording navigation as steps, which a test case must not carry |
+| **Blocks** | Nothing an author cannot recover with Back to the list; an author editing a label while inside screen 2 finds the preview elsewhere afterwards |
+
+## 25. The preview flags a required answer before the question is touched
+
+| | |
+|---|---|
+| **Where** | `web/src/builder/preview/PreviewPane.tsx` `Question` (renders every error the engine reports), `clients/composeApp/.../CollectionScreen.kt` (shows a required error after the field is touched or on Next) |
+| **Status** | Open |
+| **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
+| **Blocks** | Nothing; an author may read a fresh screen as already failing |
+
 ## Closed
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
