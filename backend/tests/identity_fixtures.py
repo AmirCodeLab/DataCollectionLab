@@ -50,6 +50,7 @@ ORG_PRINCIPAL = Principal(
     user_id=TEST_USER_ID,
     scope_kind="organization",
     visible_user_ids=(TEST_USER_ID,),
+    permissions=tuple(PERMISSIONS),
 )
 
 

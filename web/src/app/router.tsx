@@ -16,6 +16,8 @@ import { ProjectKeysPage } from "@/pages/ProjectKeysPage";
 import { FormsPage } from "@/pages/FormsPage";
 import { BuilderPage } from "@/pages/BuilderPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { PeoplePage } from "@/pages/PeoplePage";
+import { RolesPage } from "@/pages/RolesPage";
 
 export const PAGE_SIZE = 50;
 
@@ -96,6 +98,18 @@ const formsRoute = createRoute({
   component: FormsPage,
 });
 
+const peopleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/people",
+  component: PeoplePage,
+});
+
+const rolesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/roles",
+  component: RolesPage,
+});
+
 /** `$formId` is the form row's id, not the §1 `formId` key — the draft and
  *  the versions hang off the row. */
 const builderRoute = createRoute({
@@ -115,6 +129,8 @@ export const routeTree = rootRoute.addChildren([
   projectKeysRoute,
   formsRoute,
   builderRoute,
+  peopleRoute,
+  rolesRoute,
 ]);
 
 export const router = createRouter({ routeTree });

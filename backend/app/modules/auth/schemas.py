@@ -106,6 +106,10 @@ class Me(BaseModel):
     device_id: str | None = Field(serialization_alias="deviceId")
     scope_kind: ScopeKind = Field(serialization_alias="scopeKind")
     permissions: list[Permission]
+    #: The projects and teams the person's grants name — what a screen
+    #: pre-fills when they create someone in their own scope (§3.2).
+    project_ids: list[str] = Field(serialization_alias="projectIds")
+    team_ids: list[str] = Field(serialization_alias="teamIds")
     expires_at: str = Field(serialization_alias="expiresAt")
 
 

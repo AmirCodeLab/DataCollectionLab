@@ -868,7 +868,14 @@ notice. `./scripts/status.sh` section 5 asks locally.
   is never a `WHERE` somebody has to remember. Whether a person may hold a
   session is the session policy's decision too: the login inserts the row and
   reports the policy's refusal; it has no status check of its own
-  (`test_auth.py::test_04`)
+  (`test_auth.py::test_04`). Authority is on the principal too
+  (`app.permissions`, `app.project_ids`, `app.team_ids`, 010_people.sql):
+  what a screen offers and what the database permits come from one list, and
+  `test_people.py` goes under the routes with a real principal to show the
+  refusal is the database's. A person is scoped like a submission, so the
+  auth path — find the login, find the session, compute the principal, name a
+  refusal, note the login — is five named SECURITY DEFINER functions and
+  nothing else reads a person without one
 - A guarantee is not defended until its break has been watched to fail —
   record it in `docs/known-breaks.md`
 - **Commit the implementation before running a break.** A break is reverted
@@ -942,9 +949,18 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    sign-in page and a permission-gated nav, the handset a sign-in on its
    settings screen with the session kept in the encrypted database; the seed
    creates an admin, a PM, a supervisor with a team, an enumerator and a
-   pending enumerator (`dcp-dev`). What is left of item 1 is the console's
-   people screens — users, teams, roles, the approval queue — which today are
-   the seed and psql
+   pending enumerator (`dcp-dev`). **The people screens closed item 1 the same
+   day** (PR after #42): `/people`, `/teams`, `/roles`, the approval queue;
+   migration 0010 puts the person's authority — permissions, projects, teams —
+   on the principal and the database reads it, so a membership is created
+   active only by an approver (the column DEFAULT), approval and deactivation
+   are the matching permission's to make, a grant sits inside the grantor's
+   own authority, a role carries only permissions its editor holds, and the
+   standard roles cannot be edited. A person sees their scope, the people they
+   created, and themself. Walked in the browser with real cookies: a
+   supervisor sees Team A only, an admin both teams and the queue, an approved
+   enumerator signs in and is told their work is on the handset. **Item 1 is
+   done.** Two seeded teams now; seven people, password `dcp-dev`
 2. **Sample assignment and supervisor isolation.** Isolation is visibility, not
    only assignment — which is why scope is part of the role rather than a filter
    applied in the UI. A filter can be forgotten in one query; a scope cannot

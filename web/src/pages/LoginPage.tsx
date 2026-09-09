@@ -13,6 +13,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ApiError } from "@/api/client";
 import { login, ME_QUERY_KEY } from "@/api/queries";
 import type { LoginError } from "@/api/types";
+import { homeFor } from "@/lib/permissions";
 
 /** What a refusal reads as. The reason is the contract; the text is ours. */
 function describe(error: unknown): string {
@@ -43,7 +44,7 @@ export function LoginPage() {
     mutationFn: () => login({ username, password, kind: "console" }),
     onSuccess: (me) => {
       queryClient.setQueryData(ME_QUERY_KEY, me);
-      void navigate({ to: "/submissions", search: {} });
+      void navigate({ to: homeFor(me) ?? "/", search: {} });
     },
   });
 

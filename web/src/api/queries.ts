@@ -4,7 +4,19 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { ApiError, apiGet, apiPost, apiPut } from "./client";
 import type {
+  AddTeamMemberRequest,
   CompileResponse,
+  CreatePersonRequest,
+  CreateRoleRequest,
+  CreateTeamRequest,
+  GrantRequest,
+  Person,
+  PersonListResponse,
+  Role,
+  RoleListResponse,
+  RolePermissionsRequest,
+  Team,
+  TeamListResponse,
   LoginRequest,
   LogoutResponse,
   Me,
@@ -49,6 +61,50 @@ export const meQuery = () =>
 export const login = (request: LoginRequest) => apiPost<Me>("/api/v1/auth/login", request);
 
 export const logout = () => apiPost<LogoutResponse>("/api/v1/auth/logout", {});
+
+/** People, teams and roles (pilot scope §3). What each answers is the
+ *  database's decision on the asker's principal: a supervisor's list is
+ *  their team, and a write outside their authority comes back 403 with
+ *  `outside_your_authority`. */
+export const peopleQuery = () =>
+  queryOptions({
+    queryKey: ["people"],
+    queryFn: () => apiGet<PersonListResponse>("/api/v1/people"),
+  });
+
+export const teamsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["teams", projectId],
+    queryFn: () => apiGet<TeamListResponse>("/api/v1/teams", { projectId }),
+    enabled: projectId !== "",
+  });
+
+export const rolesQuery = () =>
+  queryOptions({
+    queryKey: ["roles"],
+    queryFn: () => apiGet<RoleListResponse>("/api/v1/roles"),
+  });
+
+export const createPerson = (request: CreatePersonRequest) =>
+  apiPost<Person>("/api/v1/people", request);
+export const approvePerson = (userId: string) =>
+  apiPost<Person>(`/api/v1/people/${userId}/approve`, {});
+export const deactivatePerson = (userId: string) =>
+  apiPost<Person>(`/api/v1/people/${userId}/deactivate`, {});
+export const reactivatePerson = (userId: string) =>
+  apiPost<Person>(`/api/v1/people/${userId}/reactivate`, {});
+export const grantRole = (userId: string, request: GrantRequest) =>
+  apiPost<Person>(`/api/v1/people/${userId}/grants`, request);
+export const revokeGrant = (userId: string, grantId: string) =>
+  apiPost<Person>(`/api/v1/people/${userId}/grants/${grantId}/revoke`, {});
+export const createTeam = (request: CreateTeamRequest) =>
+  apiPost<Team>("/api/v1/teams", request);
+export const addTeamMember = (teamId: string, request: AddTeamMemberRequest) =>
+  apiPost<Team>(`/api/v1/teams/${teamId}/members`, request);
+export const createRole = (request: CreateRoleRequest) =>
+  apiPost<Role>("/api/v1/roles", request);
+export const setRolePermissions = (roleId: string, request: RolePermissionsRequest) =>
+  apiPut<Role>(`/api/v1/roles/${roleId}/permissions`, request);
 
 /** How often an auto-refreshing view re-reads. Field syncs are not fast. */
 export const REFRESH_INTERVAL_MS = 10_000;

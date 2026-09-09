@@ -10,6 +10,10 @@
  * in the meantime it says something about the API that is not true.
  */
 
+export interface AddTeamMemberRequest {
+  userId: string;
+}
+
 export interface Body_import_xlsform_api_v1_forms_import_post {
   /** An XLSForm .xlsx workbook */
   file: string;
@@ -75,6 +79,28 @@ export interface CreateFormRequest {
   projectId: string;
   formId: string;
   title: string;
+}
+
+export interface CreatePersonRequest {
+  username: string;
+  displayName: string;
+  password: string;
+  roleId: string;
+  projectId?: string | null;
+  teamId?: string | null;
+  membershipKind?: MembershipKind;
+}
+
+export interface CreateRoleRequest {
+  name: string;
+  scopeKind: GrantScope;
+  permissions?: Permission[];
+}
+
+export interface CreateTeamRequest {
+  projectId: string;
+  name: string;
+  parentTeamId?: string | null;
 }
 
 /**
@@ -376,6 +402,28 @@ export interface FormVersionDocument {
   form: Record<string, unknown>;
 }
 
+/** A role held in a scope. */
+export interface Grant {
+  id: string;
+  roleId: string;
+  roleName: string;
+  scopeKind: GrantScope;
+  projectId: string | null;
+  teamId: string | null;
+  teamName: string | null;
+  grantedAt: string;
+}
+
+export interface GrantRequest {
+  roleId: string;
+  projectId?: string | null;
+  teamId?: string | null;
+}
+
+export const GRANT_SCOPES = ["organization", "project", "team"] as const;
+
+export type GrantScope = (typeof GRANT_SCOPES)[number];
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }
@@ -567,6 +615,8 @@ export interface Me {
   deviceId: string | null;
   scopeKind: ScopeKind;
   permissions: Permission[];
+  projectIds: string[];
+  teamIds: string[];
   expiresAt: string;
 }
 
@@ -726,6 +776,14 @@ export interface MediaWrappedKeyView {
   wrappedKey: string;
 }
 
+export const MEMBERSHIP_KINDS = ["permanent", "temporary"] as const;
+
+export type MembershipKind = (typeof MEMBERSHIP_KINDS)[number];
+
+export const MEMBERSHIP_STATUSES = ["active", "pending_approval", "deactivated"] as const;
+
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
+
 /**
  * The body of a refusal that carries prose and nothing to branch on.
  *
@@ -784,6 +842,23 @@ export interface PaletteType {
   note?: string | null;
 }
 
+export interface PeopleError {
+  reason: PeopleFailure;
+  message: string;
+}
+
+export interface PeopleErrorResponse {
+  detail: PeopleError;
+}
+
+export const PEOPLE_FAILURES = [
+  "outside_your_authority",
+  "not_found",
+  "already_exists",
+] as const;
+
+export type PeopleFailure = (typeof PEOPLE_FAILURES)[number];
+
 export const PERMISSIONS = [
   "user.create",
   "user.approve",
@@ -803,6 +878,28 @@ export const PERMISSIONS = [
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
+
+/** A person as the asker may see them: the policies decide who is here. */
+export interface Person {
+  id: string;
+  username: string | null;
+  displayName: string;
+  membershipStatus: MembershipStatus;
+  membershipKind: MembershipKind;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  deactivatedAt: string | null;
+  lastLoginAt: string | null;
+  grants: Grant[];
+  teams: TeamMembership[];
+}
+
+export interface PersonListResponse {
+  people: Person[];
+}
 
 /**
  * A public key being registered as a recipient (envelope §4.1).
@@ -999,6 +1096,23 @@ export interface RejectedOp {
   reason: RejectReason;
 }
 
+export interface Role {
+  id: string;
+  name: string;
+  scopeKind: ScopeKind;
+  builtin: boolean;
+  permissions: Permission[];
+  grantable: boolean;
+}
+
+export interface RoleListResponse {
+  roles: Role[];
+}
+
+export interface RolePermissionsRequest {
+  permissions: Permission[];
+}
+
 export interface SaveDraftRequest {
   ir: Record<string, unknown>;
   expectedRevision?: number | null;
@@ -1130,6 +1244,30 @@ export interface SubmissionSummary {
   originDeviceId: string | null;
   opCount: number;
   receivedAt: string;
+}
+
+export interface Team {
+  id: string;
+  projectId: string;
+  name: string;
+  parentTeamId: string | null;
+  members: TeamMember[];
+}
+
+export interface TeamListResponse {
+  teams: Team[];
+}
+
+export interface TeamMember {
+  userId: string;
+  displayName: string;
+  membershipStatus: MembershipStatus;
+}
+
+export interface TeamMembership {
+  projectId: string;
+  teamId: string | null;
+  teamName: string | null;
 }
 
 /**

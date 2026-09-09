@@ -46,6 +46,8 @@ def _me(identity: Identity, org_slug: str) -> Me:
         device_id=identity.device_id,
         scope_kind=identity.principal.scope_kind or "none",
         permissions=sorted(identity.permissions),
+        project_ids=list(identity.principal.project_ids),
+        team_ids=list(identity.principal.team_ids),
         expires_at=identity.expires_at.isoformat(),
     )
 
