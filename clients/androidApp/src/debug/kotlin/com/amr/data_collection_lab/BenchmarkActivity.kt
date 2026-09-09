@@ -149,14 +149,21 @@ class BenchmarkActivity : Activity() {
             )
         }
 
+        // `held` since v10 includes versions that are deployed and not
+        // downloaded, whose document is null. A benchmark cannot drive one, and
+        // saying so beats a cast: it is the same "nothing to drive" outcome.
         val form = held.firstOrNull { it.formId == "ucl_cascade" }
-        if (form == null) {
-            Log.i(tag, "  no ucl_cascade form delivered; nothing to drive")
+        val document = form?.irJson
+        if (form == null || document == null) {
+            // Since v10 a version can be deployed and not downloaded, and its
+            // document is null. A benchmark cannot drive one; that is the same
+            // "nothing to drive" outcome, said out loud rather than cast away.
+            Log.i(tag, "  no ucl_cascade form delivered with its document; nothing to drive")
         } else {
             DatasetBenchmark.driveCascade(
                 store = graph.datasetStore,
                 formVersionId = form.formVersionId,
-                irJson = form.irJson,
+                irJson = document,
                 log = { Log.i(tag, it) },
             )
         }
