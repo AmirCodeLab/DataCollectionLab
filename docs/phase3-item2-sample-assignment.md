@@ -203,7 +203,7 @@ teammates whether or not they hold `submission.view`, so an enumerator's pull
 today carries their teammates' ops. With this item, `dcp_principal_for` puts
 teammates in `visible_user_ids` only for a person holding `submission.view`;
 an enumerator's visible set is themself. Their pull shrinks to their own
-work, which is also what a 37,000-row sample on a village connection wants
+work, which is also what a large reference list on a village connection wants
 (item 4).
 
 Unassigned cases — uploaded, not yet split — are visible to the programme
