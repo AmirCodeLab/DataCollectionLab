@@ -1191,8 +1191,18 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    flag's provenance and an `outcome` that can say "could not be evaluated",
    and a per-project review policy) plus the status machine in
    `app/modules/submissions/status.py`, which replaces the condition at the
-   call site that was defect 27. Breaks 212–218, two of which passed on the
-   first run and are recorded as such. Next: routes, screens, both runs
+   call site that was defect 27. Breaks 212–220, two of which passed on the
+   first run and are recorded as such. Routes: rules are IR expressions
+   evaluated in the push transaction (four answers — holds, violated, could
+   not be read, names a field the form does not have), one decision route
+   that is the only writer of a review state, and the queue as two filters on
+   the submission list. The device learns from a **statement in the pull**,
+   not an op: `submission_op.device_id` is NOT NULL and `(device_id, counter)`
+   is unique per device, so a server-authored op has no counter it can take
+   without refusing the enumerator's own work — A6's one open question,
+   answered by building it. Both runs walked:
+   `docs/e2e-run-2026-09-10-item6.md`, and they found work sent back opening
+   read-only (break 219). Next: merge, then the cleanup pass
 
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
