@@ -35,6 +35,48 @@ class ReferenceData(
     }
 
     /**
+     * Everything this device is waiting for, across every form version the
+     * server still deploys to it, with the cost of fetching each.
+     *
+     * Deployed versions only: a withdrawn version is kept so its drafts open
+     * (Form IR §9), and spending a village connection on reference data for a
+     * questionnaire nobody is collecting any more is exactly the wrong trade.
+     */
+    fun pendingFetches(): List<PendingFetch> =
+        forms.all()
+            .filter { it.deployed }
+            .flatMap { datasets.pinnedLists(it.formVersionId) }
+            .filterNot { it.complete }
+            .distinctBy { it.datasetVersionId }
+            .sortedBy { it.datasetKey }
+            .map { list ->
+                PendingFetch(
+                    list = list,
+                    deltaBaseVersion = datasets
+                        .deltaBaseFor(list.datasetKey, list.datasetVersionId)
+                        ?.let { base -> datasets.find(base)?.version },
+                    estimatedFullBytes = estimateFullBytes(list),
+                )
+            }
+
+    /**
+     * Bytes per row, measured off whatever this device holds of the same list,
+     * times the row count the manifest declared. Null when the device holds no
+     * row of that list at all and would be inventing the number.
+     */
+    private fun estimateFullBytes(list: PinnedList): Long? {
+        val rowCount = list.rowCount ?: return null
+        val sample = datasets.all()
+            .filter { it.datasetKey == list.datasetKey }
+            .map { it.datasetVersionId }
+            .firstOrNull { datasets.rowsHeld(it) > 0 }
+            ?: return null
+        val rows = datasets.rowsHeld(sample)
+        if (rows == 0L) return null
+        return datasets.bytesHeld(sample) * rowCount / rows
+    }
+
+    /**
      * Readiness of the version a submission was collected under — never the
      * newest the device holds (Form IR §9, break 30's rule).
      *
@@ -48,6 +90,50 @@ class ReferenceData(
         val version = forms.find(summary.formId, summary.formVersion) ?: return Readiness.Ready
         return readinessOf(version.formVersionId)
     }
+}
+
+/**
+ * One list this device is waiting for, with what fetching it would cost.
+ *
+ * The cost is the point (item 4 §3.2). "Update from v7" and "full download,
+ * about 11 MB" are different decisions on a village connection, and a person
+ * has to be able to make that decision **before** tapping, not by watching a
+ * progress bar and regretting it.
+ */
+data class PendingFetch(
+    val list: PinnedList,
+    /** A complete earlier version of the same list to diff against, or null. */
+    val deltaBaseVersion: Int?,
+    /**
+     * Bytes a full transfer would take, estimated from rows this device
+     * already holds of the same list, or null when it holds none and cannot
+     * honestly say. A row count is still shown in that case.
+     */
+    val estimatedFullBytes: Long?,
+) {
+    val statusLine: String get() = list.statusLine
+
+    /**
+     * What it will cost, in the words that decide it.
+     *
+     * A delta carries no size, and that is not an oversight: the server does
+     * not know what changed until it computes the diff, and the whole point of
+     * a delta is not to enumerate the list first. So the honest line names the
+     * base it will diff against and the size of the alternative, which is the
+     * comparison the person is actually making.
+     */
+    val costLine: String
+        get() {
+            val full = estimatedFullBytes?.let { "about ${formatBytes(it)}" }
+                ?: list.rowCount?.let { "${group(it)} rows" }
+                ?: "size unknown"
+            return if (deltaBaseVersion != null) {
+                "Update from v$deltaBaseVersion — only the rows that changed. " +
+                    "The whole list is $full."
+            } else {
+                "Full download — $full."
+            }
+        }
 }
 
 /** What the updates screen shows: content, with the time elsewhere. */
@@ -100,6 +186,14 @@ sealed interface Readiness {
      * nowhere else; Arabic lives in `I18n` and nowhere else.
      */
     fun shortfalls(): String = lists.joinToString(", ") { it.shortfall }
+}
+
+/** 11_300_000 -> "11.3 MB". One decimal: the choice is coarse, and so is this. */
+fun formatBytes(bytes: Long): String {
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "${kb.toLong()} KB"
+    val tenths = (kb / 1024.0 * 10).toLong()
+    return "${tenths / 10}.${tenths % 10} MB"
 }
 
 /** 38000 -> "38,000". Grouped by hand: commonMain has no locale formatter. */

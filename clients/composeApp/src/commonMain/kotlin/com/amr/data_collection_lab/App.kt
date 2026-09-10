@@ -29,6 +29,8 @@ import com.amr.data_collection_lab.collection.MediaPlatform
 import com.amr.data_collection_lab.collection.SettingsRoot
 import com.amr.data_collection_lab.collection.SettingsViewModel
 import com.amr.data_collection_lab.collection.SubmissionListRoot
+import com.amr.data_collection_lab.collection.UpdatesRoot
+import com.amr.data_collection_lab.collection.UpdatesViewModel
 import com.amr.data_collection_lab.collection.SubmissionListViewModel
 import com.dcp.core.security.DatabaseKeyStore
 import com.dcp.core.security.DatabaseKeyUnavailable
@@ -39,6 +41,9 @@ private sealed interface Route {
     data object Submissions : Route
     data object Settings : Route
     data class Collection(val submissionId: String) : Route
+
+    /** The two explicit downloads (item 4). Never where the work sync lives. */
+    data object Updates : Route
 }
 
 @Composable
@@ -85,10 +90,20 @@ private fun Collection(graph: AppGraph) {
             viewModel = viewModel {
                 SubmissionListViewModel(
                     graph.store, graph.formCatalog, graph.syncClient, graph.caseStore,
+                    graph.formStore, graph.referenceData,
                 )
             },
             onNavigateToCollection = { route = Route.Collection(it) },
             onNavigateToSettings = { route = Route.Settings },
+            onNavigateToUpdates = { route = Route.Updates },
+        )
+        Route.Updates -> UpdatesRoot(
+            viewModel = viewModel {
+                UpdatesViewModel(
+                    graph.store, graph.formStore, graph.referenceData, graph.syncClient,
+                )
+            },
+            onNavigateBack = { route = Route.Submissions },
         )
         Route.Settings -> SettingsRoot(
             viewModel = viewModel {

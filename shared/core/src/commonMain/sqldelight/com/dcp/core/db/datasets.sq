@@ -124,6 +124,13 @@ VALUES (?, ?, ?);
 countRows:
 SELECT COUNT(*) FROM dataset_row WHERE dataset_version_id = ?;
 
+-- What the rows this device already holds actually weigh, so "about 11 MB"
+-- on a button is measured rather than guessed at from a constant. COALESCE,
+-- because SUM over no rows is NULL and a version with nothing fetched is the
+-- ordinary case here.
+bytesForVersion:
+SELECT COALESCE(SUM(LENGTH(data_json)), 0) FROM dataset_row WHERE dataset_version_id = ?;
+
 deleteRows:
 DELETE FROM dataset_row WHERE dataset_version_id = ?;
 

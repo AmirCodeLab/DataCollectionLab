@@ -380,6 +380,19 @@ class DatasetStore(
      * ready while the gate refuses (known defect 24's shape). The note in
      * `datasets.sq` carries the rest of the reason.
      */
+    /** Rows of one version on this device, whole or part-transferred. */
+    fun rowsHeld(datasetVersionId: String): Long =
+        queries.countRows(datasetVersionId).executeAsOne()
+
+    /**
+     * What those rows weigh, for the estimate a person reads before choosing
+     * to spend a morning's connection on them. Measured off this device rather
+     * than assumed: a village list and a facility list do not weigh the same
+     * per row, and a constant would be wrong for one of them.
+     */
+    fun bytesHeld(datasetVersionId: String): Long =
+        queries.bytesForVersion(datasetVersionId).executeAsOne()
+
     fun pinnedLists(formVersionId: String): List<PinnedList> =
         queries.pinnedListsForFormVersion(formVersionId) {
             datasetKey, datasetVersionId, version, rowCount, complete, rowsHeld ->
