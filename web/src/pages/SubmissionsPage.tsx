@@ -19,19 +19,21 @@ import { PAGE_SIZE } from "@/app/router";
 const route = getRouteApi("/submissions");
 
 export function SubmissionsPage() {
-  const { formId, status, offset = 0 } = route.useSearch();
+  const { formId, status, queue, flagged, offset = 0 } = route.useSearch();
   const navigate = useNavigate();
   const autoRefresh = useAutoRefresh((state) => state.enabled);
 
   const forms = useQuery(formListQuery());
   const submissions = useQuery({
-    ...submissionListQuery({ formId, status, limit: PAGE_SIZE, offset }),
+    ...submissionListQuery({ formId, status, queue, flagged, limit: PAGE_SIZE, offset }),
     refetchInterval: autoRefresh ? REFRESH_INTERVAL_MS : false,
   });
 
   const setSearch = (next: {
     formId?: string;
     status?: SubmissionStatus;
+    queue?: boolean;
+    flagged?: boolean;
     offset?: number;
   }) => {
     void navigate({
@@ -41,6 +43,8 @@ export function SubmissionsPage() {
       search: {
         formId: "formId" in next ? next.formId : formId,
         status: "status" in next ? next.status : status,
+        queue: "queue" in next ? next.queue : queue,
+        flagged: "flagged" in next ? next.flagged : flagged,
         offset:
           next.offset === undefined || next.offset === 0
             ? undefined
@@ -105,11 +109,44 @@ export function SubmissionsPage() {
           </select>
         </label>
 
-        {(formId !== undefined || status !== undefined) && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={queue === true}
+            onChange={(event) =>
+              setSearch({ queue: event.target.checked ? true : undefined })
+            }
+          />
+          {/* The queue is this list with a filter on it, not a screen of its
+              own: two lists of the same rows can disagree, and there is
+              nothing a queue knows that this does not (item 6). */}
+          Waiting for review
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={flagged === true}
+            onChange={(event) =>
+              setSearch({ flagged: event.target.checked ? true : undefined })
+            }
+          />
+          Flagged only
+        </label>
+        {(formId !== undefined ||
+          status !== undefined ||
+          queue !== undefined ||
+          flagged !== undefined) && (
           <button
             type="button"
             className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-100"
-            onClick={() => setSearch({ formId: undefined, status: undefined })}
+            onClick={() =>
+              setSearch({
+                formId: undefined,
+                status: undefined,
+                queue: undefined,
+                flagged: undefined,
+              })
+            }
           >
             Clear filters
           </button>

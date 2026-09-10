@@ -258,6 +258,34 @@ class PulledTombstone(BaseModel):
 from app.modules.cases.schemas import AssignedCase  # noqa: E402
 
 
+class ReturnedWork(BaseModel):
+    """A submission a reviewer has handed back, with the reason (item 6).
+
+    It travels in the pull because that is the only stream a handset already
+    consumes, and it is a **statement** rather than an op for one reason:
+    `submission_op.device_id` is NOT NULL and `UNIQUE (device_id, counter)` is
+    per device, so a server-authored op has no device to be authored by and no
+    counter it can take without colliding with whatever the enumerator's
+    handset is about to push. The `reopen` op is authored by the device that
+    holds the work, when the enumerator opens it — so the op log stays a
+    record of what devices did.
+
+    The reason is carried, not referenced. Work sent back without one arrives
+    as a repeat of the same visit.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    submission_id: str = Field(serialization_alias="submissionId")
+    status: str
+    case_id: str | None = Field(serialization_alias="caseId")
+    form_id: str = Field(serialization_alias="formId")
+    form_version: int = Field(serialization_alias="formVersion")
+    reason: str | None
+    decided_at: datetime = Field(serialization_alias="decidedAt")
+    decided_by: str | None = Field(serialization_alias="decidedBy")
+
+
 class PullResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -278,6 +306,12 @@ class PullResponse(BaseModel):
     # release is noticed by absence — the same argument as `forms`. Null when
     # not asked, never an empty list standing in for "not asked".
     assignments: list[AssignedCase] | None = None
+    # Work a reviewer has handed back to the session's person, when the
+    # request asked for `scope=assignments` (item 6). A **complete
+    # statement**, like `assignments` and for the same reason: a submission
+    # that has since been resubmitted is absent, and only a statement can say
+    # "no longer owed" rather than "nothing new". Null when not asked.
+    returned: list[ReturnedWork] | None = None
     # The dataset manifest, when the request asked for `scope=datasets`.
     #
     # **Nullable, and `forms` above is not** — the asymmetry is deliberate and

@@ -176,9 +176,10 @@ async def _provision_organization(database: str | None) -> None:
                 {"org": ORG_ID},
             )
             # Admin: everything. PM: everything but device.revoke. Supervisor
-            # (§3.2, 010 §3): creates enumerators in their own team, assigns
-            # sample, sees submissions. Enumerator: nothing — their access is
-            # their device's session.
+            # (§3.2, 010 §3, 016 §1): creates enumerators in their own team,
+            # assigns sample, sees submissions — and reviews them, because in
+            # RCons the supervisor is the reviewer. Enumerator: nothing —
+            # their access is their device's session.
             await session.execute(
                 text(
                     """
@@ -195,7 +196,8 @@ async def _provision_organization(database: str | None) -> None:
                         r.name = 'Admin'
                         OR (r.name = 'Programme manager' AND p.name <> 'device.revoke')
                         OR (r.name = 'Supervisor' AND p.name IN
-                            ('user.create', 'user.assign_role', 'sample.assign', 'submission.view'))
+                            ('user.create', 'user.assign_role', 'sample.assign',
+                             'submission.view', 'submission.review'))
                     )
                     ON CONFLICT DO NOTHING
                     """

@@ -12,6 +12,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.forms.models import Form, FormVersion
+from app.modules.quality.models import QualityFlag
 from app.modules.submissions.models import (
     Submission,
     SubmissionContentKey,
@@ -44,12 +45,49 @@ def _op_counts() -> Any:
     )
 
 
-def _filtered(statement: Select[Any], form_id: str | None, status: str | None) -> Select[Any]:
-    """Apply the console filters. `form_id` matches the wire key, not the row id."""
+#: Submissions a reviewer has something to do about. `draft` is work in
+#: progress and `approved`/`rejected` are decided; the rest are waiting on
+#: somebody. A submission sent back and redone re-enters through `finalized`,
+#: which is the whole of defect 27's fix showing up on a screen.
+AWAITING_REVIEW = ("finalized", "in_review")
+
+
+def _filtered(
+    statement: Select[Any],
+    form_id: str | None,
+    status: str | None,
+    *,
+    queue: bool = False,
+    flagged: bool | None = None,
+) -> Select[Any]:
+    """Apply the console filters. `form_id` matches the wire key, not the row id.
+
+    `queue` and `flagged` are item 6's, and they are filters on **this** list
+    rather than a second endpoint. A queue that is its own route is a queue
+    that can disagree with the list beside it, and there is nothing a queue
+    knows that a filtered submission list does not (item 6, D4).
+    """
     if form_id is not None:
         statement = statement.where(Form.form_key == form_id)
     if status is not None:
         statement = statement.where(Submission.status == status)
+    if queue:
+        statement = statement.where(Submission.status.in_(AWAITING_REVIEW))
+    if flagged is not None:
+        # An open violation, and deliberately not an unevaluated rule: a
+        # submission whose rules could not run has nothing flagged and has
+        # not been checked either, and folding the two together would put it
+        # in whichever list the reviewer trusts least (item 6, D3).
+        has_flag = (
+            select(QualityFlag.id)
+            .where(
+                QualityFlag.submission_id == Submission.id,
+                QualityFlag.resolved_at.is_(None),
+                QualityFlag.outcome == "violation",
+            )
+            .exists()
+        )
+        statement = statement.where(has_flag if flagged else ~has_flag)
     return statement
 
 
@@ -60,6 +98,8 @@ async def list_submissions(
     status: str | None,
     limit: int,
     offset: int,
+    queue: bool = False,
+    flagged: bool | None = None,
 ) -> SubmissionListResponse:
     """One page of submissions, newest arrival first.
 
@@ -78,6 +118,8 @@ async def list_submissions(
                 .join(Form, Form.id == FormVersion.form_id),
                 form_id,
                 status,
+                queue=queue,
+                flagged=flagged,
             )
         )
     ).scalar_one()
@@ -96,6 +138,8 @@ async def list_submissions(
             .outerjoin(counts, counts.c.submission_id == Submission.id),
             form_id,
             status,
+            queue=queue,
+            flagged=flagged,
         )
         .order_by(Submission.received_at.desc(), Submission.id.desc())
         .limit(limit)

@@ -3054,7 +3054,7 @@
           "submissions"
         ],
         "summary": "List Submissions",
-        "description": "One page of submissions, newest arrival first.\n\n`formId` is the wire form key an op carries, not the form row id, so the\nsame value filters here and identifies a form in a pushed op. An unknown\n`status` is a 422 rather than an empty page — a typo should say so.",
+        "description": "One page of submissions, newest arrival first.\n\n`formId` is the wire form key an op carries, not the form row id, so the\nsame value filters here and identifies a form in a pushed op. An unknown\n`status` is a 422 rather than an empty page — a typo should say so.\n\n`queue=true` narrows to what a reviewer has something to do about, and\n`flagged` to whether a submission carries an open violation. **The review\nqueue is this list with those two filters**, not a route of its own: a\nqueue with its own query is a queue that can disagree with the list beside\nit, and it knows nothing this one does not (item 6, D4).",
         "operationId": "list_submissions_api_v1_submissions_get",
         "parameters": [
           {
@@ -3110,6 +3110,32 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Queue"
+            }
+          },
+          {
+            "name": "flagged",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Flagged"
             }
           }
         ],
@@ -3680,6 +3706,299 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/review": {
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Decide",
+        "description": "Approve, reject, request a correction, or leave a comment.\n\nThe only writer of a review state. Refusals carry a machine-readable\n`reason` beside a sentence saying what to do about it:\n\n- `reason_required` — a decision that returns the work needs one. Work\n  handed back without a reason arrives as a repeat of the same visit.\n- `not_allowed` — the submission cannot take this decision, and the\n  message says why (a draft has not been submitted; an approved\n  submission has been acted on).\n- `not_found` — no such submission, or not one this person may review.\n  The two are one answer on purpose.",
+        "operationId": "decide_api_v1_submissions__submission_id__review_post",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRefusalResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRefusalResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRefusalResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRefusalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/quality": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Submission Quality",
+        "description": "What the rules said about one submission, and what has been decided.\n\n`flags` and `unevaluated` are separate lists rather than one list with a\nfield to read, because a reviewer who skims must not be able to read\n\"nothing flagged\" as \"checked and clean\" (item 6, D3).",
+        "operationId": "submission_quality_api_v1_submissions__submission_id__quality_get",
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionQualityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/rules": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "List Rules",
+        "description": "A project's rules. Readable by anyone who may see its work, because a\nreviewer needs to know what was checked.",
+        "operationId": "list_rules_api_v1_quality_rules_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRuleListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Create Rule",
+        "description": "Add a rule, compiling its expression first.\n\nA rule that cannot be evaluated is refused here, with the compiler's own\nmessage. Storing it would turn one author's mistake into a `not_evaluated`\nrow on every submission for as long as it stayed enabled.",
+        "operationId": "create_rule_api_v1_quality_rules_post",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityRuleIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRuleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleRefusalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quality/rules/{rule_id}": {
+      "patch": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Update Rule",
+        "description": "Edit a rule. Flags already raised keep the definition they were raised\nunder — a decision made last week was made under last week's rule, and\nthis cannot reach back and change what it says.",
+        "operationId": "update_rule_api_v1_quality_rules__rule_id__patch",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityRuleIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityRuleOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleRefusalResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleRefusalResponse"
                 }
               }
             }
@@ -4702,6 +5021,15 @@
         "title": "DayCount",
         "description": "One day's finished interviews, by the day the enumerator finished."
       },
+      "Decision": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "rejected",
+          "correction_required",
+          "comment"
+        ]
+      },
       "DeployedDatasetVersion": {
         "properties": {
           "formVersionId": {
@@ -5511,6 +5839,89 @@
         ],
         "title": "FieldSnapshot",
         "description": "One field after recalculation — `FieldState.to_dict()` in the engine.\n\nWritten out rather than left as a free-form object because this is the\nshape a form builder renders: `relevant` and `valid` decide whether a\nquestion is on screen and whether it is in error, and a client that has to\nguess at them is reimplementing the engine to read its output."
+      },
+      "FlagView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ruleId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ruleid"
+          },
+          "ruleName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rulename"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/Outcome"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolvedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ruleId",
+          "ruleName",
+          "severity",
+          "outcome",
+          "detail",
+          "path",
+          "createdAt",
+          "resolvedAt"
+        ],
+        "title": "FlagView"
       },
       "FormListResponse": {
         "properties": {
@@ -6991,6 +7402,13 @@
           "reopen"
         ]
       },
+      "Outcome": {
+        "type": "string",
+        "enum": [
+          "violation",
+          "not_evaluated"
+        ]
+      },
       "Overview": {
         "properties": {
           "scopeKind": {
@@ -7785,6 +8203,20 @@
             ],
             "title": "Assignments"
           },
+          "returned": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ReturnedWork"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Returned"
+          },
           "datasets": {
             "anyOf": [
               {
@@ -8102,6 +8534,115 @@
         ],
         "title": "PushResponse"
       },
+      "QualityRuleIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "definition": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Definition"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "default": "warning"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "formId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "definition"
+        ],
+        "title": "QualityRuleIn"
+      },
+      "QualityRuleListResponse": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/QualityRuleOut"
+            },
+            "type": "array",
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rules"
+        ],
+        "title": "QualityRuleListResponse"
+      },
+      "QualityRuleOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "definition": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Definition"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "formId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "definition",
+          "severity",
+          "enabled",
+          "formId",
+          "createdAt"
+        ],
+        "title": "QualityRuleOut"
+      },
       "RecipientSetFailure": {
         "type": "string",
         "const": "test_only_key"
@@ -8157,6 +8698,210 @@
           "reason"
         ],
         "title": "RejectedOp"
+      },
+      "ReturnedWork": {
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "title": "Submissionid"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "caseId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caseid"
+          },
+          "formId": {
+            "type": "string",
+            "title": "Formid"
+          },
+          "formVersion": {
+            "type": "integer",
+            "title": "Formversion"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "decidedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decidedat"
+          },
+          "decidedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submissionId",
+          "status",
+          "caseId",
+          "formId",
+          "formVersion",
+          "reason",
+          "decidedAt",
+          "decidedBy"
+        ],
+        "title": "ReturnedWork",
+        "description": "A submission a reviewer has handed back, with the reason (item 6).\n\nIt travels in the pull because that is the only stream a handset already\nconsumes, and it is a **statement** rather than an op for one reason:\n`submission_op.device_id` is NOT NULL and `UNIQUE (device_id, counter)` is\nper device, so a server-authored op has no device to be authored by and no\ncounter it can take without colliding with whatever the enumerator's\nhandset is about to push. The `reopen` op is authored by the device that\nholds the work, when the enumerator opens it — so the op log stays a\nrecord of what devices did.\n\nThe reason is carried, not referenced. Work sent back without one arrives\nas a repeat of the same visit."
+      },
+      "ReviewEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "decision",
+          "comment",
+          "reviewer",
+          "createdAt"
+        ],
+        "title": "ReviewEntry"
+      },
+      "ReviewRefusal": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ReviewRefusalReason"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "ReviewRefusal",
+        "description": "A refusal a client can act on, in the shape items 2 and 4 use."
+      },
+      "ReviewRefusalReason": {
+        "type": "string",
+        "enum": [
+          "unknown_decision",
+          "not_found",
+          "reason_required",
+          "not_allowed"
+        ]
+      },
+      "ReviewRefusalResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ReviewRefusal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ReviewRefusalResponse"
+      },
+      "ReviewRequest": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ReviewRequest"
+      },
+      "ReviewResponse": {
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "title": "Reviewid"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "returnsWork": {
+            "type": "boolean",
+            "title": "Returnswork"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reviewId",
+          "status",
+          "returnsWork"
+        ],
+        "title": "ReviewResponse"
       },
       "Role": {
         "properties": {
@@ -8229,6 +8974,43 @@
           "permissions"
         ],
         "title": "RolePermissionsRequest"
+      },
+      "RuleRefusal": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/RuleRefusalReason"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "RuleRefusal"
+      },
+      "RuleRefusalReason": {
+        "type": "string",
+        "enum": [
+          "invalid_expression",
+          "unknown_form",
+          "not_found"
+        ]
+      },
+      "RuleRefusalResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/RuleRefusal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "RuleRefusalResponse"
       },
       "SampleUploadResponse": {
         "properties": {
@@ -8427,6 +9209,14 @@
         "enum": [
           "console",
           "app"
+        ]
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "error"
         ]
       },
       "SubmissionDetail": {
@@ -8752,6 +9542,38 @@
         ],
         "title": "SubmissionOpView",
         "description": "One row of the raw op log."
+      },
+      "SubmissionQualityResponse": {
+        "properties": {
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/FlagView"
+            },
+            "type": "array",
+            "title": "Flags"
+          },
+          "unevaluated": {
+            "items": {
+              "$ref": "#/components/schemas/FlagView"
+            },
+            "type": "array",
+            "title": "Unevaluated"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewEntry"
+            },
+            "type": "array",
+            "title": "Reviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flags",
+          "unevaluated",
+          "reviews"
+        ],
+        "title": "SubmissionQualityResponse"
       },
       "SubmissionStateView": {
         "properties": {

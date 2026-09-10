@@ -26,6 +26,12 @@ export const PAGE_SIZE = 50;
 export interface SubmissionsSearch {
   formId?: string;
   status?: SubmissionStatus;
+  /** The review queue (item 6): what a reviewer has something to do about.
+   *  In the URL like every other filter, so a supervisor can send somebody
+   *  the queue as a link. */
+  queue?: boolean;
+  /** Whether the submission carries an open violation. */
+  flagged?: boolean;
   /** Absent means the first page — the default stays out of the URL. */
   offset?: number;
 }
@@ -70,6 +76,13 @@ const submissionsRoute = createRoute({
     return {
       formId,
       status,
+      queue: search.queue === true || search.queue === "true" ? true : undefined,
+      flagged:
+        search.flagged === true || search.flagged === "true"
+          ? true
+          : search.flagged === false || search.flagged === "false"
+            ? false
+            : undefined,
       offset:
         Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : undefined,
     };

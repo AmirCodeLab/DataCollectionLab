@@ -31,6 +31,14 @@ let escapes: Escapes;
 function serve(url: string): unknown {
   if (url.startsWith("/health")) return { status: "ok", environment: "test" };
   if (url.includes(`/submissions/${SUBMISSION_ID}/keys`)) return submissionKeys;
+  // Item 6's two, and they must be matched BEFORE the detail's prefix: this
+  // fake routes by `includes`, so `/submissions/{id}/quality` also matches
+  // `/submissions/{id}` and the page would be handed a submission where it
+  // asked for its flags. That is how these four tests broke.
+  if (url.startsWith("/api/v1/quality/rules")) return { rules: [] };
+  if (url.includes(`/submissions/${SUBMISSION_ID}/quality`)) {
+    return { flags: [], unevaluated: [], reviews: [] };
+  }
   if (url.includes(`/submissions/${SUBMISSION_ID}`)) return submissionDetail;
   if (url.includes("/keys")) {
     return {

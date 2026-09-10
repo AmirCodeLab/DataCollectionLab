@@ -37,7 +37,9 @@ from app.modules.forms.models import Form, FormVersion
 from app.modules.forms.schemas import DeployedFormVersion
 from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
-from app.modules.submissions.fold import fold_ops
+from app.modules.quality import service as quality_service
+from app.modules.submissions import status as status_machine
+from app.modules.submissions.fold import Fold, fold_ops
 from app.modules.submissions.models import (
     Submission,
     SubmissionContentKey,
@@ -54,12 +56,16 @@ from app.modules.sync.schemas import (
     PushResponse,
     RejectedOp,
     RejectReason,
+    ReturnedWork,
     SyncOp,
 )
 
 # A submission in a terminal review state accepts no further ops. finalized is
 # NOT terminal: corrections after finalisation are how the review loop works.
-_CLOSED_STATUSES = {"approved", "rejected"}
+# The set is the status machine's, not this module's — a state that accepts no
+# transition is exactly a state that accepts no op, and keeping the two in one
+# place is what stops them drifting (app.modules.submissions.status).
+_CLOSED_STATUSES = status_machine.CLOSED
 
 # Environments a submission is implicitly created in, in preference order.
 _ENVIRONMENT_PREFERENCE = ["production", "staging", "development"]
@@ -412,7 +418,13 @@ async def push(
     )
 
     for submission_id, op_ids in touched.items():
-        await _fold_submission(session, submissions[submission_id])
+        folded = await _fold_submission(session, submissions[submission_id])
+        # The rules run here, in this transaction, against the fold that has
+        # just been computed — never in a worker, so a flag cannot describe a
+        # state the submission was never in (item 6, D3).
+        await quality_service.evaluate_and_record(
+            session, submission_id, folded.data, folded.unreadable
+        )
         session.add(
             OutboxEvent(
                 id=new_ulid(),
@@ -631,7 +643,7 @@ async def _insert_ops(
     return refused
 
 
-async def _fold_submission(session: AsyncSession, submission: Submission) -> None:
+async def _fold_submission(session: AsyncSession, submission: Submission) -> Fold:
     """Recompute materialised state from the full op log.
 
     Field-level last-writer-wins ordered by (counter, device_id) — deviceId is
@@ -655,11 +667,24 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
 
     folded = fold_ops(ops)
 
-    # Ops only move a submission between draft and finalized; review states
-    # (in_review, approved, ...) belong to the review workflow, not to sync.
-    if folded.status is not None and submission.status in ("draft", "finalized"):
-        submission.status = folded.status
-        submission.finalized_at = folded.finalized_at
+    # The device's half of the status machine. `folded.status` is the net of
+    # the whole log, never the submission's status: the log has no opinion
+    # about review states. Asking the machine rather than testing the current
+    # status here is defect 27's fix — the old condition said which states
+    # sync may leave and thereby decided, silently, which states anything may
+    # leave, so a submission sent back for correction could never come back.
+    event = status_machine.event_for_folded(folded.status)
+    if event is not None:
+        try:
+            submission.status = status_machine.next_status(submission.status, event)
+        except status_machine.Refused:
+            # Only from `approved`/`rejected`, and the ops that would have
+            # caused it were refused at admission. Reaching here means the
+            # decision landed between admission and the fold, in which case
+            # the decision is the newer fact and the log's opinion is stale.
+            pass
+        else:
+            submission.finalized_at = folded.finalized_at
 
     values = {
         "data": dict(folded.data),
@@ -671,6 +696,7 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
         .values(submission_id=submission.id, **values)
         .on_conflict_do_update(index_elements=["submission_id"], set_=values)
     )
+    return folded
 
 
 async def _server_cursor(session: AsyncSession) -> int:
@@ -831,12 +857,36 @@ async def pull(
         # only stops starting new work on it.
         assignments = await cases_service.assigned_to(session, assignments_for)
 
+    returned = None
+    if assignments_for is not None:
+        # Under the same scope as the assignments, because it is the same
+        # question asked about work already done: what is mine to do now. A
+        # complete statement for the same reason — a submission that has been
+        # resubmitted is absent, and only a statement can say "no longer
+        # owed" (item 6).
+        from app.modules.quality import review as review_service
+
+        returned = [
+            ReturnedWork(
+                submission_id=row.submission_id,
+                status=row.status,
+                case_id=row.case_id,
+                form_id=row.form_id,
+                form_version=row.form_version,
+                reason=row.reason,
+                decided_at=row.decided_at,
+                decided_by=row.decided_by,
+            )
+            for row in await review_service.returned_to(session, assignments_for)
+        ]
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
         forms=forms,
         datasets=datasets,
         assignments=assignments,
+        returned=returned,
         next_cursor=next_cursor,
         has_more=has_more,
     )

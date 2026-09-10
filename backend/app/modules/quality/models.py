@@ -42,7 +42,16 @@ class QualityFlag(Base):
         Index(
             "quality_flag_open_idx",
             "submission_id",
-            postgresql_where=text("resolved_at IS NULL"),
+            postgresql_where=text("resolved_at IS NULL AND outcome = 'violation'"),
+        ),
+        Index(
+            "quality_flag_unevaluated_idx",
+            "submission_id",
+            postgresql_where=text("resolved_at IS NULL AND outcome = 'not_evaluated'"),
+        ),
+        CheckConstraint(
+            "outcome IN ('violation', 'not_evaluated')",
+            name="quality_flag_outcome_check",
         ),
     )
 
@@ -55,6 +64,18 @@ class QualityFlag(Base):
     )
     path: Mapped[str | None] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(Text, nullable=False)
+    #: 'violation' — the rule ran and did not hold. 'not_evaluated' — it could
+    #: not run at all, because the server holds ciphertext and no key, or the
+    #: expression names a path the form does not declare. Never a pass (016).
+    outcome: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'violation'")
+    )
+    #: The rule as it was when this flag was raised. `rule_id` is
+    #: ON DELETE SET NULL, which loses the answer at exactly the moment it
+    #: matters, so a decision made under a rule keeps the rule it was made
+    #: under even after the rule is edited or deleted.
+    rule_name: Mapped[str | None] = mapped_column(Text)
+    rule_definition: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     detail: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )

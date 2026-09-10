@@ -147,6 +147,13 @@ async def flags_outstanding(session: AsyncSession, project_id: str) -> int | Non
     version people trust because it looks like data. So the absence of any
     rule for this project is reported as "not measurable", and the console
     renders the card only when this is a number (A7).
+
+    **Only violations are counted.** Since 016 a `quality_flag` row can also
+    record that a rule *could not be evaluated* — the server holds ciphertext
+    and no key, so the check never ran. Counting those as outstanding would
+    put a number on work nobody has done, in the opposite direction from the
+    zero this function already refuses to give. Reporting them is item 6's,
+    beside the count rather than inside it.
     """
     rules = (
         await session.execute(
@@ -161,7 +168,8 @@ async def flags_outstanding(session: AsyncSession, project_id: str) -> int | Non
                 text(
                     "SELECT count(*) FROM quality_flag f "
                     "JOIN submission s ON s.id = f.submission_id "
-                    "WHERE s.project_id = :p AND f.resolved_at IS NULL"
+                    "WHERE s.project_id = :p AND f.resolved_at IS NULL "
+                    "  AND f.outcome = 'violation'"
                 ),
                 {"p": project_id},
             )

@@ -350,8 +350,38 @@ private fun SubmissionCard(submission: SubmissionUi, onClick: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 SuggestionChip(
                     onClick = onClick,
-                    label = { Text(if (submission.finalized) "Finalized" else "Draft") },
+                    label = {
+                        Text(
+                            when {
+                                submission.returnedReason != null -> "Sent back"
+                                submission.finalized -> "Finalized"
+                                else -> "Draft"
+                            }
+                        )
+                    },
                 )
+            }
+            if (submission.returnedReason != null) {
+                // The reason is on the row, not behind the tap. An enumerator
+                // has to know what to change before deciding to open the form
+                // again — a reason one tap further in is a reason half of them
+                // will not have read, and the visit is repeated instead of
+                // corrected (item 6).
+                Text(
+                    text = submission.returnedReason,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (submission.returnedAt != null) {
+                    Text(
+                        // The decision's time, not this device's: a handset
+                        // offline for a week must not report old news as new.
+                        text = "Sent back ${submission.returnedAt}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Text(
                 text = "${submission.pendingOps} ops waiting to sync",

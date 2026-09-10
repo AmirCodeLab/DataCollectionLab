@@ -281,6 +281,10 @@ export interface DayCount {
   count: number;
 }
 
+export const DECISIONS = ["approved", "rejected", "correction_required", "comment"] as const;
+
+export type Decision = (typeof DECISIONS)[number];
+
 /**
  * One entry of a device's dataset manifest (sync §5, `scope=datasets`).
  *
@@ -510,6 +514,18 @@ export interface ExpressionResponse {
   text?: string | null;
   error?: string | null;
   offset?: number | null;
+}
+
+export interface FlagView {
+  id: string;
+  ruleId: string | null;
+  ruleName: string | null;
+  severity: string;
+  outcome: Outcome;
+  detail: Record<string, unknown>;
+  path: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface FormListResponse {
@@ -949,6 +965,10 @@ export const OP_KINDS = [
 
 export type OpKind = (typeof OP_KINDS)[number];
 
+export const OUTCOMES = ["violation", "not_evaluated"] as const;
+
+export type Outcome = (typeof OUTCOMES)[number];
+
 export interface Overview {
   scopeKind: ScopeKind;
   scopeLabel: string;
@@ -1170,6 +1190,7 @@ export interface PullResponse {
   tombstones: PulledTombstone[];
   forms: DeployedFormVersion[];
   assignments?: AssignedCase[] | null;
+  returned?: ReturnedWork[] | null;
   datasets?: DeployedDatasetVersion[] | null;
   nextCursor: number;
   hasMore: boolean;
@@ -1219,6 +1240,28 @@ export interface PushResponse {
   serverCursor: number;
 }
 
+export interface QualityRuleIn {
+  name: string;
+  definition: Record<string, unknown>;
+  severity?: Severity;
+  enabled?: boolean;
+  formId?: string | null;
+}
+
+export interface QualityRuleListResponse {
+  rules: QualityRuleOut[];
+}
+
+export interface QualityRuleOut {
+  id: string;
+  name: string;
+  definition: Record<string, unknown>;
+  severity: string;
+  enabled: boolean;
+  formId: string | null;
+  createdAt: string;
+}
+
 export const RECIPIENT_SET_FAILURES = ["test_only_key"] as const;
 
 export type RecipientSetFailure = (typeof RECIPIENT_SET_FAILURES)[number];
@@ -1253,6 +1296,70 @@ export interface RejectedOp {
   reason: RejectReason;
 }
 
+/**
+ * A submission a reviewer has handed back, with the reason (item 6).
+ *
+ * It travels in the pull because that is the only stream a handset already
+ * consumes, and it is a **statement** rather than an op for one reason:
+ * `submission_op.device_id` is NOT NULL and `UNIQUE (device_id, counter)` is
+ * per device, so a server-authored op has no device to be authored by and no
+ * counter it can take without colliding with whatever the enumerator's
+ * handset is about to push. The `reopen` op is authored by the device that
+ * holds the work, when the enumerator opens it — so the op log stays a
+ * record of what devices did.
+ *
+ * The reason is carried, not referenced. Work sent back without one arrives
+ * as a repeat of the same visit.
+ */
+export interface ReturnedWork {
+  submissionId: string;
+  status: string;
+  caseId: string | null;
+  formId: string;
+  formVersion: number;
+  reason: string | null;
+  decidedAt: string;
+  decidedBy: string | null;
+}
+
+export interface ReviewEntry {
+  id: string;
+  decision: Decision;
+  comment: string | null;
+  reviewer: string | null;
+  createdAt: string;
+}
+
+/** A refusal a client can act on, in the shape items 2 and 4 use. */
+export interface ReviewRefusal {
+  reason: ReviewRefusalReason;
+  message: string;
+}
+
+export const REVIEW_REFUSAL_REASONS = [
+  "unknown_decision",
+  "not_found",
+  "reason_required",
+  "not_allowed",
+] as const;
+
+export type ReviewRefusalReason = (typeof REVIEW_REFUSAL_REASONS)[number];
+
+export interface ReviewRefusalResponse {
+  detail: ReviewRefusal;
+}
+
+export interface ReviewRequest {
+  decision: Decision;
+  comment?: string | null;
+}
+
+export interface ReviewResponse {
+  reviewId: string;
+  status: string;
+  returnsWork: boolean;
+}
+
 export interface Role {
   id: string;
   name: string;
@@ -1268,6 +1375,23 @@ export interface RoleListResponse {
 
 export interface RolePermissionsRequest {
   permissions: Permission[];
+}
+
+export interface RuleRefusal {
+  reason: RuleRefusalReason;
+  message: string;
+}
+
+export const RULE_REFUSAL_REASONS = [
+  "invalid_expression",
+  "unknown_form",
+  "not_found",
+] as const;
+
+export type RuleRefusalReason = (typeof RULE_REFUSAL_REASONS)[number];
+
+export interface RuleRefusalResponse {
+  detail: RuleRefusal;
 }
 
 /**
@@ -1325,6 +1449,10 @@ export type SecurityMode = (typeof SECURITY_MODES)[number];
 export const SESSION_KINDS = ["console", "app"] as const;
 
 export type SessionKind = (typeof SESSION_KINDS)[number];
+
+export const SEVERITYS = ["info", "warning", "error"] as const;
+
+export type Severity = (typeof SEVERITYS)[number];
 
 export interface SubmissionDetail {
   id: string;
@@ -1388,6 +1516,12 @@ export interface SubmissionOpView {
   wallClock: string;
   receivedAt: string;
   serverSeq: number;
+}
+
+export interface SubmissionQualityResponse {
+  flags: FlagView[];
+  unevaluated: FlagView[];
+  reviews: ReviewEntry[];
 }
 
 /** The materialised fold: current value per field path. */
