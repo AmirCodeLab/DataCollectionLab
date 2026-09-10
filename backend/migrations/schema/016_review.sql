@@ -126,6 +126,46 @@ SELECT dcp_policy('review',
     'submission_id IN (SELECT id FROM submission)',
     'submission_id IN (SELECT id FROM submission) AND dcp_has(''submission.review'')');
 
+-- ===========================================================================
+-- 5. A reviewer may change a submission's status, and nothing else about it
+-- ===========================================================================
+--
+-- 012 wrote `submission`'s WITH CHECK for the only writer there was: a device
+-- pushing its own work. `created_by = me AND the case is mine` is exactly
+-- right for that and admits nobody else — so a supervisor who may *see* a
+-- submission cannot write to it, and the review decision fails on the status
+-- UPDATE with "new row violates row-level security policy".
+--
+-- Found by the loop test, not by reading. The decision, the `review` row and
+-- the status move in one transaction, and the first two succeeded.
+--
+-- So the write side gains the reviewer, bounded the same way the read side
+-- is: somebody holding `submission.review` may write a submission they can
+-- already see. It is not a widening of what anybody can read. The USING
+-- clause is unchanged and is repeated here verbatim, because `dcp_policy`
+-- replaces the whole policy and a WITH CHECK written alone would silently
+-- drop the read side.
+--
+-- What stops a reviewer rewriting the answers is that they never touch them:
+-- answers live in `submission_op`, which is append-only and whose policy this
+-- does not go near. A status is the only column a decision writes.
+
+SELECT dcp_policy('submission',
+    'project_id IN (SELECT id FROM project) AND ('
+    '   dcp_org_wide()'
+    ' OR created_by = dcp_principal(''app.user_id'')'
+    ' OR (case_id IS NOT NULL AND dcp_case_in_scope(case_id))'
+    ' OR (case_id IS NULL AND dcp_has(''submission.view'')'
+    '     AND dcp_in_list(''app.visible_user_ids'', created_by)))',
+    'project_id IN (SELECT id FROM project) AND ('
+    '   dcp_org_wide()'
+    ' OR (created_by = dcp_principal(''app.user_id'')'
+    '     AND (case_id IS NULL OR dcp_case_assigned_to_me(case_id)))'
+    ' OR (dcp_has(''submission.review'') AND ('
+    '        (case_id IS NOT NULL AND dcp_case_in_scope(case_id))'
+    '     OR (case_id IS NULL'
+    '         AND dcp_in_list(''app.visible_user_ids'', created_by)))))');
+
 -- Append-only, the same way `submission_op` is. A review trail that can be
 -- edited is not a trail, and "who decided what, when" is the only reason
 -- these rows exist.

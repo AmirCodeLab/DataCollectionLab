@@ -573,3 +573,180 @@ def test_the_supervisor_role_now_holds_submission_review(review_db: str) -> None
         }
 
     _run(go())
+
+
+# ---------------------------------------------------------------------------
+# The whole loop
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.db
+def test_the_correction_loop_end_to_end(review_db: str) -> None:
+    """A rule fires, a supervisor sends the work back with a reason, the
+    device gets it in the pull, the enumerator corrects it, and it returns to
+    the queue with the flag resolved.
+
+    This is the item, in one test. Every step is the real service — the
+    evaluator, the decision, the statement the pull carries, the fold — so a
+    change that breaks the loop anywhere fails here rather than in a screen.
+
+    Note what the fixture cannot see, per the rule this project learned the
+    hard way: the principals are literal, so this proves the loop works, not
+    that a narrower principal is refused. The refusals are the tests above.
+    """
+
+    async def go() -> None:
+        from app.modules.quality import review as review_service
+        from app.modules.quality import service as quality
+        from app.modules.sync import service as sync_service
+
+        engine = create_engine(database=review_db)
+        try:
+            await _set_status(engine, "finalized")
+
+            # A rule the submission's answer breaks. `name` is 'A', and the
+            # rule says it must be 'B'.
+            async with admin_connection(REVIEW_DB) as conn:
+                await conn.execute("DELETE FROM quality_flag")
+                await conn.execute("DELETE FROM review")
+                await conn.execute(
+                    "UPDATE quality_rule SET name = 'name must be B', definition = $1::jsonb"
+                    " WHERE id = '01QRREV'",
+                    '{"op": "eq", "args": [{"op": "ref", "path": "name"},'
+                    ' {"op": "lit", "value": "B"}]}',
+                )
+                await conn.execute(
+                    "UPDATE form_version SET ir = $1::jsonb WHERE id = '01VERREV'",
+                    '{"irVersion": "0.1", "formId": "hh", "version": 1, "title": "HH",'
+                    ' "defaultLanguage": "en", "languages": ["en"],'
+                    ' "children": [{"type": "question", "id": "name", "dataType": "text",'
+                    ' "label": {"en": "Name"}}]}',
+                )
+
+            # On arrival the rules run against the fold. 'A' is not 'B'.
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                outcomes = await quality.evaluate_and_record(
+                    s, SUB_ID, {"name": "A"}, {}
+                )
+            assert [o.outcome for o in outcomes] == ["violation"]
+
+            # The supervisor cannot send it back without saying why.
+            async with session_as(_reviewer(), engine=engine) as s, s.begin():
+                with pytest.raises(review_service.ReviewRefused) as refused:
+                    await review_service.decide(
+                        s,
+                        SUB_ID,
+                        reviewer_id=SUPERVISOR,
+                        decision="correction_required",
+                        comment="   ",
+                    )
+            assert refused.value.reason == "reason_required"
+
+            async with session_as(_reviewer(), engine=engine) as s, s.begin():
+                recorded = await review_service.decide(
+                    s,
+                    SUB_ID,
+                    reviewer_id=SUPERVISOR,
+                    decision="correction_required",
+                    comment="The name is wrong — please check it against the card.",
+                )
+            assert recorded.status == "correction_required"
+            assert recorded.returns_work is True
+
+            # The device learns from the pull's statement, with the reason.
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                owed = await review_service.returned_to(s, ENUMERATOR)
+            assert [row.submission_id for row in owed] == [SUB_ID]
+            async with session_as(_reviewer(), engine=engine) as s, s.begin():
+                as_seen_by_the_reviewer = await review_service.returned_to(s, ENUMERATOR)
+            assert as_seen_by_the_reviewer[0].decided_by == "Sup"
+            assert "check it against the card" in (owed[0].reason or "")
+            # And the reviewer's name is **null**, because an enumerator's
+            # principal sees only themself: `platform_user` is scoped by item 1
+            # and the supervisor's row is not in it. That is not a gap to
+            # patch here — widening who an enumerator may see is item 1's
+            # decision, and the reason is what the enumerator has to act on.
+            # The handset renders the reason with or without a name.
+            assert owed[0].decided_by is None
+
+            # The enumerator reopens it, corrects it and finalises again.
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                await s.execute(
+                    text(
+                        "INSERT INTO submission_op (id, submission_id, op_kind, path, value,"
+                        " device_id, actor_id, counter, wall_clock) VALUES "
+                        "('01OPLOOP1', :s, 'reopen', NULL, NULL, :d, :e, 11, now()),"
+                        "('01OPLOOP2', :s, 'set', 'name', '\"B\"'::jsonb, :d, :e, 12, now()),"
+                        "('01OPLOOP3', :s, 'finalize', NULL, NULL, :d, :e, 13, now())"
+                    ),
+                    {"s": SUB_ID, "d": DEVICE_ID, "e": ENUMERATOR},
+                )
+            await _refold(engine, sync_service)
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                again = await quality.evaluate_and_record(s, SUB_ID, {"name": "B"}, {})
+            assert again == []
+
+            assert await _status(engine) == "finalized", (
+                "the corrected submission did not return to the queue"
+            )
+
+            # And it is no longer owed back to anybody.
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                still_owed = await review_service.returned_to(s, ENUMERATOR)
+            assert still_owed == [], (
+                "a statement that cannot say 'no longer owed' is a stream of additions"
+            )
+
+            # The flag the reviewer read is resolved, not edited: the rule it
+            # was raised under is still recorded on it.
+            async with session_as(_reviewer(), engine=engine) as s:
+                history = (
+                    (
+                        await s.execute(
+                            text(
+                                "SELECT outcome, rule_name, resolved_at IS NOT NULL AS closed "
+                                "FROM quality_flag WHERE submission_id = :s ORDER BY created_at"
+                            ),
+                            {"s": SUB_ID},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            assert [row["closed"] for row in history] == [True]
+            assert history[0]["rule_name"] == "name must be B"
+        finally:
+            await engine.dispose()
+
+    _run(go())
+
+
+@pytest.mark.db
+def test_a_rule_the_server_cannot_read_is_never_reported_as_clean(review_db: str) -> None:
+    """An encrypted project's answers are ciphertext here and the key is in
+    somebody's browser. A rule about one of those paths did not pass."""
+
+    async def go() -> None:
+        from app.modules.quality import service as quality
+
+        engine = create_engine(database=review_db)
+        try:
+            async with admin_connection(REVIEW_DB) as conn:
+                await conn.execute("DELETE FROM quality_flag")
+            async with session_as(_enumerator(), engine=engine) as s, s.begin():
+                outcomes = await quality.evaluate_and_record(
+                    s, SUB_ID, {}, {"name": "01CKREV"}
+                )
+            assert [(o.outcome, o.detail["reason"]) for o in outcomes] == [
+                ("not_evaluated", "encrypted")
+            ]
+
+            # And it is not an outstanding violation on anybody's dashboard.
+            from app.modules.monitoring import service as monitoring
+
+            async with session_as(_reviewer(), engine=engine) as s, s.begin():
+                assert await monitoring.flags_outstanding(s, PROJECT_ID) == 0
+        finally:
+            await engine.dispose()
+
+    _run(go())

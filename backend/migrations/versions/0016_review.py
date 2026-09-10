@@ -63,6 +63,25 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 012's submission policy, restored exactly: the write side without the
+    # reviewer. Written with real newlines because Postgres concatenates
+    # adjacent string constants only when a newline separates them — joined
+    # with spaces it is a syntax error, which is how this was found.
+    op.execute(
+        """
+        SELECT dcp_policy('submission',
+            'project_id IN (SELECT id FROM project) AND ('
+            '   dcp_org_wide()'
+            ' OR created_by = dcp_principal(''app.user_id'')'
+            ' OR (case_id IS NOT NULL AND dcp_case_in_scope(case_id))'
+            ' OR (case_id IS NULL AND dcp_has(''submission.view'')'
+            '     AND dcp_in_list(''app.visible_user_ids'', created_by)))',
+            'project_id IN (SELECT id FROM project) AND ('
+            '   dcp_org_wide()'
+            ' OR (created_by = dcp_principal(''app.user_id'')'
+            '     AND (case_id IS NULL OR dcp_case_assigned_to_me(case_id))))')
+        """
+    )
     op.execute("DROP POLICY IF EXISTS review_is_never_deleted ON review")
     op.execute("DROP POLICY IF EXISTS review_is_append_only ON review")
     for table in ("review", "quality_flag", "quality_rule"):
