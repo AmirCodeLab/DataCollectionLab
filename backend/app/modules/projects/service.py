@@ -14,7 +14,7 @@ with several projects must enroll devices explicitly (spec §11).
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -87,9 +87,21 @@ async def _sole_project_id(session: AsyncSession) -> str:
 async def register_device(
     session: AsyncSession, request: DeviceRegisterRequest
 ) -> DeviceRegisterResponse:
-    device = await session.get(Device, request.device_id)
-    if device is not None:
-        if device.revoked_at is not None:
+    # Read through the definer function: registration is public and runs with
+    # no person on the principal, and since 015 the device policy is scoped to
+    # the person holding the handset (see the comment in the migration — the
+    # asymmetry between USING and WITH CHECK is what keeps this path working).
+    known = (
+        (
+            await session.execute(
+                text("SELECT * FROM dcp_device_by_id(:d)"), {"d": request.device_id}
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if known is not None:
+        if known["revoked_at"] is not None:
             raise RegistrationError(
                 403,
                 "device_revoked",
@@ -100,20 +112,29 @@ async def register_device(
         # elsewhere). Silently accepting would file its ops under a project it
         # was never enrolled in.
         expected_project_id = await _sole_project_id(session)
-        if device.project_id != expected_project_id:
+        if known["project_id"] != expected_project_id:
             raise RegistrationError(
                 409,
                 "project_mismatch",
-                f"Device is registered to project {device.project_id}, but this server "
+                f"Device is registered to project {known['project_id']}, but this server "
                 f"resolves to {expected_project_id}. Clear the device's local database "
                 "to enroll it afresh.",
             )
         # Refresh the diagnostic metadata; identity and project stay fixed.
-        device.platform = request.platform
-        device.os_version = request.os_version or device.os_version
-        device.app_version = request.app_version or device.app_version
+        # Also through a definer function: an unbound handset re-registering
+        # is invisible to this principal, and an UPDATE that matched no row
+        # would silently do nothing.
+        await session.execute(
+            text("SELECT dcp_device_seen(:d, :p, :o, :a)"),
+            {
+                "d": request.device_id,
+                "p": request.platform,
+                "o": request.os_version,
+                "a": request.app_version,
+            },
+        )
         return DeviceRegisterResponse(
-            device_id=device.id, project_id=device.project_id, status="already_registered"
+            device_id=known["id"], project_id=known["project_id"], status="already_registered"
         )
 
     device = Device(

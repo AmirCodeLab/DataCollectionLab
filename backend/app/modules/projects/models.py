@@ -161,6 +161,13 @@ class Device(Base):
     # Ordering depends on it, so it is authoritative state, not a statistic.
     last_counter: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The device's own word about its outbox, and when it said so — NOT this
+    # server's count, which is why neither is named `pending_ops` or
+    # `updated_at`. `last_counter` above is what was accepted; what is queued
+    # behind it has never been mentioned to this server, and a figure rendered
+    # without `reported_at` is a claim with no date on it (item 5, 015).
+    reported_pending_ops: Mapped[int | None] = mapped_column(Integer)
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
