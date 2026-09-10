@@ -138,7 +138,7 @@ fun UpdatesScreen(
                                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                                 )
                                 ActionButton(
-                                    label = if (list.partial) "Resume" else "Download",
+                                    label = list.action,
                                     busy = state.busy == list.datasetKey,
                                     enabled = state.busy == null,
                                     onClick = { onAction(UpdatesAction.OnUpdateList(list.datasetKey)) },

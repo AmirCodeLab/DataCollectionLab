@@ -33,7 +33,20 @@ data class ListUpdateUi(
     val costLine: String,
     /** Some of it is already here, so the button says Resume. */
     val partial: Boolean,
-)
+    /** A whole earlier copy is here, so the button says Update, not Download. */
+    val isUpdate: Boolean = false,
+) {
+    /**
+     * What the button does, in one word. It has to match the sentence above
+     * it: a card reading "Update from v1" over a button reading "Download"
+     * asks the person to reconcile two claims about the same tap.
+     */
+    val action: String get() = when {
+        partial -> "Resume"
+        isUpdate -> "Update"
+        else -> "Download"
+    }
+}
 
 @Stable
 data class UpdatesState(
@@ -95,8 +108,9 @@ class UpdatesViewModel(
                 if (result.error != null) {
                     _state.update { it.copy(error = result.error) }
                 } else {
+                    val rows = if (result.fetched == 1) "1 row" else "${result.fetched} rows"
                     _state.update {
-                        it.copy(outcome = "${action.datasetKey}: ${result.fetched} rows.", error = null)
+                        it.copy(outcome = "${action.datasetKey}: $rows.", error = null)
                     }
                 }
             }
@@ -144,6 +158,7 @@ class UpdatesViewModel(
                             statusLine = it.statusLine,
                             costLine = it.costLine,
                             partial = it.list.rowsHeld > 0,
+                            isUpdate = it.deltaBaseVersion != null,
                         )
                     },
                     statuses,

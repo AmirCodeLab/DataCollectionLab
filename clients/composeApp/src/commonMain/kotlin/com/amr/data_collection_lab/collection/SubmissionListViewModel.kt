@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dcp.core.sync.CaseStore
+import com.dcp.core.sync.DatasetStore
 import com.dcp.core.sync.FormStore
 import com.dcp.core.sync.PendingFetch
 import com.dcp.core.sync.ReferenceData
@@ -132,6 +133,7 @@ class SubmissionListViewModel(
     private val syncClient: SyncClient,
     private val cases: CaseStore,
     private val forms: FormStore,
+    private val datasets: DatasetStore,
     private val referenceData: ReferenceData,
 ) : ViewModel() {
 
@@ -181,6 +183,11 @@ class SubmissionListViewModel(
                 refreshShellState()
             }
         }
+        // What is waiting to download changes on the Updates screen, which is
+        // a different ViewModel: without these the badge here still said
+        // "2 forms and 1 list" after both had arrived. Seen on a device.
+        viewModelScope.launch { forms.observeAll().collect { refreshShellState() } }
+        viewModelScope.launch { datasets.observeVersions().collect { refreshShellState() } }
         viewModelScope.launch {
             store.observeSyncStatus().collect { status ->
                 _state.update {
@@ -306,12 +313,11 @@ class SubmissionListViewModel(
             Triple(
                 forms.deployedNotHeld().size,
                 referenceData.pendingFetches(),
-                store.scopeStatuses().any {
-                    it.scope == SyncScope.ASSIGNMENTS && it.lastOkAt != null
-                },
+                store.scopeStatuses(),
             )
         }
-        val (waitingForms, pending, assignmentsAnswered) = snapshot
+        val (waitingForms, pending, statuses) = snapshot
+        fun answered(scope: String) = statuses.any { it.scope == scope && it.lastOkAt != null }
         val current = _state.value
         _state.update {
             it.copy(
@@ -324,7 +330,11 @@ class SubmissionListViewModel(
                         startable = current.startableForms.size,
                         waitingForms = waitingForms,
                         cases = current.assignedCases.size,
-                        assignmentsAnswered = assignmentsAnswered,
+                        assignmentsAnswered = answered(SyncScope.ASSIGNMENTS),
+                        // The manifests ride the work sync, so its success is
+                        // what makes "deploys nothing" a statement rather than
+                        // a guess.
+                        manifestsAnswered = answered(SyncScope.WORK),
                     )
                 } else {
                     null
@@ -369,11 +379,21 @@ internal fun emptyStateFor(
     waitingForms: Int,
     cases: Int,
     assignmentsAnswered: Boolean,
+    manifestsAnswered: Boolean,
 ): EmptyState = when {
     startable == 0 && waitingForms > 0 -> EmptyState(
         if (waitingForms == 1) "One form is deployed to this device and not downloaded yet."
         else "$waitingForms forms are deployed to this device and not downloaded yet.",
         opensUpdates = true,
+    )
+    // Never asked is not the same as answered "none" — the same distinction
+    // the manifests themselves turn on, and the device cannot make a claim
+    // about what a project deploys until it has been told. Found on a phone:
+    // a fresh install said "no form has been deployed to this device" before
+    // it had ever spoken to a server.
+    startable == 0 && !manifestsAnswered -> EmptyState(
+        "Nothing has been synced to this device yet. Tap Sync work to find out what " +
+            "this project has deployed to you.",
     )
     startable == 0 -> EmptyState(
         "No form has been deployed to this device yet. A programme manager does that, " +

@@ -99,19 +99,6 @@ fun CollectionScreen(
                 ) { CircularProgressIndicator() }
                 return@Scaffold
             }
-            if (state.missingReferenceData.isNotEmpty()) {
-                // Before the first question, not after the enumerator has met
-                // an empty dropdown and drawn their own conclusion (§3.2).
-                Text(
-                    text = UiStrings.referenceDataMissing(
-                        state.missingReferenceData.joinToString(", "),
-                        state.language,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                )
-            }
             if (state.loadError != null) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -161,6 +148,29 @@ fun CollectionScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                if (state.missingReferenceData.isNotEmpty()) {
+                    // Before the first question, not after the enumerator has
+                    // met an empty dropdown and drawn their own conclusion
+                    // (§3.2).
+                    //
+                    // Inside the list, not beside it. It was emitted as a
+                    // sibling of this LazyColumn in the Scaffold's content
+                    // slot, where children stack: the list filled the slot and
+                    // drew straight over the sentence. It was never seen on a
+                    // device until item 4 made the state reachable, and then it
+                    // still was not — the screenshot is what showed it.
+                    item(key = "missing_reference_data") {
+                        Text(
+                            text = UiStrings.referenceDataMissing(
+                                state.missingReferenceData.joinToString(", "),
+                                state.language,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                        )
+                    }
+                }
                 if (state.screenTitle != null) {
                     item(key = "screen_title") {
                         Text(
@@ -386,9 +396,12 @@ private fun NavigationBar(state: CollectionState, onAction: (CollectionAction) -
     if (state.isLoading) return
     Surface(shadowElevation = 8.dp) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            if (state.referenceDataRefusal != null) {
+            if (state.referenceDataLists.isNotEmpty()) {
                 Text(
-                    text = state.referenceDataRefusal,
+                    text = UiStrings.cannotFinalizeReferenceData(
+                        state.language,
+                        state.referenceDataLists,
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),

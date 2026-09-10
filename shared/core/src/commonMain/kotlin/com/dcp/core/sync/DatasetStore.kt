@@ -1,6 +1,11 @@
 package com.dcp.core.sync
 
 import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import com.dcp.core.db.DcpDatabase
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -114,6 +119,20 @@ class DatasetStore(
     /** Every dataset version held, whole or part-transferred. */
     fun all(): List<StoredDatasetVersion> =
         queries.heldDatasetVersions(::toStored).executeAsList()
+
+    /**
+     * [all], as a flow that re-emits when the table changes.
+     *
+     * A screen saying what is still waiting has to follow the store rather
+     * than read it once: rows arrive from a screen the reader is not looking
+     * at, and a badge that still says "1 list waiting" after the list arrived
+     * is the screen contradicting the thing it was opened to report. Found
+     * exactly that way, on a device.
+     */
+    fun observeVersions(
+        context: CoroutineContext = Dispatchers.Default,
+    ): Flow<List<StoredDatasetVersion>> =
+        queries.heldDatasetVersions(::toStored).asFlow().mapToList(context)
 
     fun find(datasetVersionId: String): StoredDatasetVersion? =
         queries.datasetVersion(datasetVersionId, ::toStored).executeAsOneOrNull()

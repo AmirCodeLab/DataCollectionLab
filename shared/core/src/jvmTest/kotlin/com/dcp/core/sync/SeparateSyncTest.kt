@@ -288,4 +288,14 @@ class SeparateSyncTest {
         )
         assertTrue(pending.costLine.contains("The whole list is about "), pending.costLine)
     }
+
+    @Test
+    fun `a size below a kilobyte is said in bytes, not rounded away to zero`() {
+        // "about 0 KB" reads as "this costs nothing", which is a different
+        // claim from "this is small" and the wrong one to put on a button.
+        // Seen on a device against a three-row list.
+        assertEquals("150 bytes", formatBytes(150))
+        assertEquals("1.0 KB", formatBytes(1024))
+        assertEquals("11.3 MB", formatBytes(11_849_297))
+    }
 }

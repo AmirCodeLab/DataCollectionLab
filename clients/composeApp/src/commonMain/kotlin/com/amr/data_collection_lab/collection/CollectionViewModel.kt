@@ -9,6 +9,7 @@ import com.dcp.core.media.MediaStore
 import com.dcp.core.sync.OpKind
 import com.dcp.core.sync.SubmissionStatus
 import com.dcp.core.sync.CaseStore
+import com.dcp.core.sync.PinnedList
 import com.dcp.core.sync.Readiness
 import com.dcp.core.sync.ReferenceData
 import com.dcp.core.sync.SubmissionStore
@@ -150,7 +151,7 @@ data class CollectionState(
      * list its form pins (item 4, D3), or null. Written by the gate itself, so
      * the screen states the gate's answer rather than its own.
      */
-    val referenceDataRefusal: String? = null,
+    val referenceDataLists: List<PinnedList> = emptyList(),
     /**
      * Dataset keys this form chooses from and this device cannot serve (§3.2).
      *
@@ -280,6 +281,24 @@ class CollectionViewModel(
             store.observeSubmissions().collect { rows ->
                 val mine = rows.firstOrNull { it.submissionId == submissionId } ?: return@collect
                 _state.update { it.copy(caseNote = caseNoteFor(mine.caseKey, mine.caseAssigned)) }
+            }
+        }
+        // The reference data can arrive while this screen is on the stack —
+        // from the updates screen, which is a different ViewModel. Read once,
+        // the notice kept saying a list had not arrived after it had, while
+        // the gate (which reads fresh) would have let the interview through:
+        // the screen contradicting the gate beside it. Seen on a device.
+        viewModelScope.launch {
+            referenceData?.observeReadinessOfSubmission(submissionId)?.collect { readiness ->
+                _state.update {
+                    it.copy(
+                        missingReferenceData = readiness.lists.map { list -> list.datasetKey },
+                        // Cleared when it stops being true; never raised here.
+                        // A refusal appears because somebody tried to finalise.
+                        referenceDataLists =
+                            if (readiness.isReady) emptyList() else it.referenceDataLists,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -775,13 +794,13 @@ class CollectionViewModel(
         // gate decided rather than keeping its own older answer.
         val readiness = referenceData?.readinessOfSubmission(submissionId) ?: Readiness.Ready
         if (!readiness.isReady) {
+            // The facts, not a rendered sentence: this screen has a language
+            // toggle, and a string built at refusal time stayed English when
+            // the enumerator switched to Arabic. Seen on a phone.
             _state.update {
                 it.copy(
                     missingReferenceData = readiness.lists.map { list -> list.datasetKey },
-                    referenceDataRefusal = UiStrings.cannotFinalizeReferenceData(
-                        it.language,
-                        readiness,
-                    ),
+                    referenceDataLists = readiness.lists,
                 )
             }
             return

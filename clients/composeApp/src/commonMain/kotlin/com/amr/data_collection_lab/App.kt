@@ -90,7 +90,7 @@ private fun Collection(graph: AppGraph) {
             viewModel = viewModel {
                 SubmissionListViewModel(
                     graph.store, graph.formCatalog, graph.syncClient, graph.caseStore,
-                    graph.formStore, graph.referenceData,
+                    graph.formStore, graph.datasetStore, graph.referenceData,
                 )
             },
             onNavigateToCollection = { route = Route.Collection(it) },

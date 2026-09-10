@@ -60,14 +60,19 @@ class FinalisationGateTest {
     }
 
     @Test
-    fun `the refusal is a sentence in both languages, not a hardcoded string`() {
-        // "Cannot finalise" alone is not usable in a village, and an English
-        // sentence pasted here would not reach an Arabic handset. The frame
-        // lives in UiStrings and the facts come from Readiness.
+    fun `the gate records the facts, never a rendered sentence`() {
+        // This screen has a language toggle. A sentence built at refusal time
+        // stayed English when the enumerator switched to Arabic — seen on a
+        // phone — so the state carries the lists and the screen renders them
+        // in whatever language is showing when it draws.
         val body = finalizeBody()
         assertTrue(
-            "UiStrings.cannotFinalizeReferenceData" in body,
-            "the refusal must go through UiStrings so it names the list in the reader's language",
+            "referenceDataLists = readiness.lists" in body,
+            "finalize() must record the lists, so the sentence can be rendered per language",
+        )
+        assertTrue(
+            "UiStrings." !in body,
+            "a sentence rendered here freezes the language it was built in",
         )
     }
 }

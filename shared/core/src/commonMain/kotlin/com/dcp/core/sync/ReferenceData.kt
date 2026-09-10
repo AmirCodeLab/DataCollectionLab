@@ -1,5 +1,10 @@
 package com.dcp.core.sync
 
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
 /**
  * Whether this device holds the reference data a form version was published
  * against — asked in **one** place (item 4, D2).
@@ -33,6 +38,23 @@ class ReferenceData(
         val waiting = datasets.pinnedLists(formVersionId).filterNot { it.complete }
         return if (waiting.isEmpty()) Readiness.Ready else Readiness.Waiting(waiting)
     }
+
+    /**
+     * [readinessOfSubmission], as a flow that re-emits when the reference data
+     * on this device changes.
+     *
+     * A collection screen outlives the moment it opened: rows arrive from the
+     * updates screen while a draft is still on the stack. Read once, the
+     * notice at the top kept saying a list had not arrived after it had, while
+     * the gate — which reads fresh — would have let the interview through.
+     * That is the screen contradicting the gate beside it, which is the one
+     * thing this class exists to prevent. Seen on a device.
+     */
+    fun observeReadinessOfSubmission(
+        submissionId: String,
+        context: CoroutineContext = Dispatchers.Default,
+    ): Flow<Readiness> =
+        datasets.observeVersions(context).map { readinessOfSubmission(submissionId) }
 
     /**
      * Everything this device is waiting for, across every form version the
@@ -151,7 +173,7 @@ internal val PinnedList.shortfall: String
     }
 
 /** `villages v8`, or `villages` when no manifest has said which version. */
-private val PinnedList.label: String
+val PinnedList.label: String
     get() = if (version == null) datasetKey else "$datasetKey v$version"
 
 sealed interface Readiness {
@@ -188,10 +210,21 @@ sealed interface Readiness {
     fun shortfalls(): String = lists.joinToString(", ") { it.shortfall }
 }
 
-/** 11_300_000 -> "11.3 MB". One decimal: the choice is coarse, and so is this. */
+/**
+ * 11_300_000 -> "11.3 MB". One decimal: the choice is coarse, and so is this.
+ *
+ * Bytes below a kilobyte are said in bytes. Truncating them to "0 KB" reads as
+ * "this will cost nothing", which is a different claim from "this is small"
+ * and the wrong one to make on a button — seen on a device against a
+ * three-row list.
+ */
 fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes bytes"
     val kb = bytes / 1024.0
-    if (kb < 1024) return "${kb.toLong()} KB"
+    if (kb < 1024) {
+        val tenths = (kb * 10).toLong()
+        return if (tenths < 100) "${tenths / 10}.${tenths % 10} KB" else "${kb.toLong()} KB"
+    }
     val tenths = (kb / 1024.0 * 10).toLong()
     return "${tenths / 10}.${tenths % 10} MB"
 }
