@@ -5,45 +5,49 @@ import { queryOptions } from "@tanstack/react-query";
 import { ApiError, apiGet, apiPost, apiPostForm, apiPut } from "./client";
 import type {
   AddTeamMemberRequest,
+  AreaListResponse,
   BulkAssignRequest,
   BulkAssignResponse,
   CaseListResponse,
-  SampleUploadResponse,
   CompileResponse,
+  CreateFormRequest,
   CreatePersonRequest,
   CreateRoleRequest,
   CreateTeamRequest,
-  GrantRequest,
-  Person,
-  PersonListResponse,
-  Role,
-  RoleListResponse,
-  RolePermissionsRequest,
-  Team,
-  TeamListResponse,
-  LoginRequest,
-  LogoutResponse,
-  Me,
-  CreateFormRequest,
+  DeviceListResponse,
   DraftDocument,
+  EnumeratorListResponse,
   ExpressionRequest,
   ExpressionResponse,
   FormListResponse,
   FormSummary,
   FormVersionDocument,
-  PaletteResponse,
-  PublishVersionRequest,
-  PublishVersionResponse,
-  SaveDraftRequest,
+  GrantRequest,
   Health,
+  LoginRequest,
+  LogoutResponse,
+  Me,
+  Overview,
+  PaletteResponse,
+  Person,
+  PersonListResponse,
   ProjectKeyCreate,
   ProjectKeyDetail,
   ProjectKeyListResponse,
   ProjectListResponse,
+  PublishVersionRequest,
+  PublishVersionResponse,
+  Role,
+  RoleListResponse,
+  RolePermissionsRequest,
+  SampleUploadResponse,
+  SaveDraftRequest,
   SubmissionDetail,
   SubmissionKeysResponse,
   SubmissionListResponse,
   SubmissionStatus,
+  Team,
+  TeamListResponse,
 } from "./types";
 
 /** Who this session is. One query, read by the layout to gate every screen
@@ -118,6 +122,38 @@ export const casesQuery = (projectId: string) =>
   queryOptions({
     queryKey: ["cases", projectId],
     queryFn: () => apiGet<CaseListResponse>("/api/v1/cases", { projectId }),
+    enabled: projectId !== "",
+  });
+
+/** Supervisor monitoring (item 5). Every figure here is a count over the same
+ *  table its list reads, on the same connection under the same principal, so
+ *  a number and the rows behind it are one answer. */
+export const monitoringOverviewQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["monitoring", "overview", projectId],
+    queryFn: () => apiGet<Overview>("/api/v1/monitoring/overview", { projectId }),
+    enabled: projectId !== "",
+  });
+
+export const monitoringEnumeratorsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["monitoring", "enumerators", projectId],
+    queryFn: () =>
+      apiGet<EnumeratorListResponse>("/api/v1/monitoring/enumerators", { projectId }),
+    enabled: projectId !== "",
+  });
+
+export const monitoringAreasQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["monitoring", "areas", projectId],
+    queryFn: () => apiGet<AreaListResponse>("/api/v1/monitoring/areas", { projectId }),
+    enabled: projectId !== "",
+  });
+
+export const monitoringDevicesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["monitoring", "devices", projectId],
+    queryFn: () => apiGet<DeviceListResponse>("/api/v1/monitoring/devices", { projectId }),
     enabled: projectId !== "",
   });
 

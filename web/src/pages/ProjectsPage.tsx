@@ -36,6 +36,7 @@ export function ProjectsPage() {
                 <Th>Security mode</Th>
                 <Th>Recipient keys</Th>
                 <Th>Sample</Th>
+                <Th>Monitoring</Th>
                 <Th>Created</Th>
               </tr>
             </thead>
@@ -67,6 +68,15 @@ export function ProjectsPage() {
                       className="text-blue-700 hover:underline"
                     >
                       cases
+                    </Link>
+                  </Td>
+                  <Td>
+                    <Link
+                      to="/projects/$projectId/monitoring"
+                      params={{ projectId: project.id }}
+                      className="text-blue-700 hover:underline"
+                    >
+                      progress
                     </Link>
                   </Td>
                   <Td className="whitespace-nowrap text-xs">
