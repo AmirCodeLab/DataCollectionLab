@@ -72,7 +72,7 @@ One Gradle build, rooted at the repository root.
 | `web-forms/` | Respondent-facing browser runtime |
 | `conformance/` | Language-neutral vectors every engine must pass |
 | `specs/` | Form IR, sync protocol, ERD, OpenAPI |
-| `deploy/` | Docker Compose and deployment tooling |
+| `deploy/` | Backup and restore, and the drill that used them. Read `deploy/README.md` for what is **not** there yet |
 
 ## Stack
 
