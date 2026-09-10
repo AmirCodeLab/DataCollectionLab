@@ -33,7 +33,12 @@ async def push(
     bound_device(identity, request.device_id)
     async with session.begin():
         return await service.push(
-            session, request.device_id, request.ops, request.keys, actor_id=identity.user_id
+            session,
+            request.device_id,
+            request.ops,
+            request.keys,
+            actor_id=identity.user_id,
+            pending_ops=request.pending_ops,
         )
 
 

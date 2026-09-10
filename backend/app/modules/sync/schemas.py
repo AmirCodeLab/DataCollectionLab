@@ -190,6 +190,12 @@ class PushRequest(BaseModel):
     # malformed key has no meaningful per-item rejection — the ops that depend
     # on it would all fail anyway.
     keys: list[ContentKeyIn] = Field(default_factory=list, max_length=MAX_BATCH_KEYS)
+    # What is still queued on the device at the moment of this push — the
+    # device's own count, which is the only place it exists (item 5, A6).
+    # `device.last_counter` is what this server has ACCEPTED and says nothing
+    # about what is behind it. Optional, so a client that predates this is a
+    # device that has not said rather than a device with nothing waiting.
+    pending_ops: int | None = Field(default=None, alias="pendingOps", ge=0)
 
 
 class RejectedOp(BaseModel):

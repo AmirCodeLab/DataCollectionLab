@@ -334,6 +334,186 @@
         }
       }
     },
+    "/api/v1/monitoring/overview": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Overview",
+        "description": "The figures, each carrying whose scope produced it.\n\n`flagsOutstanding` is null when no quality rule exists for the project.\nThat is not an error and not a zero: nothing can raise a flag yet (item 6\nbrings the evaluator), and a zero would be an empty table rendered as a\nmeasurement.",
+        "operationId": "overview_api_v1_monitoring_overview_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/monitoring/enumerators": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Enumerators",
+        "description": "Progress per person, over the people this principal may see.",
+        "operationId": "enumerators_api_v1_monitoring_enumerators_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnumeratorListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/monitoring/areas": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Areas",
+        "description": "Progress grouped by the sample's area column.\n\nA supervisor's row for an area is their slice of it, and the response says\nwhich column \"area\" meant so nobody has to guess.",
+        "operationId": "areas_api_v1_monitoring_areas_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AreaListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/monitoring/devices": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Devices",
+        "description": "The handsets in scope, with each one's last sync and last reported backlog.\n\n`reportedPendingOps` is the device's own count and `reportedAt` is when it\nsaid so. They travel together because they mean nothing apart: \"3 pending\"\nis a claim with no date on it, and a supervisor reads it at four in the\nafternoon as though it were now.",
+        "operationId": "devices_api_v1_monitoring_devices_get",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Projectid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/datasets/versions/{dataset_version_id}/rows": {
       "get": {
         "tags": [
@@ -3546,6 +3726,58 @@
         ],
         "title": "AddTeamMemberRequest"
       },
+      "AreaListResponse": {
+        "properties": {
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/AreaProgress"
+            },
+            "type": "array",
+            "title": "Areas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "areas"
+        ],
+        "title": "AreaListResponse"
+      },
+      "AreaProgress": {
+        "properties": {
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          },
+          "covered": {
+            "type": "integer",
+            "title": "Covered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "area",
+          "assigned",
+          "covered"
+        ],
+        "title": "AreaProgress",
+        "description": "One area's slice **of what the asker may see**, never the area's total.\n\nA supervisor's row for an area they share with another team is their part\nof it. Showing the area's true total would be a leak; labelling their part\nas the area's total would be a lie. So the label says whose it is (§2,\nfailure 5)."
+      },
       "AssignRequest": {
         "properties": {
           "teamId": {
@@ -4451,6 +4683,25 @@
         "title": "DatasetRowsPage",
         "description": "One page of a dataset version's rows (sync §5).\n\nPaged because the first sync is the hard case and cannot be one response:\na transfer that cannot resume is a transfer that never finishes on the\nconnections this product exists for.\n\nA published version is immutable, so this page can be cached forever and a\ndevice that paused for a day resumes into the same ordering it left."
       },
+      "DayCount": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "count"
+        ],
+        "title": "DayCount",
+        "description": "One day's finished interviews, by the day the enumerator finished."
+      },
       "DeployedDatasetVersion": {
         "properties": {
           "formVersionId": {
@@ -4598,6 +4849,22 @@
         "title": "DeviceCryptoResponse",
         "description": "What a device needs before it can encrypt anything (sync §4).\n\nFetched every sync rather than once at registration: rotation (envelope §8)\nadds keys that a device registered last month would otherwise never wrap\nto, and a submission wrapped to a stale recipient set is data its intended\nrecovery holder cannot open."
       },
+      "DeviceListResponse": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceStatus"
+            },
+            "type": "array",
+            "title": "Devices"
+          }
+        },
+        "type": "object",
+        "required": [
+          "devices"
+        ],
+        "title": "DeviceListResponse"
+      },
       "DevicePlatform": {
         "type": "string",
         "enum": [
@@ -4703,6 +4970,84 @@
         ],
         "title": "DeviceRegisterResponse"
       },
+      "DeviceStatus": {
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "title": "Deviceid"
+          },
+          "person": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Person"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "appVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appversion"
+          },
+          "lastSyncAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsyncat"
+          },
+          "reportedPendingOps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reportedpendingops"
+          },
+          "reportedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reportedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deviceId",
+          "person",
+          "platform",
+          "appVersion",
+          "lastSyncAt",
+          "reportedPendingOps",
+          "reportedAt"
+        ],
+        "title": "DeviceStatus"
+      },
       "DiagnosticSeverity": {
         "type": "string",
         "enum": [
@@ -4759,6 +5104,67 @@
         ],
         "title": "DraftDocument",
         "description": "A form's unpublished IR.\n\n`revision` is what a caller sends back on the next save. It is not a\nversion number and cannot become one — see `FormDraft`."
+      },
+      "EnumeratorListResponse": {
+        "properties": {
+          "enumerators": {
+            "items": {
+              "$ref": "#/components/schemas/EnumeratorProgress"
+            },
+            "type": "array",
+            "title": "Enumerators"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enumerators"
+        ],
+        "title": "EnumeratorListResponse"
+      },
+      "EnumeratorProgress": {
+        "properties": {
+          "userId": {
+            "type": "string",
+            "title": "Userid"
+          },
+          "displayName": {
+            "type": "string",
+            "title": "Displayname"
+          },
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          },
+          "covered": {
+            "type": "integer",
+            "title": "Covered"
+          },
+          "finalized": {
+            "type": "integer",
+            "title": "Finalized"
+          },
+          "lastSyncAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsyncat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "userId",
+          "displayName",
+          "assigned",
+          "covered",
+          "finalized",
+          "lastSyncAt"
+        ],
+        "title": "EnumeratorProgress"
       },
       "EnvironmentKind": {
         "type": "string",
@@ -6585,6 +6991,68 @@
           "reopen"
         ]
       },
+      "Overview": {
+        "properties": {
+          "scopeKind": {
+            "$ref": "#/components/schemas/ScopeKind"
+          },
+          "scopeLabel": {
+            "type": "string",
+            "title": "Scopelabel"
+          },
+          "casesAssigned": {
+            "type": "integer",
+            "title": "Casesassigned"
+          },
+          "casesCovered": {
+            "type": "integer",
+            "title": "Casescovered"
+          },
+          "submissions": {
+            "type": "integer",
+            "title": "Submissions"
+          },
+          "uncasedSubmissions": {
+            "type": "integer",
+            "title": "Uncasedsubmissions"
+          },
+          "devices": {
+            "type": "integer",
+            "title": "Devices"
+          },
+          "flagsOutstanding": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flagsoutstanding"
+          },
+          "perDay": {
+            "items": {
+              "$ref": "#/components/schemas/DayCount"
+            },
+            "type": "array",
+            "title": "Perday"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scopeKind",
+          "scopeLabel",
+          "casesAssigned",
+          "casesCovered",
+          "submissions",
+          "uncasedSubmissions",
+          "devices",
+          "flagsOutstanding",
+          "perDay"
+        ],
+        "title": "Overview"
+      },
       "PaletteResponse": {
         "properties": {
           "version": {
@@ -7584,6 +8052,18 @@
             "type": "array",
             "maxItems": 500,
             "title": "Keys"
+          },
+          "pendingOps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pendingops"
           }
         },
         "type": "object",

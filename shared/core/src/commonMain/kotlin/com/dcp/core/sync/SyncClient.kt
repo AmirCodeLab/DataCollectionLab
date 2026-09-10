@@ -720,7 +720,17 @@ class SyncClient(
     private suspend fun pushBatch(baseUrl: String, prepared: PreparedBatch): WirePushResponse =
         http.post("$baseUrl/api/v1/sync/push") {
             contentType(ContentType.Application.Json)
-            setBody(WirePushRequest(store.deviceId, prepared.ops, prepared.keys))
+            setBody(
+                WirePushRequest(
+                    store.deviceId,
+                    prepared.ops,
+                    prepared.keys,
+                    // What is still in the outbox as this batch leaves, so a
+                    // supervisor's panel says "12 waiting, as of 09:14" rather
+                    // than a number this server had to guess at (item 5).
+                    pendingOps = store.pendingCount(),
+                )
+            )
         }.body()
 
     private suspend fun pullPage(

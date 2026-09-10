@@ -425,6 +425,59 @@ def test_pull_with_cursor_returns_only_newer_ops(sync_api: Any) -> None:
 
 
 @pytest.mark.db
+def test_a_device_reports_its_own_backlog_and_the_server_records_when(sync_api: Any) -> None:
+    """The one figure on a monitoring screen this server did not compute
+    (item 5, A6).
+
+    `last_counter` is what was accepted; what is queued behind it has never
+    been mentioned here. So the device says, and the server records the number
+    **and the time it was said** — a backlog with no date on it is read at four
+    in the afternoon as though it were now.
+    """
+
+    async def scenario(client: Any) -> None:
+        before = await _db_snapshot(
+            "SELECT reported_pending_ops, reported_at FROM device WHERE id = 'dev-a'"
+        )
+        assert before[0]["reported_pending_ops"] is None
+
+        response = await client.post(
+            "/api/v1/sync/push",
+            json={
+                "deviceId": "dev-a",
+                "pendingOps": 7,
+                "ops": [_op("01OPBACK1", "01SUBBACKLOG", "dev-a", 800, value="v")],
+            },
+        )
+        assert response.status_code == 200, response.text
+        after = await _db_snapshot(
+            "SELECT reported_pending_ops, reported_at, last_counter FROM device "
+            "WHERE id = 'dev-a'"
+        )
+        assert after[0]["reported_pending_ops"] == 7
+        assert after[0]["reported_at"] is not None
+        # And it is not the same thing as what the server accepted.
+        assert after[0]["last_counter"] == 800
+
+        # A push that says nothing leaves the last thing the device said alone,
+        # rather than resetting it to zero: silence is not "nothing waiting".
+        quiet = await client.post(
+            "/api/v1/sync/push",
+            json={
+                "deviceId": "dev-a",
+                "ops": [_op("01OPBACK2", "01SUBBACKLOG", "dev-a", 801, value="w")],
+            },
+        )
+        assert quiet.status_code == 200, quiet.text
+        unchanged = await _db_snapshot(
+            "SELECT reported_pending_ops FROM device WHERE id = 'dev-a'"
+        )
+        assert unchanged[0]["reported_pending_ops"] == 7
+
+    _run_with_client(sync_api, scenario)
+
+
+@pytest.mark.db
 def test_a_manifest_only_pull_carries_no_ops_and_leaves_the_cursor_where_it_was(
     sync_api: Any,
 ) -> None:

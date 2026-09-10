@@ -644,6 +644,66 @@ middle rather than at an end, and name rows so that alphabetical and intended
 disagree. `rows-007` is written that way deliberately, and says so in its
 description.
 
+### A fixture inside the scope under test cannot see a widened scope
+
+The same failure again, arriving through *who* the rows belong to rather than
+through their order.
+
+> **A fixture whose rows all fall inside the scope under test cannot see a
+> widened scope. When what is under test is a boundary, put a row outside it —
+> on every table the test checks, and on every filtered count it derives.**
+
+The tell is the same: two different right answers coincide. If every row in the
+fixture belongs to one of the two teams, then "the policy scopes correctly" and
+"the policy shows everything" produce the same numbers, and a test asserting
+that a count equals its list passes under both. An admin and a project manager
+pass a wide-open policy *by definition*, so a test built on them is not weak
+evidence about scoping; it is none.
+
+Found by the test itself, on the first run of item 5's agreement guard
+(`backend/tests/test_monitoring_scope.py`, break 209). It asserts three things
+per principal — the count equals the list, a supervisor's figure is strictly
+less than the organisation-wide figure, and it equals the fixture's expected
+subset — and the strictly-less half failed on `submission`, because the two
+supervisors' counts added to the project's total. There was a case nobody held
+and a device nobody had signed in on, but **no submission outside both teams**,
+so on that table the assertion could not have failed however wide the policy
+went.
+
+The fix is per table, not per fixture: for every table a scope test counts,
+there is a row belonging to neither side — a case in nobody's hands, a
+submission created by somebody in neither team, a device nobody has signed in
+on. Then a widened policy has somewhere to show.
+
+**And per derived figure, not only per table**, which the same test taught an
+hour later. "Cases assigned to somebody" filters `case_record` by a live
+person assignment, and the case nobody held was *unassigned* — so it fell out
+of that count for everybody, the two supervisors' figures added to the
+project's total again, and the assertion failed a second time on the fixture
+rather than on the code. The answer was a third team holding a case of its
+own: outside both sides of the boundary under test **and** inside the filter.
+A row that is excluded by the metric is not outside the scope; it is outside
+the question.
+
+**And the principal is part of the fixture.** The third time was not the rows
+at all. Every route-level test in this repository drives the API through
+`identity_fixtures.api_session_override`, which installs an organisation-wide
+principal, so `dcp_org_wide()` is true and no policy narrower than the
+organisation is ever exercised through a route. Item 5 scoped `device` to the
+person holding it, and a brand-new handset stopped being able to register —
+HTTP 500, on the one path in the system that runs with no person on the
+principal at all. `test_sync.py` has covered that exact flow since phase 0 and
+went on passing, because the principal it registers under is not the principal
+a real request has (breaks 210 and 211).
+
+> **A fixture whose principal is wider than the scope under test cannot see a
+> narrowed scope. A test of a policy has to build the principal the path
+> really runs under, not the convenient one.**
+
+The tell is that the test names a public, pre-authentication path — register,
+log in, resolve an organisation — and gets its session from the same helper
+every authenticated test uses.
+
 ## Commands
 
 ```bash
@@ -1043,7 +1103,23 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    `device.user_id` and `visible_user_ids`, with `WITH CHECK` written
    separately so public registration keeps working. One thing §7 asks for that
    the server cannot know: pending ops live in the device's outbox, so the
-   device reports them
+   device reports them. **Status, 10 September 2026:** analysis on #49's
+   successor #51; the schema, routes and console page are on
+   `feat/item5-device-scope` (#52). Migration **015**: the device policy gains
+   the person (no new column: `device.user_id` is bound at login), `USING` and
+   `WITH CHECK` deliberately differ with the reason written at the policy,
+   **four** definer functions carry the statements that must work before
+   anybody has signed in, and `reported_pending_ops`/`reported_at` are named
+   for whose word they are. Four read routes under `/monitoring`, all gated on
+   `submission.view`, and `web/src/pages/MonitoringPage.tsx`.
+   `test_monitoring_scope.py` is the agreement guard: a supervisor's figure
+   equals their list, is strictly less than org-wide, and matches an expected
+   subset. Breaks 205–211. Both runs walked:
+   `docs/e2e-run-2026-09-10-item5.md` — two supervisors adding to less than
+   the project, an enumerator refused by name on all four routes, a handset's
+   backlog rendered with the time it was reported, and one defect the whole
+   suite could not see (a fresh handset could not register; the fixture's
+   *principal* was wider than the scope under test). Next: item 6
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
 

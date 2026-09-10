@@ -105,6 +105,7 @@ async def push(
     raw_keys: Sequence[ContentKeyIn] = (),
     *,
     actor_id: str | None = None,
+    pending_ops: int | None = None,
 ) -> PushResponse:
     """`actor_id` is the person whose app session pushed the batch. An op from
     the batch's own device is theirs; an op relayed from another device (spec
@@ -424,6 +425,16 @@ async def push(
                 },
             )
         )
+
+    # What the pushing device says is still queued on it, with the time it
+    # said so. Recorded even when the batch was empty or every op was
+    # rejected: the backlog is a fact about the device, not about this batch,
+    # and a supervisor's panel needs the later of the two.
+    if pending_ops is not None:
+        pushing = devices.get(batch_device_id)
+        if pushing is not None:
+            pushing.reported_pending_ops = pending_ops
+            pushing.reported_at = datetime.now(tz=UTC)
 
     # Advance each device's accepted high-water counter (authoritative state).
     for device_id in {o.device_id for o in to_insert}:

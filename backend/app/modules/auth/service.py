@@ -44,7 +44,6 @@ from app.infrastructure.database import Principal
 from app.modules.auth.models import PlatformSession
 from app.modules.auth.passwords import verify_password
 from app.modules.auth.schemas import LoginFailure
-from app.modules.projects.models import Device
 
 #: The handset's placeholder before it knows who holds it (`SubmissionStore`
 #: default). The server attributes such ops to the session's person.
@@ -171,12 +170,20 @@ async def login(
     if kind == "app":
         if device_id is None:
             raise LoginRefused(400, "device_required", "An app login must name its device.")
-        device = await session.get(Device, device_id)
-        if device is None:
+        # Through the definer function, not the ORM: at login there is no
+        # principal with a person on it — that is what the login is for — and
+        # since 015 the device policy is scoped to the person holding the
+        # handset, so the row this is about to bind is invisible from here.
+        found = (
+            (await session.execute(text("SELECT * FROM dcp_device_by_id(:d)"), {"d": device_id}))
+            .mappings()
+            .one_or_none()
+        )
+        if found is None:
             raise LoginRefused(
                 403, "device_unknown", "This device has not registered. Sync once first."
             )
-        if device.revoked_at is not None:
+        if found["revoked_at"] is not None:
             raise LoginRefused(403, "device_revoked", "This device has been revoked.")
 
     token = secrets.token_urlsafe(32)
@@ -222,10 +229,9 @@ async def login(
     if kind == "app":
         # Registered is not bound (proposal §4): the login is what binds the
         # device to a person, and the app session names it.
-        device = await session.get(Device, device_id)
-        assert device is not None
-        device.user_id = user.id
-        device.bound_at = now
+        await session.execute(
+            text("SELECT dcp_bind_device(:d, :u)"), {"d": device_id, "u": user.id}
+        )
     await session.execute(text("SELECT dcp_note_login(:user_id)"), {"user_id": user.id})
 
     principal, permissions = await principal_for(session, user, org_slug)
