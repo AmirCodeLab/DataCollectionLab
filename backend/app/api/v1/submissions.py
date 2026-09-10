@@ -40,16 +40,30 @@ async def list_submissions(
     status: Annotated[SubmissionStatus | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_LIMIT)] = DEFAULT_PAGE_LIMIT,
     offset: Annotated[int, Query(ge=0)] = 0,
+    queue: Annotated[bool, Query()] = False,
+    flagged: Annotated[bool | None, Query()] = None,
 ) -> SubmissionListResponse:
     """One page of submissions, newest arrival first.
 
     `formId` is the wire form key an op carries, not the form row id, so the
     same value filters here and identifies a form in a pushed op. An unknown
     `status` is a 422 rather than an empty page — a typo should say so.
+
+    `queue=true` narrows to what a reviewer has something to do about, and
+    `flagged` to whether a submission carries an open violation. **The review
+    queue is this list with those two filters**, not a route of its own: a
+    queue with its own query is a queue that can disagree with the list beside
+    it, and it knows nothing this one does not (item 6, D4).
     """
     async with session.begin():
         return await service.list_submissions(
-            session, form_id=form_id, status=status, limit=limit, offset=offset
+            session,
+            form_id=form_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+            queue=queue,
+            flagged=flagged,
         )
 
 

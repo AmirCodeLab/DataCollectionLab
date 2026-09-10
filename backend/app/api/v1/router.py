@@ -11,6 +11,7 @@ from app.api.v1 import (
     monitoring,
     people,
     projects,
+    review,
     roles,
     submissions,
     sync,
@@ -34,3 +35,7 @@ api_router.include_router(projects.router, prefix="/projects", tags=["projects"]
 api_router.include_router(submissions.router, prefix="/submissions", tags=["submissions"])
 api_router.include_router(sync.router, prefix="/sync", tags=["sync"])
 api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
+# No prefix: the review decision hangs off a submission and the rules off a
+# project, so each path says what it is about rather than sharing a noun that
+# is neither (item 6).
+api_router.include_router(review.router, tags=["review"])

@@ -37,8 +37,9 @@ from app.modules.forms.models import Form, FormVersion
 from app.modules.forms.schemas import DeployedFormVersion
 from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
+from app.modules.quality import service as quality_service
 from app.modules.submissions import status as status_machine
-from app.modules.submissions.fold import fold_ops
+from app.modules.submissions.fold import Fold, fold_ops
 from app.modules.submissions.models import (
     Submission,
     SubmissionContentKey,
@@ -55,6 +56,7 @@ from app.modules.sync.schemas import (
     PushResponse,
     RejectedOp,
     RejectReason,
+    ReturnedWork,
     SyncOp,
 )
 
@@ -416,7 +418,13 @@ async def push(
     )
 
     for submission_id, op_ids in touched.items():
-        await _fold_submission(session, submissions[submission_id])
+        folded = await _fold_submission(session, submissions[submission_id])
+        # The rules run here, in this transaction, against the fold that has
+        # just been computed — never in a worker, so a flag cannot describe a
+        # state the submission was never in (item 6, D3).
+        await quality_service.evaluate_and_record(
+            session, submission_id, folded.data, folded.unreadable
+        )
         session.add(
             OutboxEvent(
                 id=new_ulid(),
@@ -635,7 +643,7 @@ async def _insert_ops(
     return refused
 
 
-async def _fold_submission(session: AsyncSession, submission: Submission) -> None:
+async def _fold_submission(session: AsyncSession, submission: Submission) -> Fold:
     """Recompute materialised state from the full op log.
 
     Field-level last-writer-wins ordered by (counter, device_id) — deviceId is
@@ -688,6 +696,7 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
         .values(submission_id=submission.id, **values)
         .on_conflict_do_update(index_elements=["submission_id"], set_=values)
     )
+    return folded
 
 
 async def _server_cursor(session: AsyncSession) -> int:
@@ -848,12 +857,36 @@ async def pull(
         # only stops starting new work on it.
         assignments = await cases_service.assigned_to(session, assignments_for)
 
+    returned = None
+    if assignments_for is not None:
+        # Under the same scope as the assignments, because it is the same
+        # question asked about work already done: what is mine to do now. A
+        # complete statement for the same reason — a submission that has been
+        # resubmitted is absent, and only a statement can say "no longer
+        # owed" (item 6).
+        from app.modules.quality import review as review_service
+
+        returned = [
+            ReturnedWork(
+                submission_id=row.submission_id,
+                status=row.status,
+                case_id=row.case_id,
+                form_id=row.form_id,
+                form_version=row.form_version,
+                reason=row.reason,
+                decided_at=row.decided_at,
+                decided_by=row.decided_by,
+            )
+            for row in await review_service.returned_to(session, assignments_for)
+        ]
+
     return PullResponse(
         ops=pulled_ops,
         tombstones=pulled_tombstones,
         forms=forms,
         datasets=datasets,
         assignments=assignments,
+        returned=returned,
         next_cursor=next_cursor,
         has_more=has_more,
     )
