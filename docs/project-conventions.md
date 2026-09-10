@@ -1128,8 +1128,8 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    separately so public registration keeps working. One thing §7 asks for that
    the server cannot know: pending ops live in the device's outbox, so the
    device reports them. **Status, 10 September 2026:** analysis on #49's
-   successor #51; the schema, routes and console page are on
-   `feat/item5-device-scope` (#52). Migration **015**: the device policy gains
+   successor #51; the schema, routes and console page on #52. **Both merged
+   10 September 2026.** Migration **015**: the device policy gains
    the person (no new column: `device.user_id` is bound at login), `USING` and
    `WITH CHECK` deliberately differ with the reason written at the policy,
    **four** definer functions carry the statements that must work before
@@ -1143,9 +1143,19 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    the project, an enumerator refused by name on all four routes, a handset's
    backlog rendered with the time it was reported, and one defect the whole
    suite could not see (a fresh handset could not register; the fixture's
-   *principal* was wider than the scope under test). Next: item 6
-6. **Review and correction.** Reviewing what is flagged rather than everything is
-   the differentiator, and it is a project setting
+   *principal* was wider than the scope under test — and the run's other
+   finding, that the seed form would not page forward, was withdrawn: it was
+   a mis-tap, not the app). Next: item 6
+6. **Review and correction.** Analysis:
+   `docs/phase3-item6-review-correction.md` (10 September 2026), A1–A9 awaiting
+   confirmation. A correction is the **same** submission — `submission_op` has
+   admitted a `reopen` kind since 001, both folds handle it, and nothing has
+   ever emitted one. The failure that would ship is narrower than a double
+   count: the fold writes status only while it is `draft` or `finalized`, so a
+   submission a reviewer moves to `correction_required` can never come back,
+   and the corrected work leaves the queue and item 5's coverage with nothing
+   erroring. Rules are IR expressions on the existing evaluator; a rule the
+   server could not evaluate is reported as *not evaluated*, never as passed
 
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
