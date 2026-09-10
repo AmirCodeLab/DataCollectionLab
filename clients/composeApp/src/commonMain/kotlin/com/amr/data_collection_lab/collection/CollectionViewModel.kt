@@ -380,10 +380,11 @@ class CollectionViewModel(
             // The op cannot come from the server: it has no device to author
             // it on and no counter it can take without colliding with this
             // one's.
-            if (summary != null && SubmissionStatus.isReturned(summary.status)) {
+            val reopened = summary != null && SubmissionStatus.isReturned(summary.status)
+            if (reopened) {
                 store.appendOp(
                     submissionId = submissionId,
-                    formId = summary.formId,
+                    formId = summary!!.formId,
                     formVersion = summary.formVersion.toInt(),
                     kind = OpKind.REOPEN,
                     path = null,
@@ -401,7 +402,14 @@ class CollectionViewModel(
                     language = language,
                     languages = compiled.ir.languages,
                     formTitle = compiled.ir.title.resolve(language) ?: compiled.formId,
-                    finalized = summary?.status == SubmissionStatus.FINALIZED,
+                    // `summary` was read before the reopen above, so it still
+                    // says what the row said on arrival. Reading it again would
+                    // be a second query for a fact this function just caused;
+                    // `reopened` is that fact. Getting this wrong opens
+                    // returned work READ-ONLY — the enumerator is shown the
+                    // reason and then cannot act on it, which is how the run
+                    // found it.
+                    finalized = !reopened && summary?.status == SubmissionStatus.FINALIZED,
                     missingReferenceData = readiness.lists.map { it.datasetKey },
                 )
             }
