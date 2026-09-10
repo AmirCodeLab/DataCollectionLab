@@ -11,15 +11,20 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   REFRESH_INTERVAL_MS,
+  meQuery,
   projectKeysQuery,
+  qualityRulesQuery,
   submissionKeysQuery,
+  submissionQualityQuery,
   submissionQuery,
 } from "@/api/queries";
 import type { SubmissionOpView } from "@/api/types";
 import { DecryptionPanel } from "@/components/DecryptionPanel";
 import { RefreshControls } from "@/components/RefreshControls";
 import { useAutoRefresh } from "@/lib/autoRefresh";
+import { ReviewPanel } from "@/components/ReviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
+import { may } from "@/lib/permissions";
 import { formatTimestamp, formatValue } from "@/lib/format";
 import {
   decryptSubmission,
@@ -39,6 +44,8 @@ export function SubmissionPage() {
     ...submissionQuery(submissionId),
     refetchInterval: autoRefresh ? REFRESH_INTERVAL_MS : false,
   });
+  const me = useQuery(meQuery());
+  const quality = useQuery(submissionQualityQuery(submissionId));
 
   // The private key lives in component state and nowhere else: not in
   // react-query's cache, not in localStorage, not in the URL. Unmounting this
@@ -58,6 +65,12 @@ export function SubmissionPage() {
   const decryption = privateKey === null ? null : decrypted;
 
   const projectId = submission.data?.projectId;
+  // Only to tell "no rules exist" from "every rule passed" — two sentences a
+  // reviewer must not be able to confuse (item 6, D3).
+  const rules = useQuery({
+    ...qualityRulesQuery(projectId ?? ""),
+    enabled: projectId !== undefined,
+  });
   const encrypted = submission.data?.ops.some((op) => op.encrypted) ?? false;
 
   // Only fetched once there is something encrypted to open: an unencrypted
@@ -195,6 +208,15 @@ export function SubmissionPage() {
           <span className="font-mono text-xs">{detail.projectId}</span>
         </Fact>
       </dl>
+
+      {quality.data && (
+        <ReviewPanel
+          submissionId={submissionId}
+          quality={quality.data}
+          canReview={me.data !== undefined && may(me.data, "submission.review")}
+          ruleCount={rules.data?.rules.length ?? null}
+        />
+      )}
 
       {encrypted && (
         <DecryptionPanel

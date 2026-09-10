@@ -48,6 +48,10 @@ import type {
   SubmissionStatus,
   Team,
   TeamListResponse,
+  QualityRuleListResponse,
+  ReviewRequest,
+  ReviewResponse,
+  SubmissionQualityResponse,
 } from "./types";
 
 /** Who this session is. One query, read by the layout to gate every screen
@@ -184,6 +188,14 @@ export interface SubmissionFilters {
   status?: SubmissionStatus;
   limit: number;
   offset: number;
+  /** The review queue: what a reviewer has something to do about. A filter on
+   * this list rather than a route of its own, so the queue and the list it
+   * sits in can never disagree (item 6). */
+  queue?: boolean;
+  /** Whether the submission carries an open violation. Deliberately not "has
+   * anything on it": a rule that could not be evaluated is unchecked, not
+   * wrong, and the two want different things done about them. */
+  flagged?: boolean;
 }
 
 export const submissionListQuery = (filters: SubmissionFilters) =>
@@ -195,6 +207,8 @@ export const submissionListQuery = (filters: SubmissionFilters) =>
         status: filters.status,
         limit: filters.limit,
         offset: filters.offset,
+        queue: filters.queue,
+        flagged: filters.flagged,
       }),
     // A page that is one refresh old is better than a flash of empty table.
     placeholderData: (previous) => previous,
@@ -355,3 +369,32 @@ export const expressionText = (request: ExpressionRequest) =>
 /** The one route into `form_version`, for a draft exactly as for an import. */
 export const publishVersion = (request: PublishVersionRequest) =>
   apiPost<PublishVersionResponse>("/api/v1/forms/versions", request);
+
+/** What the rules said about one submission, and what has been decided (item 6).
+ *
+ * `flags` and `unevaluated` arrive as two lists, and the screen keeps them
+ * apart. A reviewer skimming one list reads its length as "how much is wrong",
+ * and a rule that could not be evaluated is not something wrong — it is
+ * something unchecked.
+ */
+export const submissionQualityQuery = (submissionId: string) =>
+  queryOptions({
+    queryKey: ["submission-quality", submissionId],
+    queryFn: () =>
+      apiGet<SubmissionQualityResponse>(
+        `/api/v1/submissions/${encodeURIComponent(submissionId)}/quality`,
+      ),
+  });
+
+export const reviewSubmission = (submissionId: string, request: ReviewRequest) =>
+  apiPost<ReviewResponse>(
+    `/api/v1/submissions/${encodeURIComponent(submissionId)}/review`,
+    request,
+  );
+
+export const qualityRulesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["quality-rules", projectId],
+    queryFn: () =>
+      apiGet<QualityRuleListResponse>("/api/v1/quality/rules", { projectId }),
+  });
