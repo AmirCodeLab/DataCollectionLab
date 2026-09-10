@@ -8052,6 +8052,18 @@
             "type": "array",
             "maxItems": 500,
             "title": "Keys"
+          },
+          "pendingOps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pendingops"
           }
         },
         "type": "object",

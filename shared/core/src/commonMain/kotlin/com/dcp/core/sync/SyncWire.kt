@@ -67,6 +67,16 @@ data class WirePushRequest(
     val deviceId: String,
     val ops: List<WireOp>,
     val keys: List<WireContentKey> = emptyList(),
+    /**
+     * What is still queued on this device as this push leaves (item 5).
+     *
+     * The server cannot know it: its `last_counter` is what it has accepted,
+     * and ops created since have never been mentioned to it. So a supervisor's
+     * device panel shows this number with the time it was reported, and this
+     * is where it is reported. Null is "this device did not say", which is a
+     * different thing from zero.
+     */
+    val pendingOps: Long? = null,
 )
 
 /**

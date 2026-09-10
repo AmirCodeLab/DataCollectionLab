@@ -1210,6 +1210,7 @@ export interface PushRequest {
   deviceId: string;
   ops: Record<string, unknown>[];
   keys?: ContentKeyIn[];
+  pendingOps?: number | null;
 }
 
 export interface PushResponse {
