@@ -673,27 +673,6 @@ small; the runner is the cost, and it is a budget decision rather than an
 engineering one. Until then this row stays open and says so.
 
 
-## 20. The handset shows a blank screen for a roster
-
-| | |
-|---|---|
-| **Where** | `clients/composeApp` — the screen for a `repeat`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
-| **Status** | **Closed 7 September 2026** (PR #34): `Roster.kt` renders §11.3 — the rows by their source labels, add and delete only where §2.3 permits, the row's own pair inside an instance — and `RosterTest` holds the claim that mattered most: finalisation is refused while a row's required question is unanswered. Verified on the emulator against the same form, second run in `docs/e2e-run-2026-09-07.md` |
-| **Blocked** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
-
-A form authored in the builder with a repeat over a fixed list of two rows
-(`rowSource.kind: "inline"`, `allowAdd: false`, one question bound to the
-row's value) reached the emulator and showed, at screen 5 of 7, nothing: no
-row list, no "Mother" or "Father", no control to enter an instance. Previous
-and Next worked; the two questions inside the repeat could not be answered,
-and the submission finalized and synced without them.
-
-The engine is right about the screen — it is one screen, the plan names it,
-the row screens exist beneath it — and the publish gate is right to have let
-the form through, since the rows are there. What is missing is the view. It is
-the same shape as defect 14 one level up: the questions are in the document,
-they survive publish, and on the phone nothing asks them.
-
 ## 21. A device with a cursor from another database pulls nothing and calls itself synced
 
 | | |
@@ -770,24 +749,15 @@ for a container.
 | **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
 | **Blocks** | Nothing; an author may read a fresh screen as already failing |
 
-## 26. An enumerator's sync pull carried a teammate's ops, plaintext answers included
+## Closed
 
-| | |
-|---|---|
-| **Where** | `dcp_principal_for` (`backend/migrations/schema/010_people.sql` §2): every person in a granted team went into `app.visible_user_ids` whether or not the person held `submission.view`; `submission`'s policy admits work by anyone in that list, and the Enumerator role is team-scoped |
-| **Status** | **Fix on PR #46** (migration 011): the people in scope are visible only to a person holding `submission.view`; everyone else sees themself. `test_auth.py::test_08b` is the regression; break 171 |
-| **Found** | 9 September 2026, writing item 2's analysis (assumption A2), and confirmed by probe on merged main before the fix: signed in as one enumerator on their device, `GET /sync/pull` returned the other enumerator's op with its plaintext answer. `GET /submissions` refused the same person at the route; the handset's sync has no route to refuse at, and stores what it pulls |
-| **Blocks** | Pilot scope §4.1, "an enumerator sees only what is assigned to them", and §4.2's isolation between people — on the handset path, the one that carries the data |
-
-**What a reviewer would have seen: nothing.** Every console screen was right — the route refused the enumerator — and every test passed, because no test had two enumerators in one team pulling. The console's permission check and the handset's absence of one read as the same guarantee, and they were not. The lesson is item 1's, one layer down: a rule that lives on the principal has to be stated in terms of what the *policy* reads, and "team-scoped" was never the same fact as "may see the team's work".
-
-## 27. A submission that reaches a review state can never leave it
+### 27. A submission that reaches a review state can never leave it
 
 | | |
 |---|---|
 | **Where** | `backend/app/modules/sync/service.py` `_fold_submission`: `if folded.status is not None and submission.status in ("draft", "finalized"): submission.status = folded.status` |
-| **Status** | Open. Found 10 September 2026, writing item 6's analysis (A2), before any writer of a review state exists |
-| **Why not fixed yet** | The fix is item 6's transition function, and filing it separately is the point: the row has to exist before the function does, so that the function is written against a stated defect rather than the defect being remembered as a design note inside an analysis |
+| **Status** | **Closed 10 September 2026**, in item 6 (PR #56). Found the same day, writing that item's analysis, and filed **before** its fix existed — which was the point: the transition function was written against a stated defect rather than against a design note inside an analysis |
+| **What fixed it** | `app/modules/submissions/status.py`: the transition table is the object, both writers go through `next_status`, and `_CLOSED_STATUSES` comes from it rather than being a second copy. `correction_required + finalize -> finalized`. Break 212 is this defect restored, watched to fail; `test_review_status.py` and the item's run are the evidence |
 | **Blocks** | Pilot scope §8, "a rejection returns to the enumerator's device as work" — the returning half. Also item 5's coverage figure, which never recovers for a corrected case |
 
 **What a supervisor would see: an enumerator who still owes a household they
@@ -827,7 +797,40 @@ policy expressed at the call site would have been three-quarters right. Here the
 transition table is the object; the `if` was a summary of it that nobody could
 read as one.
 
-## Closed
+
+### 26. An enumerator's sync pull carried a teammate's ops, plaintext answers included
+
+| | |
+|---|---|
+| **Where** | `dcp_principal_for` (`backend/migrations/schema/010_people.sql` §2): every person in a granted team went into `app.visible_user_ids` whether or not the person held `submission.view`; `submission`'s policy admits work by anyone in that list, and the Enumerator role is team-scoped |
+| **Status** | **Closed 9 September 2026**, PR #46 (migration 011): the people in scope are visible only to a person holding `submission.view`; everyone else sees themself. `test_auth.py::test_08b` is the regression; break 171 |
+| **Found** | 9 September 2026, writing item 2's analysis (assumption A2), and confirmed by probe on merged main before the fix: signed in as one enumerator on their device, `GET /sync/pull` returned the other enumerator's op with its plaintext answer. `GET /submissions` refused the same person at the route; the handset's sync has no route to refuse at, and stores what it pulls |
+| **Blocks** | Pilot scope §4.1, "an enumerator sees only what is assigned to them", and §4.2's isolation between people — on the handset path, the one that carries the data |
+
+**What a reviewer would have seen: nothing.** Every console screen was right — the route refused the enumerator — and every test passed, because no test had two enumerators in one team pulling. The console's permission check and the handset's absence of one read as the same guarantee, and they were not. The lesson is item 1's, one layer down: a rule that lives on the principal has to be stated in terms of what the *policy* reads, and "team-scoped" was never the same fact as "may see the team's work".
+
+
+### 20. The handset shows a blank screen for a roster
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp` — the screen for a `repeat`; seen on the Android emulator 7 September 2026 (`docs/e2e-run-2026-09-07.md`) |
+| **Status** | **Closed 7 September 2026** (PR #34): `Roster.kt` renders §11.3 — the rows by their source labels, add and delete only where §2.3 permits, the row's own pair inside an instance — and `RosterTest` holds the claim that mattered most: finalisation is refused while a row's required question is unanswered. Verified on the emulator against the same form, second run in `docs/e2e-run-2026-09-07.md` |
+| **Blocked** | Collecting any form with a repeat on a handset — which the builder can now author in an afternoon |
+
+A form authored in the builder with a repeat over a fixed list of two rows
+(`rowSource.kind: "inline"`, `allowAdd: false`, one question bound to the
+row's value) reached the emulator and showed, at screen 5 of 7, nothing: no
+row list, no "Mother" or "Father", no control to enter an instance. Previous
+and Next worked; the two questions inside the repeat could not be answered,
+and the submission finalized and synced without them.
+
+The engine is right about the screen — it is one screen, the plan names it,
+the row screens exist beneath it — and the publish gate is right to have let
+the form through, since the rows are there. What is missing is the view. It is
+the same shape as defect 14 one level up: the questions are in the document,
+they survive publish, and on the phone nothing asks them.
+
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
 
