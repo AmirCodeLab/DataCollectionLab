@@ -32,6 +32,17 @@ from app.modules.quality.schemas import (
 )
 from app.modules.quality.service import RuleRefused
 
+#: Every 422 this module declares says its own description.
+#:
+#: FastAPI takes an undeclared one from `http.HTTPStatus(422).phrase`, which
+#: CPython **renamed in 3.13**: "Unprocessable Entity" became "Unprocessable
+#: Content". `specs/openapi.json` is compared byte for byte, so the same app
+#: then emits a different document on a laptop than CI checks on the pinned
+#: 3.12 — a gate that goes red on a morning nobody touched the API, which is
+#: exactly what break 72 was. Saying the phrase here takes the interpreter out
+#: of the answer instead of pinning the answer to an interpreter.
+_UNPROCESSABLE = "Unprocessable Entity"
+
 router = APIRouter()
 
 REVIEW = access(permission="submission.review")
@@ -47,7 +58,7 @@ MANAGE = access(permission="project.manage")
         403: {"model": ReviewRefusalResponse},
         404: {"model": ReviewRefusalResponse},
         409: {"model": ReviewRefusalResponse},
-        422: {"model": ReviewRefusalResponse},
+        422: {"model": ReviewRefusalResponse, "description": _UNPROCESSABLE},
     },
 )
 async def decide(
@@ -138,7 +149,7 @@ async def list_rules(
     "/quality/rules",
     response_model=QualityRuleOut,
     response_model_by_alias=True,
-    responses={422: {"model": RuleRefusalResponse}},
+    responses={422: {"model": RuleRefusalResponse, "description": _UNPROCESSABLE}},
 )
 async def create_rule(
     request: QualityRuleIn,
@@ -166,7 +177,10 @@ async def create_rule(
     "/quality/rules/{rule_id}",
     response_model=QualityRuleOut,
     response_model_by_alias=True,
-    responses={404: {"model": RuleRefusalResponse}, 422: {"model": RuleRefusalResponse}},
+    responses={
+        404: {"model": RuleRefusalResponse},
+        422: {"model": RuleRefusalResponse, "description": _UNPROCESSABLE},
+    },
 )
 async def update_rule(
     request: QualityRuleIn,

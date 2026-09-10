@@ -3786,14 +3786,14 @@
             "description": "Conflict"
           },
           "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReviewRefusalResponse"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           }
         }
       }
@@ -3929,14 +3929,14 @@
             }
           },
           "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RuleRefusalResponse"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           }
         }
       }
@@ -3994,14 +3994,14 @@
             "description": "Not Found"
           },
           "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RuleRefusalResponse"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           }
         }
       }
