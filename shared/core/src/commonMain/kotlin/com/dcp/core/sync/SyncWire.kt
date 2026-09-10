@@ -214,8 +214,40 @@ data class WirePullResponse(
     // answered and this person holds nothing — every case on the device is
     // released, and the drafts on them are kept and say so.
     val assignments: List<WireAssignedCase>? = null,
+    // Work a reviewer has handed back to the signed-in person (item 6), sent
+    // whenever the assignment statement is. Complete and nullable for the same
+    // reasons: null is "nothing was said", empty is "nothing is owed back".
+    //
+    // It is a statement rather than an op because an op needs a device to be
+    // authored by and a counter to take, and the server has neither — a
+    // counter allocated on the enumerator's device collides with whatever
+    // that device is about to push. The `reopen` op is authored by the device
+    // that holds the work, when the enumerator opens it.
+    val returned: List<WireReturnedWork>? = null,
     val nextCursor: Long,
     val hasMore: Boolean = false,
+)
+
+/** One submission a reviewer sent back, with the reason (item 6).
+ *
+ * `decidedAt` is the decision's own time, not this device's: a handset that
+ * has been offline for a week must not report the news as fresh.
+ *
+ * `decidedBy` is null when the reader may not see the person who decided. An
+ * enumerator's principal admits only themself, so their supervisor's name does
+ * not travel — the reason is what they act on, and the screen renders it with
+ * or without a name.
+ */
+@Serializable
+data class WireReturnedWork(
+    val submissionId: String,
+    val status: String,
+    val caseId: String? = null,
+    val formId: String,
+    val formVersion: Long,
+    val reason: String? = null,
+    val decidedAt: String,
+    val decidedBy: String? = null,
 )
 
 /** One entry of the assignment statement (`GET /sync/pull?scope=assignments`). */

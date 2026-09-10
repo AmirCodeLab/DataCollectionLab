@@ -14,7 +14,14 @@ CREATE TABLE submission (
     -- the server binds a submission to its case on the first op it sees, and
     -- a case moving to someone else does not move the work already done on
     -- it (analysis §4.1). Mirrored in 8.sqm.
-    case_id TEXT
+    case_id TEXT,
+    -- What a reviewer said when they handed this work back, and when they
+    -- said it (item 6; mirrored in 10.sqm). Null for everything nobody has
+    -- returned. `returned_at` is the DECISION's time, not this device's: a
+    -- handset offline for a week must not report the news as fresh.
+    returned_reason TEXT,
+    returned_at TEXT,
+    returned_by TEXT
 );
 
 -- The cases assigned to this device's person, as the last assignment
@@ -379,3 +386,28 @@ UPDATE sync_scope SET last_error = ? WHERE scope = ?;
 
 scopeStatuses:
 SELECT scope, last_ok_at, last_attempt_at, last_error FROM sync_scope ORDER BY scope ASC;
+
+
+-- Item 6: the returned-work statement, applied like the assignment statement.
+-- Complete, not a delta — a submission that has been resubmitted is absent
+-- from the next statement, and only clearing everything first can turn that
+-- absence into "no longer owed".
+-- Existence, not `caseIdForSubmission`: that returns a nullable column, so
+-- "no row" and "a row with no case" come back identically.
+submissionExists:
+SELECT COUNT(*) FROM submission WHERE submission_id = ?;
+
+clearReturned:
+UPDATE submission SET returned_reason = NULL, returned_at = NULL, returned_by = NULL;
+
+markReturned:
+UPDATE submission
+   SET status = ?, returned_reason = ?, returned_at = ?, returned_by = ?, updated_at = ?
+ WHERE submission_id = ?;
+
+returnedWork:
+SELECT submission_id, form_id, form_version, status, case_id,
+       returned_reason, returned_at, returned_by
+  FROM submission
+ WHERE returned_reason IS NOT NULL
+ ORDER BY returned_at DESC, submission_id;

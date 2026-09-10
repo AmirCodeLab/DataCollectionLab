@@ -369,6 +369,27 @@ class CollectionViewModel(
                 }
                 return@launch
             }
+            // Work a reviewer sent back is reopened by **this device**, on
+            // opening it, and the `reopen` op is what makes that true rather
+            // than the local status alone (item 6).
+            //
+            // Without the op the log's net status is still `finalized`, so the
+            // first correction pushed would fold to `finalize` on the server
+            // and put the submission straight back in the review queue —
+            // half-corrected, and reading as work the enumerator had finished.
+            // The op cannot come from the server: it has no device to author
+            // it on and no counter it can take without colliding with this
+            // one's.
+            if (summary != null && SubmissionStatus.isReturned(summary.status)) {
+                store.appendOp(
+                    submissionId = submissionId,
+                    formId = summary.formId,
+                    formVersion = summary.formVersion.toInt(),
+                    kind = OpKind.REOPEN,
+                    path = null,
+                    value = null,
+                )
+            }
             form = compiled
             instance = loadedInstance
             navigator = FormNavigator(instance)

@@ -43,6 +43,17 @@ data class SubmissionUi(
      * the draft is kept, finishable and pushable (item 2, analysis §4.3).
      */
     val caseAssigned: Boolean? = null,
+    /**
+     * What a reviewer said when they sent this work back, or null (item 6).
+     *
+     * Carried on the row rather than fetched when the row is tapped: the
+     * enumerator has to be able to read it **before** deciding to open the
+     * form, and a reason behind one more tap is a reason half of them will
+     * not have read.
+     */
+    val returnedReason: String? = null,
+    /** When the DECISION was made — never when this device heard about it. */
+    val returnedAt: String? = null,
 )
 
 @Stable
@@ -153,6 +164,10 @@ class SubmissionListViewModel(
                 // all three, and each says which it belongs to.
                 val titles = rows.map { it.formId to it.formVersion }.distinct()
                     .associateWith { (formId, version) -> catalog.titleFor(formId, version) }
+                // The reasons, once for the whole list. Read here rather than
+                // joined in SQL because the returned statement is replaced
+                // whole on every sync and the submission rows are not.
+                val returned = store.returnedWork().associateBy { it.submissionId }
                 _state.update { s ->
                     s.copy(
                         isLoading = false,
@@ -167,6 +182,11 @@ class SubmissionListViewModel(
                                 pendingOps = it.pendingOps,
                                 caseKey = it.caseKey,
                                 caseAssigned = it.caseAssigned,
+                                returnedReason = returned[it.submissionId]?.reason,
+                                returnedAt = returned[it.submissionId]
+                                    ?.decidedAt
+                                    ?.take(16)
+                                    ?.replace("T", " "),
                             )
                         },
                     )

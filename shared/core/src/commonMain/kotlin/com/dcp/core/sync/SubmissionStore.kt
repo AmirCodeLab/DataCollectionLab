@@ -37,7 +37,35 @@ object OpKind {
 object SubmissionStatus {
     const val DRAFT = "draft"
     const val FINALIZED = "finalized"
+
+    /**
+     * Item 6's two, and this device never computes them — it is told.
+     *
+     * A submission only reaches these because a reviewer decided, and a
+     * decision is not something a handset can derive from its own op log. The
+     * server sends them in the returned-work statement; the local fold still
+     * only knows [DRAFT] and [FINALIZED], which is why opening returned work
+     * appends a `reopen` op rather than editing the status directly.
+     */
+    const val REJECTED = "rejected"
+    const val CORRECTION_REQUIRED = "correction_required"
+
+    /** Whether this status means a reviewer has handed the work back. */
+    fun isReturned(status: String): Boolean =
+        status == REJECTED || status == CORRECTION_REQUIRED
 }
+
+/** One submission a reviewer sent back, as this device holds it (item 6). */
+data class ReturnedWork(
+    val submissionId: String,
+    val status: String,
+    val caseId: String?,
+    val formId: String,
+    val formVersion: Long,
+    val reason: String?,
+    val decidedAt: String,
+    val decidedBy: String?,
+)
 
 /** One operation, exactly the shape the push endpoint takes (sync protocol §2). */
 data class SyncOp(
@@ -487,9 +515,62 @@ class SubmissionStore(
                 op.path, op.valueJson, op.valueCiphertext, op.contentKeyId, op.nonce,
                 op.deviceId, op.actorId, op.counter, op.wallClock,
             )
+            // A pulled finalize or reopen moves the local status, exactly as a
+            // locally recorded one does. Before item 6 this loop wrote none:
+            // status was set only in `appendOp`, so an op arriving from the
+            // server — this device's own work coming back, or a second handset
+            // the same person signed in on — left the row saying `draft`
+            // whatever the log said. The two folds have to agree, and the
+            // server's is `submissions/fold.py`.
+            when (op.kind) {
+                OpKind.FINALIZE ->
+                    queries.setSubmissionStatus(SubmissionStatus.FINALIZED, op.wallClock, op.submissionId)
+                OpKind.REOPEN ->
+                    queries.setSubmissionStatus(SubmissionStatus.DRAFT, op.wallClock, op.submissionId)
+            }
         }
         queries.setPullCursor(nextCursor)
     }
+
+    /**
+     * The returned-work statement, applied whole (item 6).
+     *
+     * Complete, not a delta, for the reason [CaseStore.applyAssignments] gives
+     * about cases: a submission that has been resubmitted is **absent** from
+     * the next statement, and only clearing first can turn that absence into
+     * "no longer owed". A submission this device has never heard of is
+     * skipped rather than invented — its ops arrive in the same pull, and a
+     * row with a reason and no log would be a reason attached to nothing.
+     */
+    fun applyReturned(returned: List<ReturnedWork>) = queries.transaction {
+        queries.clearReturned()
+        for (item in returned) {
+            if (queries.submissionExists(item.submissionId).executeAsOne() == 0L) continue
+            queries.markReturned(
+                item.status,
+                item.reason,
+                item.decidedAt,
+                item.decidedBy,
+                item.decidedAt,
+                item.submissionId,
+            )
+        }
+    }
+
+    /** What this device has been asked to correct, newest decision first. */
+    fun returnedWork(): List<ReturnedWork> =
+        queries.returnedWork().executeAsList().map {
+            ReturnedWork(
+                submissionId = it.submission_id,
+                status = it.status,
+                caseId = it.case_id,
+                formId = it.form_id,
+                formVersion = it.form_version,
+                reason = it.returned_reason,
+                decidedAt = it.returned_at.orEmpty(),
+                decidedBy = it.returned_by,
+            )
+        }
 
     fun syncStatus(): SyncStatus = queries.getSyncStatus().executeAsOne().let {
         SyncStatus(it.pull_cursor, it.last_sync_at, it.last_error)

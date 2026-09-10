@@ -1,0 +1,18 @@
+-- v10 -> v11: work a reviewer has handed back, with the reason (item 6).
+--
+-- Migrated, never recreated, for the reason 7.sqm gives: a device in the field
+-- carries its op log and its logical counter across upgrades, and operation
+-- nonces are derived from (deviceId, counter) (envelope §4.5).
+--
+-- The reason travels with the work and is stored beside it. A rejection whose
+-- reason stopped at the server is not delivered — the enumerator opens the
+-- same household with nothing to change and repeats the visit.
+--
+-- `returned_at` is when the DECISION was made, not when this device heard
+-- about it: the statement carries the decision's own timestamp, and a device
+-- that has been offline for a week must not report the news as fresh. Same
+-- reasoning as `reported_at` on the server's device row (015).
+
+ALTER TABLE submission ADD COLUMN returned_reason TEXT;
+ALTER TABLE submission ADD COLUMN returned_at TEXT;
+ALTER TABLE submission ADD COLUMN returned_by TEXT;

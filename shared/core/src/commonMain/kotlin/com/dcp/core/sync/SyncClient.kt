@@ -388,6 +388,7 @@ class SyncClient(
             var manifest: List<WireDeployedFormVersion>? = null
             var datasetManifest: List<WireDeployedDatasetVersion>? = null
             var first = true
+            var returnedStatement: List<WireReturnedWork>? = null
             do {
                 val page = withRetry {
                     pullPage(
@@ -412,9 +413,20 @@ class SyncClient(
                         cases?.applyStatement(statement.map { it.toAssignedCase() })
                         assignedCases = statement.size
                     }
+                    returnedStatement = page.returned
                     first = false
                 }
                 store.applyPullBatch(page.ops.map { it.toSyncOp() }, page.nextCursor)
+                // AFTER the ops of the first page, not with the assignment
+                // statement above: a submission this device has never held is
+                // skipped by `applyReturned`, and its ops arrive in this same
+                // batch. Applied before them, a reason would be dropped on
+                // the floor for exactly the work that is newest.
+                val returned = returnedStatement
+                if (returned != null) {
+                    store.applyReturned(returned.map { it.toReturnedWork() })
+                    returnedStatement = null
+                }
                 pulled += page.ops.size
             } while (page.hasMore)
 
@@ -1089,3 +1101,16 @@ sealed interface SignInResult {
     /** The server could not be asked. */
     data class Failed(val description: String) : SignInResult
 }
+
+
+/** The wire's returned-work entry, as the store holds it (item 6). */
+private fun WireReturnedWork.toReturnedWork() = ReturnedWork(
+    submissionId = submissionId,
+    status = status,
+    caseId = caseId,
+    formId = formId,
+    formVersion = formVersion,
+    reason = reason,
+    decidedAt = decidedAt,
+    decidedBy = decidedBy,
+)
