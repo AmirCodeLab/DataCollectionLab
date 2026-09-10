@@ -37,6 +37,7 @@ from app.modules.forms.models import Form, FormVersion
 from app.modules.forms.schemas import DeployedFormVersion
 from app.modules.media import service as media_service
 from app.modules.projects.models import Device, Environment
+from app.modules.submissions import status as status_machine
 from app.modules.submissions.fold import fold_ops
 from app.modules.submissions.models import (
     Submission,
@@ -59,7 +60,10 @@ from app.modules.sync.schemas import (
 
 # A submission in a terminal review state accepts no further ops. finalized is
 # NOT terminal: corrections after finalisation are how the review loop works.
-_CLOSED_STATUSES = {"approved", "rejected"}
+# The set is the status machine's, not this module's — a state that accepts no
+# transition is exactly a state that accepts no op, and keeping the two in one
+# place is what stops them drifting (app.modules.submissions.status).
+_CLOSED_STATUSES = status_machine.CLOSED
 
 # Environments a submission is implicitly created in, in preference order.
 _ENVIRONMENT_PREFERENCE = ["production", "staging", "development"]
@@ -655,11 +659,24 @@ async def _fold_submission(session: AsyncSession, submission: Submission) -> Non
 
     folded = fold_ops(ops)
 
-    # Ops only move a submission between draft and finalized; review states
-    # (in_review, approved, ...) belong to the review workflow, not to sync.
-    if folded.status is not None and submission.status in ("draft", "finalized"):
-        submission.status = folded.status
-        submission.finalized_at = folded.finalized_at
+    # The device's half of the status machine. `folded.status` is the net of
+    # the whole log, never the submission's status: the log has no opinion
+    # about review states. Asking the machine rather than testing the current
+    # status here is defect 27's fix — the old condition said which states
+    # sync may leave and thereby decided, silently, which states anything may
+    # leave, so a submission sent back for correction could never come back.
+    event = status_machine.event_for_folded(folded.status)
+    if event is not None:
+        try:
+            submission.status = status_machine.next_status(submission.status, event)
+        except status_machine.Refused:
+            # Only from `approved`/`rejected`, and the ops that would have
+            # caused it were refused at admission. Reaching here means the
+            # decision landed between admission and the fold, in which case
+            # the decision is the newer fact and the log's opinion is stale.
+            pass
+        else:
+            submission.finalized_at = folded.finalized_at
 
     values = {
         "data": dict(folded.data),
