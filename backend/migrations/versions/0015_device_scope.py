@@ -6,7 +6,8 @@ Create Date: 2026-09-10
 
 migrations/schema/015_device_scope.sql is the NORMATIVE definition, executed
 here statement by statement (the reason 0010 gives). The downgrade restores
-008's project chain on `device` exactly and drops the two reported columns.
+008's project chain on `device` exactly, drops the four definer functions
+and drops the two reported columns.
 """
 
 from collections.abc import Sequence
@@ -64,7 +65,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         "DROP FUNCTION IF EXISTS dcp_bind_device(text, text), "
-        "dcp_device_seen(text, text, text, text), dcp_device_by_id(text)"
+        "dcp_device_seen(text, text, text, text), dcp_device_by_id(text), "
+        "dcp_device_register(text, text, text, text, text)"
     )
     op.execute("ALTER TABLE device DROP COLUMN reported_at")
     op.execute("ALTER TABLE device DROP COLUMN reported_pending_ops")

@@ -137,20 +137,31 @@ async def register_device(
             device_id=known["id"], project_id=known["project_id"], status="already_registered"
         )
 
-    device = Device(
-        id=request.device_id,
-        project_id=await _sole_project_id(session),
-        # Registered is not bound: a person binds the device by logging in on
-        # it (008_identity.sql §6). Until then it can register and nothing else.
-        user_id=None,
-        platform=request.platform,
-        os_version=request.os_version,
-        app_version=request.app_version,
+    # Written through a definer function, for the reason the other two are.
+    # The row is created with `user_id` NULL — registered is not bound; a
+    # person binds the device by logging in on it (008_identity.sql §6) — and
+    # under 015 a row belonging to nobody is one this principal may write and
+    # may not read. An ORM insert is both at once, because it returns the
+    # server-side defaults, and PostgreSQL refuses the RETURNING with the
+    # write policy's error message. That is the 500 a fresh handset saw.
+    created = (
+        (
+            await session.execute(
+                text("SELECT * FROM dcp_device_register(:d, :p, :pl, :o, :a)"),
+                {
+                    "d": request.device_id,
+                    "p": await _sole_project_id(session),
+                    "pl": request.platform,
+                    "o": request.os_version,
+                    "a": request.app_version,
+                },
+            )
+        )
+        .mappings()
+        .one()
     )
-    session.add(device)
-    await session.flush()
     return DeviceRegisterResponse(
-        device_id=device.id, project_id=device.project_id, status="registered"
+        device_id=created["id"], project_id=created["project_id"], status="registered"
     )
 
 

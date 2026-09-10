@@ -77,17 +77,28 @@ ALTER TABLE device
     ADD COLUMN reported_at timestamptz;
 
 -- ===========================================================================
--- 3. The three statements that must work before anybody has signed in
+-- 3. The four statements that must work before anybody has signed in
 -- ===========================================================================
 --
 -- The policy above cannot be seen through by a principal with no person on
--- it, and there are exactly three places where that principal is the only one
+-- it, and there are exactly four places where that principal is the only one
 -- there is:
 --
 --   * registration checks whether the handset is already known;
+--   * registration CREATES the row;
 --   * registration refreshes its platform metadata;
 --   * the LOGIN reads the row it is about to bind — at login there is no
 --     session yet, which is what the login is for.
+--
+-- The second of those was missed when this migration was written, on the
+-- reasoning that the write policy admits `user_id IS NULL` and so the insert
+-- needs nothing. It does not: an `INSERT ... RETURNING` is a write AND a
+-- read, PostgreSQL applies the read policy to the returned row, and refuses
+-- it reporting the WRITE policy's error — "new row violates row-level
+-- security policy" — which sends the next reader to the wrong clause. The
+-- ORM returns the server-side defaults on every insert, so the path was
+-- always a RETURNING. A fresh handset answered HTTP 500 and no test saw it,
+-- because every API test drives the app organisation-wide.
 --
 -- These are definer functions for the same reason `dcp_login_lookup` and
 -- `dcp_session_lookup` are (010): the authentication path cannot be asked to
@@ -103,6 +114,16 @@ CREATE FUNCTION dcp_device_by_id(the_device text)
     AS $$
         SELECT d.id, d.project_id, d.user_id, d.revoked_at
         FROM device d WHERE d.id = the_device;
+    $$;
+
+CREATE FUNCTION dcp_device_register(the_device text, the_project text,
+                                    the_platform text, the_os text, the_app text)
+    RETURNS TABLE (id text, project_id text)
+    LANGUAGE sql SECURITY DEFINER SET search_path = public
+    AS $$
+        INSERT INTO device (id, project_id, user_id, platform, os_version, app_version)
+        VALUES (the_device, the_project, NULL, the_platform, the_os, the_app)
+        RETURNING device.id, device.project_id;
     $$;
 
 CREATE FUNCTION dcp_device_seen(the_device text, the_platform text,
@@ -122,7 +143,15 @@ CREATE FUNCTION dcp_bind_device(the_device text, person text) RETURNS void
         UPDATE device SET user_id = person, bound_at = now() WHERE id = the_device;
     $$;
 
-REVOKE ALL ON FUNCTION dcp_device_by_id(text), dcp_device_seen(text, text, text, text),
+-- The registering function writes `user_id NULL` and nothing else: it cannot
+-- be called to hand a handset to a person, which is what keeps a definer
+-- function on a public route narrow enough to be safe.
+
+REVOKE ALL ON FUNCTION dcp_device_by_id(text),
+    dcp_device_register(text, text, text, text, text),
+    dcp_device_seen(text, text, text, text),
     dcp_bind_device(text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION dcp_device_by_id(text), dcp_device_seen(text, text, text, text),
+GRANT EXECUTE ON FUNCTION dcp_device_by_id(text),
+    dcp_device_register(text, text, text, text, text),
+    dcp_device_seen(text, text, text, text),
     dcp_bind_device(text, text) TO dcp_app;
