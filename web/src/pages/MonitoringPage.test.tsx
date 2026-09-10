@@ -139,7 +139,11 @@ describe("a zero only where a non-zero was possible", () => {
     escapes = watchForEscapes(serve(SUPERVISOR));
     renderAt(`/projects/${PROJECT_ID}/monitoring`);
 
-    await screen.findByText("Submissions");
+    // Wait for something only the loaded overview renders. "Submissions" was
+    // the first choice and it is also the nav link, so the query ran before
+    // the figures existed and the assertion passed whatever the page did —
+    // found by breaking the page and watching this test stay green.
+    await screen.findByText("Cases assigned in your team");
     // Null is not zero: until item 6 gives quality rules a writer, there is
     // no measurement to show, and "0 outstanding" would be believed.
     expect(screen.queryByText("Flags outstanding")).not.toBeInTheDocument();
