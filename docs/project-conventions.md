@@ -1204,6 +1204,15 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    `docs/e2e-run-2026-09-10-item6.md`, and they found work sent back opening
    read-only (break 219). Next: merge, then the cleanup pass
 
+**Phase 3's six items are done and merged.** What a survey firm still does not
+have, read off the runs rather than the roadmap, and the shortest honest path
+to a pilot in order, is `docs/what-rcons-does-not-have.md` (10 September 2026).
+The short version: the chain from a form to an exported answer works and has
+been walked five times; there is no way to create an organisation outside the
+dev seed, nowhere to run the server, no screen for quality rules or for export,
+and no real RCons form has ever been imported. That last one is the cheapest
+step and the one most likely to change the plan.
+
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
 when entering the question in the dashboard. The conversion happens before any
