@@ -644,6 +644,37 @@ middle rather than at an end, and name rows so that alphabetical and intended
 disagree. `rows-007` is written that way deliberately, and says so in its
 description.
 
+### A fixture inside the scope under test cannot see a widened scope
+
+The same failure again, arriving through *who* the rows belong to rather than
+through their order.
+
+> **A fixture whose rows all fall inside the scope under test cannot see a
+> widened scope. When what is under test is a boundary, put a row outside it —
+> on every table the test checks.**
+
+The tell is the same: two different right answers coincide. If every row in the
+fixture belongs to one of the two teams, then "the policy scopes correctly" and
+"the policy shows everything" produce the same numbers, and a test asserting
+that a count equals its list passes under both. An admin and a project manager
+pass a wide-open policy *by definition*, so a test built on them is not weak
+evidence about scoping; it is none.
+
+Found by the test itself, on the first run of item 5's agreement guard
+(`backend/tests/test_monitoring_scope.py`, break 209). It asserts three things
+per principal — the count equals the list, a supervisor's figure is strictly
+less than the organisation-wide figure, and it equals the fixture's expected
+subset — and the strictly-less half failed on `submission`, because the two
+supervisors' counts added to the project's total. There was a case nobody held
+and a device nobody had signed in on, but **no submission outside both teams**,
+so on that table the assertion could not have failed however wide the policy
+went.
+
+The fix is per table, not per fixture: for every table a scope test counts,
+there is a row belonging to neither side — a case in nobody's hands, a
+submission created by somebody in neither team, a device nobody has signed in
+on. Then a widened policy has somewhere to show.
+
 ## Commands
 
 ```bash
