@@ -651,7 +651,7 @@ through their order.
 
 > **A fixture whose rows all fall inside the scope under test cannot see a
 > widened scope. When what is under test is a boundary, put a row outside it —
-> on every table the test checks.**
+> on every table the test checks, and on every filtered count it derives.**
 
 The tell is the same: two different right answers coincide. If every row in the
 fixture belongs to one of the two teams, then "the policy scopes correctly" and
@@ -674,6 +674,16 @@ The fix is per table, not per fixture: for every table a scope test counts,
 there is a row belonging to neither side — a case in nobody's hands, a
 submission created by somebody in neither team, a device nobody has signed in
 on. Then a widened policy has somewhere to show.
+
+**And per derived figure, not only per table**, which the same test taught an
+hour later. "Cases assigned to somebody" filters `case_record` by a live
+person assignment, and the case nobody held was *unassigned* — so it fell out
+of that count for everybody, the two supervisors' figures added to the
+project's total again, and the assertion failed a second time on the fixture
+rather than on the code. The answer was a third team holding a case of its
+own: outside both sides of the boundary under test **and** inside the filter.
+A row that is excluded by the metric is not outside the scope; it is outside
+the question.
 
 ## Commands
 

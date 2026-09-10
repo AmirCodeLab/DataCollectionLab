@@ -14,6 +14,25 @@ export interface AddTeamMemberRequest {
   userId: string;
 }
 
+export interface AreaListResponse {
+  column: string | null;
+  areas: AreaProgress[];
+}
+
+/**
+ * One area's slice **of what the asker may see**, never the area's total.
+ *
+ * A supervisor's row for an area they share with another team is their part
+ * of it. Showing the area's true total would be a leak; labelling their part
+ * as the area's total would be a lie. So the label says whose it is (§2,
+ * failure 5).
+ */
+export interface AreaProgress {
+  area: string;
+  assigned: number;
+  covered: number;
+}
+
 /** Exactly one of the two: a team, or a person. */
 export interface AssignRequest {
   teamId?: string | null;
@@ -256,6 +275,12 @@ export interface DatasetRowsPage {
   hasMore: boolean;
 }
 
+/** One day's finished interviews, by the day the enumerator finished. */
+export interface DayCount {
+  date: string;
+  count: number;
+}
+
 /**
  * One entry of a device's dataset manifest (sync §5, `scope=datasets`).
  *
@@ -325,6 +350,10 @@ export interface DeviceCryptoResponse {
   projectKeys: ProjectKeyOut[];
 }
 
+export interface DeviceListResponse {
+  devices: DeviceStatus[];
+}
+
 export const DEVICE_PLATFORMS = ["android", "ios", "desktop", "web"] as const;
 
 export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
@@ -353,6 +382,16 @@ export interface DeviceRegisterResponse {
   status: RegisterStatus;
 }
 
+export interface DeviceStatus {
+  deviceId: string;
+  person: string | null;
+  platform: string;
+  appVersion: string | null;
+  lastSyncAt: string | null;
+  reportedPendingOps: number | null;
+  reportedAt: string | null;
+}
+
 export const DIAGNOSTIC_SEVERITYS = ["error", "warning", "info"] as const;
 
 export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITYS)[number];
@@ -370,6 +409,19 @@ export interface DraftDocument {
   updatedAt: string;
   updatedBy?: string | null;
   testCases?: TestCase[];
+}
+
+export interface EnumeratorListResponse {
+  enumerators: EnumeratorProgress[];
+}
+
+export interface EnumeratorProgress {
+  userId: string;
+  displayName: string;
+  assigned: number;
+  covered: number;
+  finalized: number;
+  lastSyncAt: string | null;
 }
 
 export const ENVIRONMENT_KINDS = ["development", "staging", "production"] as const;
@@ -896,6 +948,18 @@ export const OP_KINDS = [
 ] as const;
 
 export type OpKind = (typeof OP_KINDS)[number];
+
+export interface Overview {
+  scopeKind: ScopeKind;
+  scopeLabel: string;
+  casesAssigned: number;
+  casesCovered: number;
+  submissions: number;
+  uncasedSubmissions: number;
+  devices: number;
+  flagsOutstanding: number | null;
+  perDay: DayCount[];
+}
 
 /**
  * The question palette, served rather than copied.

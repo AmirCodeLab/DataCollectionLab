@@ -34,7 +34,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx
 import pytest
+from fastapi import Request
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -54,18 +56,19 @@ MON_DB = "dcp_test_monitor"
 ORG_ID, ORG_SLUG = "01ORGMON", "monitor"
 PROJECT_ID = "01PRJMON"
 PASSWORD = "correct horse"
-TEAM_A, TEAM_B = "01TEAMMA", "01TEAMMB"
-ADMIN, PM, SUP_A, SUP_B, ENUM_A, ENUM_B = (
+TEAM_A, TEAM_B, TEAM_C = "01TEAMMA", "01TEAMMB", "01TEAMMC"
+ADMIN, PM, SUP_A, SUP_B, ENUM_A, ENUM_B, ENUM_C = (
     "01UMADMIN",
     "01UMPM",
     "01UMSUPA",
     "01UMSUPB",
     "01UMENUMA",
     "01UMENUMB",
+    "01UMENUMC",
 )
-DEV_A, DEV_B, DEV_UNBOUND = "dev-ma", "dev-mb", "dev-unclaimed"
-CASE_A, CASE_B, CASE_NOBODY = "01CASEMA", "01CASEMB", "01CASEMN"
-SUB_A, SUB_B, SUB_NOBODY = "01SUBMA", "01SUBMB", "01SUBMN"
+DEV_A, DEV_B, DEV_C, DEV_UNBOUND = "dev-ma", "dev-mb", "dev-mc", "dev-unclaimed"
+CASE_A, CASE_B, CASE_C, CASE_NOBODY = "01CASEMA", "01CASEMB", "01CASEMC", "01CASEMN"
+SUB_A, SUB_B, SUB_C, SUB_NOBODY = "01SUBMA", "01SUBMB", "01SUBMC", "01SUBMN"
 
 
 def _run(coro: Any) -> Any:
@@ -113,7 +116,7 @@ async def _seed() -> None:
             await session.flush()
             session.add(Environment(id="01ENVMON", project_id=PROJECT_ID, kind="production"))
             session.add(Form(id="01FRMMON", project_id=PROJECT_ID, form_key="hh", title="HH"))
-            for team_id, name in ((TEAM_A, "Team A"), (TEAM_B, "Team B")):
+            for team_id, name in ((TEAM_A, "Team A"), (TEAM_B, "Team B"), (TEAM_C, "Team C")):
                 session.add(Team(id=team_id, project_id=PROJECT_ID, name=name))
             await session.flush()
             session.add(
@@ -126,6 +129,13 @@ async def _seed() -> None:
                 (SUP_B, "sup-b", "supervisor", "team", None, TEAM_B),
                 (ENUM_A, "enum-a", "enumerator", "team", None, TEAM_A),
                 (ENUM_B, "enum-b", "enumerator", "team", None, TEAM_B),
+                # A third team, so that every figure — including the ones
+                # derived by filtering, like "cases assigned to somebody" —
+                # has a row belonging to neither A nor B. Without it the two
+                # supervisors' numbers add to the project's total on exactly
+                # the metric that filters, and a widened policy has nowhere
+                # to show (docs/project-conventions.md, the fixture rule).
+                (ENUM_C, "enum-c", "enumerator", "team", None, TEAM_C),
             )
             for user_id, username, _r, _s, _p, _t in people:
                 session.add(
@@ -159,7 +169,7 @@ async def _seed() -> None:
                         ProjectMember(project_id=PROJECT_ID, user_id=user_id, team_id=team_id)
                     )
             await session.flush()
-            for device_id, user_id in ((DEV_A, ENUM_A), (DEV_B, ENUM_B)):
+            for device_id, user_id in ((DEV_A, ENUM_A), (DEV_B, ENUM_B), (DEV_C, ENUM_C)):
                 session.add(
                     Device(
                         id=device_id,
@@ -180,23 +190,23 @@ async def _seed() -> None:
                 text(
                     "INSERT INTO case_record (id, project_id, dataset_key, case_key, status) "
                     "VALUES (:a, :p, 'hh', 'A|1', 'open'), (:b, :p, 'hh', 'B|1', 'open'), "
-                    "(:n, :p, 'hh', 'N|1', 'open')"
+                    "(:c, :p, 'hh', 'C|1', 'open'), (:n, :p, 'hh', 'N|1', 'open')"
                 ),
-                {"a": CASE_A, "b": CASE_B, "n": CASE_NOBODY, "p": PROJECT_ID},
+                {"a": CASE_A, "b": CASE_B, "c": CASE_C, "n": CASE_NOBODY, "p": PROJECT_ID},
             )
             await session.execute(
                 text(
                     "INSERT INTO assignment (id, case_id, team_id) "
-                    "VALUES ('01ASGMA', :a, :ta), ('01ASGMB', :b, :tb)"
+                    "VALUES ('01ASGMA', :a, :ta), ('01ASGMB', :b, :tb), ('01ASGMC', :c, :tc)"
                 ),
-                {"a": CASE_A, "b": CASE_B, "ta": TEAM_A, "tb": TEAM_B},
+                {"a": CASE_A, "b": CASE_B, "c": CASE_C, "ta": TEAM_A, "tb": TEAM_B, "tc": TEAM_C},
             )
             await session.execute(
                 text(
                     "INSERT INTO assignment (id, case_id, user_id) "
-                    "VALUES ('01ASGMAU', :a, :ea), ('01ASGMBU', :b, :eb)"
+                    "VALUES ('01ASGMAU', :a, :ea), ('01ASGMBU', :b, :eb), ('01ASGMCU', :c, :ec)"
                 ),
-                {"a": CASE_A, "b": CASE_B, "ea": ENUM_A, "eb": ENUM_B},
+                {"a": CASE_A, "b": CASE_B, "c": CASE_C, "ea": ENUM_A, "eb": ENUM_B, "ec": ENUM_C},
             )
             await session.execute(
                 text(
@@ -209,18 +219,22 @@ async def _seed() -> None:
                     # like this the two supervisors' figures add to the whole
                     # and a widened policy would pass unnoticed — which is what
                     # the assertion below found the first time it ran.
+                    "(:sc, :p, '01ENVMON', '01VERMON', :cc, :ec, 'finalized'), "
                     "(:sn, :p, '01ENVMON', '01VERMON', :cn, :pm, 'finalized')"
                 ),
                 {
                     "sa": SUB_A,
                     "sb": SUB_B,
+                    "sc": SUB_C,
                     "sn": SUB_NOBODY,
                     "p": PROJECT_ID,
                     "ca": CASE_A,
                     "cb": CASE_B,
+                    "cc": CASE_C,
                     "cn": CASE_NOBODY,
                     "ea": ENUM_A,
                     "eb": ENUM_B,
+                    "ec": ENUM_C,
                     "pm": PM,
                 },
             )
@@ -254,7 +268,22 @@ def monitor_db() -> Any:
     command.upgrade(cfg, "head")
     _run(_seed())
 
+    from app.api.access import organization_slug
+    from app.api.deps import get_db
+    from app.infrastructure.database import session_for_organization
+    from app.main import app
+
+    async def anonymous(request: Request) -> Any:
+        engine = create_engine(database=MON_DB)
+        try:
+            async with session_for_organization(organization_slug(request), engine=engine) as s:
+                yield s
+        finally:
+            await engine.dispose()
+
+    app.dependency_overrides[get_db] = anonymous
     yield MON_DB
+    app.dependency_overrides.pop(get_db, None)
 
     async def drop() -> None:
         async with admin_connection() as conn:
@@ -294,8 +323,8 @@ TABLES = ("submission", "case_record", "device")
 #: What each principal may see, exactly. Written out rather than derived, so a
 #: policy change has to disagree with a number somebody chose.
 EXPECTED = {
-    "admin": {"submission": 3, "case_record": 3, "device": 3},
-    "pm": {"submission": 3, "case_record": 3, "device": 2},
+    "admin": {"submission": 4, "case_record": 4, "device": 4},
+    "pm": {"submission": 4, "case_record": 4, "device": 3},
     "sup-a": {"submission": 1, "case_record": 1, "device": 1},
     "sup-b": {"submission": 1, "case_record": 1, "device": 1},
     "enum-a": {"submission": 1, "case_record": 1, "device": 1},
@@ -379,7 +408,7 @@ def test_a_device_nobody_has_signed_in_on_belongs_to_nobody(monitor_db: str) -> 
         try:
             admin = await _principal_of(engine, "admin")
             total, rows = await _agree(engine, admin, "device")
-            assert DEV_UNBOUND in rows and total == 3
+            assert DEV_UNBOUND in rows and total == 4
 
             for username in ("pm", "sup-a", "sup-b", "enum-a"):
                 principal = await _principal_of(engine, username)
@@ -561,3 +590,181 @@ def test_the_aggregate_and_the_list_are_asked_of_the_same_table(monitor_db: str)
             await engine.dispose()
 
     _run(go())
+
+
+# ---------------------------------------------------------------------------
+# The same question, one layer up: the dashboard and the lists over the API
+# ---------------------------------------------------------------------------
+
+
+Scenario = Any
+
+
+def _with_client(scenario: Any) -> None:
+    from app.main import app
+
+    async def main() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            await scenario(client)
+
+    _run(main())
+
+
+async def _login(client: httpx.AsyncClient, username: str) -> httpx.Response:
+    return await client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "organization": ORG_SLUG},
+    )
+
+
+async def _dashboard(client: httpx.AsyncClient) -> dict[str, Any]:
+    """Every figure a screen shows, and every list under it, for one person."""
+    overview = await client.get("/api/v1/monitoring/overview", params={"projectId": PROJECT_ID})
+    assert overview.status_code == 200, overview.text
+    submissions = await client.get("/api/v1/submissions", params={"limit": 200})
+    cases = await client.get("/api/v1/cases", params={"projectId": PROJECT_ID})
+    devices = await client.get("/api/v1/monitoring/devices", params={"projectId": PROJECT_ID})
+    for response in (submissions, cases, devices):
+        assert response.status_code == 200, response.text
+    return {
+        "overview": overview.json(),
+        "submissions": submissions.json()["submissions"],
+        "cases": cases.json()["cases"],
+        "devices": devices.json()["devices"],
+    }
+
+
+@pytest.mark.db
+def test_the_dashboard_agrees_with_the_lists_under_it(monitor_db: str) -> None:
+    """The route-level half of the guard, for a supervisor.
+
+    The figures and the rows come from one policy path, so the number on a
+    card and the length of the list it links to are the same answer. Asserted
+    for a supervisor first, because an admin passes a wide-open policy by
+    definition.
+    """
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _login(client, "sup-a")
+        seen = await _dashboard(client)
+        overview = seen["overview"]
+
+        assert overview["scopeKind"] == "team"
+        assert overview["scopeLabel"] == "your team"
+        assert overview["submissions"] == len(seen["submissions"]) == 1
+        assert overview["devices"] == len(seen["devices"]) == 1
+        held = [c for c in seen["cases"] if c["holder"]["userId"] is not None]
+        assert overview["casesAssigned"] == len(held) == 1
+        assert overview["casesCovered"] == 1
+
+        # And the organisation's figures are strictly larger, on every table.
+        await _login(client, "admin")
+        whole = await _dashboard(client)
+        for key, listed in (
+            ("submissions", "submissions"),
+            ("devices", "devices"),
+        ):
+            assert whole["overview"][key] == len(whole[listed])
+            assert whole["overview"][key] > overview[key], (
+                f"{key}: a supervisor sees as much as the organisation — a policy that "
+                "showed everything would pass the agreement half of this test"
+            )
+        assert whole["overview"]["casesAssigned"] > overview["casesAssigned"]
+
+    _with_client(scenario)
+
+
+@pytest.mark.db
+def test_two_supervisors_add_up_to_less_than_the_project(monitor_db: str) -> None:
+    """The browser run's case, as a test.
+
+    A and B side by side, with a case, a submission and a device in neither's
+    hands, so their figures cannot add to the whole. If they ever do, either a
+    policy widened or the fixture stopped having anything outside both teams —
+    and the second is the failure that hides the first.
+    """
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _login(client, "sup-a")
+        a = (await _dashboard(client))["overview"]
+        await _login(client, "sup-b")
+        b = (await _dashboard(client))["overview"]
+        await _login(client, "admin")
+        whole = (await _dashboard(client))["overview"]
+
+        for key in ("submissions", "devices", "casesAssigned"):
+            assert a[key] + b[key] < whole[key], (
+                f"{key}: {a[key]} + {b[key]} is not less than {whole[key]}"
+            )
+
+    _with_client(scenario)
+
+
+@pytest.mark.db
+def test_an_enumerator_has_no_dashboard_at_all(monitor_db: str) -> None:
+    """Defect 26's shape one surface up.
+
+    An enumerator's work is on the handset. A monitoring screen is a team
+    screen, and `submission.view` is what a supervisor holds and an enumerator
+    does not — so every one of these routes refuses them, rather than
+    answering with a scoped-to-themselves dashboard that invites the next
+    person to widen it.
+    """
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        signed_in = await _login(client, "enum-a")
+        assert signed_in.status_code == 200, signed_in.text
+
+        for path in ("overview", "enumerators", "areas", "devices"):
+            response = await client.get(
+                f"/api/v1/monitoring/{path}", params={"projectId": PROJECT_ID}
+            )
+            assert response.status_code == 403, (
+                f"/monitoring/{path} answered an enumerator with {response.status_code}"
+            )
+
+    _with_client(scenario)
+
+
+@pytest.mark.db
+def test_a_flag_count_is_null_until_something_can_raise_one(monitor_db: str) -> None:
+    """A7: a zero is shown only where a non-zero was possible.
+
+    `quality_flag` has no writer until item 6, so a zero would be an empty
+    table rendered as a measurement — the version people trust because it
+    looks like data. The server says "not measurable" instead, and the console
+    renders no card.
+    """
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _login(client, "sup-a")
+        overview = (await _dashboard(client))["overview"]
+        assert overview["flagsOutstanding"] is None
+
+    _with_client(scenario)
+
+    async def with_a_rule() -> None:
+        engine = create_admin_engine(database=MON_DB)
+        try:
+            async with async_sessionmaker(engine)() as session, session.begin():
+                await session.execute(
+                    text(
+                        "INSERT INTO quality_rule (id, project_id, name, severity, definition) "
+                        "VALUES ('01QRMON', :p, 'age in range', 'warning', '{}'::jsonb)"
+                    ),
+                    {"p": PROJECT_ID},
+                )
+        finally:
+            await engine.dispose()
+
+    _run(with_a_rule())
+
+    async def scenario_with_rule(client: httpx.AsyncClient) -> None:
+        await _login(client, "sup-a")
+        overview = (await _dashboard(client))["overview"]
+        assert overview["flagsOutstanding"] == 0, (
+            "once a rule exists, zero is a measurement and is reported as one"
+        )
+
+    _with_client(scenario_with_rule)
