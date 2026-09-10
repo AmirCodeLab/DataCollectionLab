@@ -768,3 +768,68 @@ def test_a_flag_count_is_null_until_something_can_raise_one(monitor_db: str) -> 
         )
 
     _with_client(scenario_with_rule)
+
+
+@pytest.mark.db
+def test_a_brand_new_handset_registers_under_the_principal_a_request_really_has(
+    monitor_db: str,
+) -> None:
+    """Registration is anonymous, and the row it writes it cannot read back.
+
+    `POST /api/v1/devices` runs before anybody has signed in, so its session
+    carries an organisation and **no person** — not the organisation-wide
+    principal an admin gets. Under 015 that principal may write a row with
+    `user_id IS NULL` and may not select one, and an `INSERT ... RETURNING`
+    is both: PostgreSQL applies the read policy to the returned row and
+    refuses it with the *write* policy's error message, which is how this
+    stayed hidden.
+
+    Every other API test drives the app as an organisation-wide principal
+    (`identity_fixtures.ORG_PRINCIPAL`), so `dcp_org_wide()` is true and the
+    read policy never bites. `test_sync.py` has covered this exact flow since
+    phase 0 and went on passing. A fixture whose principal is wider than the
+    scope under test cannot see a narrowed scope — the same rule as the rows,
+    one level up (docs/project-conventions.md).
+
+    Found in the field: a fresh install answered
+    "device registration refused: HTTP 500 — Internal Server Error".
+    """
+
+    async def go() -> None:
+        from app.modules.projects import service as projects
+        from app.modules.projects.schemas import DeviceRegisterRequest
+
+        engine = create_engine(database=monitor_db)
+        try:
+            # Exactly what `rescope_to_organization` leaves on a request that
+            # has resolved an organisation and no session: no scope_kind, so
+            # `dcp_org_wide()` is false.
+            anonymous = Principal(org_id=ORG_ID, org_slug=ORG_SLUG)
+            request = DeviceRegisterRequest(
+                deviceId="dev-just-unboxed",
+                platform="android",
+                osVersion="Android 17 (API 37)",
+                appVersion="0.1.0-dev",
+            )
+            async with session_as(anonymous, engine=engine) as session, session.begin():
+                registered = await projects.register_device(session, request)
+            assert registered.status == "registered"
+            assert registered.device_id == "dev-just-unboxed"
+
+            # Idempotent from the same principal: a reinstall re-registers.
+            async with session_as(anonymous, engine=engine) as session, session.begin():
+                again = await projects.register_device(session, request)
+            assert again.status == "already_registered"
+
+            # And it landed unbound, which is what makes it invisible to a
+            # supervisor and visible to an admin.
+            admin = await _principal_of(engine, "admin")
+            _, rows = await _agree(engine, admin, "device")
+            assert "dev-just-unboxed" in rows
+            sup_a = await _principal_of(engine, "sup-a")
+            _, a_rows = await _agree(engine, sup_a, "device")
+            assert "dev-just-unboxed" not in a_rows
+        finally:
+            await engine.dispose()
+
+    _run(go())
