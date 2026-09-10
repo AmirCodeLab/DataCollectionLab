@@ -162,6 +162,26 @@ identically because it is the same policy on the same connection, so the only
 way they can disagree is if someone writes a second WHERE clause — which is
 what the agreement test in §6 exists to catch.
 
+**The agreement test needs a principal whose scope is not the whole project,
+and it needs to assert more than agreement.** "Aggregate equals enumeration"
+is satisfied trivially by a policy that shows everything to everyone: both
+numbers are then the project's total, and they agree. An admin and a
+programme manager pass such a policy by definition, so a test built only on
+them proves nothing about scoping. So the test asserts three things, and a
+supervisor is the principal that carries it:
+
+1. for each principal, the aggregate equals the enumeration;
+2. the supervisor's figure is **strictly less** than the organisation-wide
+   figure — which fails the moment a policy starts showing everything;
+3. the supervisor's figure equals the fixture's own known subset, exactly —
+   which fails if a policy starts showing too little, the failure "strictly
+   less" would otherwise reward.
+
+Two supervisors, of different teams, with a case and a submission each, and a
+third case in neither team's hands: that fixture is what makes all three
+assertions bite. It is item 2's fixture, and this item reuses it rather than
+building a second one.
+
 Ruled out explicitly, because each is the ordinary way this goes wrong:
 
 - a `monitoring_summary` table refreshed by a job (whose principal is not the
@@ -271,6 +291,16 @@ SELECT dcp_policy('device',
     ' OR user_id = dcp_principal(''app.user_id''))');
 ```
 
+**The asymmetry is load-bearing and the migration must say so.** A later
+reader meets a policy whose `USING` names the person and whose `WITH CHECK`
+does not, and the tidy-looking change is to make them match. Doing that breaks
+enrolment: `POST /devices` is public, it runs before anybody has signed in,
+and there is no person to name yet. This is the same class as the bidi
+isolates removed as cosmetic (break 55) — a thing that looks like an oversight,
+is not, and will be "fixed" unless the reason is written where the change
+would be made. The comment above the policy in the migration says it, not just
+this document.
+
 Consequences worth stating:
 
 - `sync_cursor` chains to `device` and narrows with it, for free.
@@ -317,6 +347,9 @@ person checks a total they doubt is to look at what it counted.
 1. **The aggregate computed from a query the list does not use.** Add a
    status filter to the count and not to the list: the agreement test fails
    for every principal at once.
+1b. **A policy that shows everything.** Widen the submission or case policy to
+   org-wide: assertion 1 still passes for every principal, and assertions 2
+   and 3 fail on the supervisor. This is why the supervisor is in the test.
 2. **A count on the admin connection.** The supervisor's dashboard shows the
    project's totals while their list shows their team's.
 3. **A bare zero where nothing could be non-zero.** Render the flags card with
@@ -341,7 +374,10 @@ At least one of these reaches through the handset rather than the console
 
 **A1.** Every metric is an aggregate over the same policy-carrying table its
 list reads, on the request's connection, under the request's principal. No
-summary table, no cache, no background job, no admin connection.
+summary table, no cache, no background job, no admin connection. The guard is
+a test over a **supervisor** whose scope is not the whole project, asserting
+agreement, strictly-less-than-org-wide, and the exact expected subset — because
+agreement alone is satisfied by a policy that shows everything.
 
 **A2.** Target is the live-assigned case count; covered is a case carrying a
 submission in `finalized`, `in_review` or `approved`. No new target field, and
@@ -355,7 +391,9 @@ device panel's question and is labelled as such.
 
 **A5.** Devices are scoped by policy through `device.user_id` and
 `visible_user_ids`, with `WITH CHECK` written separately so public
-registration keeps working. Unbound devices are visible org-wide only.
+registration keeps working — and the migration carries the reason at the
+policy, because an asymmetric policy invites tidying. Unbound devices are
+visible org-wide only.
 
 **A6.** Pending ops are **reported by the device** on push and rendered with
 the time they were reported. The server does not infer them.
