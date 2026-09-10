@@ -798,6 +798,33 @@ cd backend && pytest tests/test_function_conformance.py -v    # §4.3 x every sh
 # architecture stops protecting you". Headless: Compose renders offscreen.
 ./gradlew :clients:composeApp:jvmTest
 
+# Driving a handset run — the emulator, by screenshot and tap
+export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"     # adb is not on PATH
+~/Library/Android/sdk/emulator/emulator -avd Pixel_8 &           # the only AVD here
+export ANDROID_SERIAL=emulator-5554        # several devices are usually attached
+./gradlew :clients:androidApp:installDebug
+adb shell monkey -p com.amr.data_collection_lab -c android.intent.category.LAUNCHER 1
+adb exec-out screencap -p > shot.png       # then read it
+adb shell input tap <x> <y>                # DEVICE pixels — see below
+adb shell pm clear com.amr.data_collection_lab   # a fresh install and a new device id
+#
+# THE COORDINATE TRAP, and it has already cost a false defect report.
+#   `adb shell input tap` takes coordinates in the DEVICE's pixels — 1080x2400 on
+#   Pixel_8. A screenshot is very often presented back at a different size
+#   (900x2000), so every coordinate read off the picture must be multiplied by
+#   the ratio, and the ratio is not 1. Getting it wrong does not fail: the tap
+#   lands somewhere, usually in the empty middle of a form, and the app
+#   correctly does nothing.
+#   That is indistinguishable from a control that ignores input, and on
+#   2026-09-10 it was reported as a defect in the form renderer and the
+#   reachability guard before being withdrawn (docs/e2e-run-2026-09-10-item5.md).
+#   Two habits kill it. Multiply, then say the arithmetic out loud in the run
+#   notes. And when a tap appears to do nothing, screenshot FIRST and confirm
+#   the target is where you thought — a bottom bar in particular is near the
+#   bottom of the DEVICE, which on a scaled image is a number far larger than
+#   the one your eye picks off the middle of the page.
+#   The rule this belongs to is "A control that 'does nothing' is two claims".
+
 # What a dataset costs on a real phone (Form IR §3.2, item 4 part 5)
 scripts/measure_datasets_on_device.sh 38000    # needs a connected debug build
 #   Reports first-sync write, storage, per-keystroke filter latency and the
