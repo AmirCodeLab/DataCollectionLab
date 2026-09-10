@@ -100,6 +100,12 @@ PROJECT_ID, PROJECT_SLUG = "01PROJDEV", "dev"
 ENVIRONMENT_IDS = {"development": "01ENVDEV", "staging": "01ENVSTG", "production": "01ENVPROD"}
 TEAM_ID, TEAM_NAME = "01TEAMDEV", "Team A"
 TEAM_B_ID, TEAM_B_NAME = "01TEAMDEVB", "Team B"
+#: A third team exists so that "team A plus team B is less than the project"
+#: can fail. With two teams every row is inside one of them, their figures
+#: add to the project's exactly, and a policy that showed a supervisor
+#: everything would pass the check unnoticed — the fixture rule in
+#: docs/project-conventions.md, applied to the seed a run is walked on.
+TEAM_C_ID, TEAM_C_NAME = "01TEAMDEVC", "Team C"
 
 #: The people the chain is walked with (proposal §9): one of each role, and
 #: one waiting for approval. The password is published — it is the same kind
@@ -117,6 +123,10 @@ PEOPLE: tuple[tuple[str, str, str, str, str | None, str], ...] = (
     # not to see, and an admin has both to see (pilot scope §4.2).
     ("01USRSUPERB", "supervisor-b", "Dev Supervisor B", "supervisor", TEAM_B_ID, "active"),
     ("01USRENUMB", "enumerator-b", "Dev Enumerator B", "enumerator", TEAM_B_ID, "active"),
+    # Neither supervisor can see this one. Their dashboards must add up to
+    # less than the project's, and they only can if somebody holds work
+    # outside both teams.
+    ("01USRENUMC", "enumerator-c", "Dev Enumerator C", "enumerator", TEAM_C_ID, "active"),
 )
 FORM_ID = "01FORMHH"
 FORM_VERSION_ID = "01FORMHHV1"
@@ -293,7 +303,11 @@ async def seed(security_mode: str = "standard", database: str | None = None) -> 
             # changes nothing. The pending one is the approval flow's fixture:
             # refused at login by the session policy, approved by an admin,
             # then pushing.
-            for seed_team_id, team_name in ((TEAM_ID, TEAM_NAME), (TEAM_B_ID, TEAM_B_NAME)):
+            for seed_team_id, team_name in (
+                (TEAM_ID, TEAM_NAME),
+                (TEAM_B_ID, TEAM_B_NAME),
+                (TEAM_C_ID, TEAM_C_NAME),
+            ):
                 team = await session.get(Team, seed_team_id)
                 team_created = team is None
                 if team is None:
