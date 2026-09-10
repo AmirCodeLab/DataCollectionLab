@@ -704,6 +704,30 @@ The tell is that the test names a public, pre-authentication path — register,
 log in, resolve an organisation — and gets its session from the same helper
 every authenticated test uses.
 
+### A control that "does nothing" is two claims
+
+> **Before reporting that a control did nothing, establish that the input
+> reached it. "The app ignored the tap" and "the tap reached the app" are
+> different claims and only the first is about the software.**
+
+Item 5's handset run reported that Household Survey v1 would not page past
+`1 / 3`, and reasoned from there to either a reachability guard that had missed
+an uncollectable form or a renderer dropping questions. Neither was true. The
+Next button is in a bar pinned to the bottom of the screen, its coordinate was
+converted from the wrong row of a scaled screenshot, and every tap landed in
+blank space in the middle of the form. Walked again, the form pages, renders
+the date picker and the consent question, and the counter goes from `3` to
+`24` the moment consent makes the rest reachable.
+
+Two things made the wrong conclusion feel safe, and both are the trap. The
+observation was real — the screen genuinely did not change — and the form is
+the **seed** form, so "every run since has walked past this" reads as
+corroboration when it is the opposite: a defect that survived that many runs is
+less likely, not more. The correction is written into
+`docs/e2e-run-2026-09-10-item5.md` beside the finding rather than deleted,
+because a withdrawn finding is evidence about the method and deleting it
+leaves the next person free to make the same inference.
+
 ## Commands
 
 ```bash
