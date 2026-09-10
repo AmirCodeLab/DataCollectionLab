@@ -1032,7 +1032,18 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    and the empty message split four ways. Breaks 196–204, five of them found on
    a phone. Run record: `docs/e2e-run-2026-09-10-item4.md`. Left: merge #49
    then #50, then the cleanup pass
-5. **Supervisor monitoring**, within scope only
+5. **Supervisor monitoring**, within scope only. Analysis:
+   `docs/phase3-item5-supervisor-monitoring.md` (10 September 2026). Every
+   number is a `COUNT` over the same policy-carrying table its list reads, on
+   the same connection under the same principal — no summary table, no cache,
+   no admin connection — because a dashboard that aggregates through a second
+   query drifts from the list beneath it and only one of them is right. Target
+   is the live-assigned case count and needs no new field; a zero is shown only
+   where a non-zero was possible. Device scoping lands here, through
+   `device.user_id` and `visible_user_ids`, with `WITH CHECK` written
+   separately so public registration keeps working. One thing §7 asks for that
+   the server cannot know: pending ops live in the device's outbox, so the
+   device reports them
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
 
