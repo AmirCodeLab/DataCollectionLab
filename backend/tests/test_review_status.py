@@ -427,19 +427,35 @@ def test_a_decision_cannot_be_edited_or_deleted_afterwards(review_db: str) -> No
                     ),
                     {"s": SUB_ID, "u": SUPERVISOR},
                 )
-            for statement in (
-                "UPDATE review SET comment = 'actually fine' WHERE id = '01RVREV2'",
-                "DELETE FROM review WHERE id = '01RVREV2'",
+            # Existence is not the question an UPDATE asks. Checking only that
+            # the row is still there passes whether or not the policy holds,
+            # which is how a guard becomes decoration — so read the field the
+            # statement tried to change. Found by running the break: dropping
+            # the UPDATE restriction left this test green.
+            for statement, field in (
+                ("UPDATE review SET comment = 'actually fine' WHERE id = '01RVREV2'", "comment"),
+                ("DELETE FROM review WHERE id = '01RVREV2'", None),
             ):
                 async with session_as(_reviewer(), engine=engine) as s, s.begin():
                     await s.execute(text(statement))
                 async with session_as(_reviewer(), engine=engine) as s:
-                    still = (
-                        await s.execute(
-                            text("SELECT count(*) FROM review WHERE id = '01RVREV2'")
+                    row = (
+                        (
+                            await s.execute(
+                                text(
+                                    "SELECT decision, comment FROM review "
+                                    "WHERE id = '01RVREV2'"
+                                )
+                            )
                         )
-                    ).scalar_one()
-                assert still == 1, f"a restrictive policy did not stop: {statement}"
+                        .mappings()
+                        .one_or_none()
+                    )
+                assert row is not None, f"a restrictive policy did not stop: {statement}"
+                if field is not None:
+                    assert row[field] is None, (
+                        f"the row survived but its {field} was rewritten: {statement}"
+                    )
         finally:
             await engine.dispose()
 
@@ -506,24 +522,32 @@ def test_a_rule_that_could_not_run_is_not_counted_as_an_outstanding_flag(
                     ),
                     {"s": SUB_ID},
                 )
+            # Through the function the dashboard calls, not a query written
+            # here: a count written for the test proves only that the test can
+            # count (item 5, D1). Found by running the break — with a filter
+            # of its own this test stayed green while item 5's count did not
+            # exclude anything.
+            from app.modules.monitoring import service as monitoring
+
+            async with session_as(_reviewer(), engine=engine) as s, s.begin():
+                outstanding = await monitoring.flags_outstanding(s, PROJECT_ID)
+            assert outstanding == 1, (
+                "item 5's outstanding count included a rule that could not be evaluated — "
+                "a number on a check that never ran"
+            )
+
             async with session_as(_reviewer(), engine=engine) as s:
-                counts = (
-                    (
-                        await s.execute(
-                            text(
-                                "SELECT count(*) FILTER (WHERE outcome = 'violation') AS open,"
-                                " count(*) FILTER (WHERE outcome = 'not_evaluated') AS unknown "
-                                "FROM quality_flag "
-                                "WHERE submission_id = :s AND resolved_at IS NULL"
-                            ),
-                            {"s": SUB_ID},
-                        )
+                unknown = (
+                    await s.execute(
+                        text(
+                            "SELECT count(*) FROM quality_flag "
+                            "WHERE submission_id = :s AND resolved_at IS NULL "
+                            "  AND outcome = 'not_evaluated'"
+                        ),
+                        {"s": SUB_ID},
                     )
-                    .mappings()
-                    .one()
-                )
-            assert counts["unknown"] == 1
-            assert counts["open"] == 1, "the violation from the previous test, and not the other"
+                ).scalar_one()
+            assert unknown == 1, "the unevaluated rule was not recorded at all"
         finally:
             await engine.dispose()
 
