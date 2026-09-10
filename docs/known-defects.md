@@ -781,6 +781,52 @@ for a container.
 
 **What a reviewer would have seen: nothing.** Every console screen was right — the route refused the enumerator — and every test passed, because no test had two enumerators in one team pulling. The console's permission check and the handset's absence of one read as the same guarantee, and they were not. The lesson is item 1's, one layer down: a rule that lives on the principal has to be stated in terms of what the *policy* reads, and "team-scoped" was never the same fact as "may see the team's work".
 
+## 27. A submission that reaches a review state can never leave it
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/sync/service.py` `_fold_submission`: `if folded.status is not None and submission.status in ("draft", "finalized"): submission.status = folded.status` |
+| **Status** | Open. Found 10 September 2026, writing item 6's analysis (A2), before any writer of a review state exists |
+| **Why not fixed yet** | The fix is item 6's transition function, and filing it separately is the point: the row has to exist before the function does, so that the function is written against a stated defect rather than the defect being remembered as a design note inside an analysis |
+| **Blocks** | Pilot scope §8, "a rejection returns to the enumerator's device as work" — the returning half. Also item 5's coverage figure, which never recovers for a corrected case |
+
+**What a supervisor would see: an enumerator who still owes a household they
+have already redone.** The line above is right about its intent — sync must not
+overwrite a review decision — and wrong as a mechanism, because it states which
+states *sync* may leave and thereby also decides, silently, which states
+*anything* may leave. It is a one-way door with no sign on it.
+
+The sequence, with nothing erroring at any step. A reviewer sets
+`correction_required`. That status is not in `_CLOSED_STATUSES`, so the
+enumerator's device is not refused: it appends ops, the push accepts them, the
+fold runs, and `submission_state.data` updates with the corrected answers. Then
+the guard does not match, so the status is not written. The enumerator finalises
+again; the `finalize` op is stored; the guard still does not match. The
+submission sits in `correction_required` for the rest of its life.
+
+The consequences are all quiet. It never re-enters the review queue, because
+the queue is what is waiting to be reviewed. It never becomes `approved`, so
+the export's `submission_status` column describes a correction that was in fact
+made. And `COVERED_STATUSES` in `backend/app/modules/monitoring/service.py` is
+`finalized`/`in_review`/`approved` — correctly, since work sent back *is* work
+again — so the case uncovers when the reviewer acts and never covers again.
+Item 5's dashboard then under-reports one case per correction, permanently, and
+the number it shows is a real count of real rows the whole time.
+
+**Nothing can trip over this today**, because nothing writes any review state:
+the four statuses exist in a CHECK constraint, a Pydantic literal, two read
+filters and `COVERED_STATUSES`, and have never been written by anything. The
+defect is latent and becomes live in the first commit of item 6 that lets a
+reviewer act — which is exactly why it is written down first.
+
+It is also the shape this project keeps finding, and worth naming as such: a
+guarantee that is enforced by a condition at one call site rather than by a
+function that owns the decision. Item 1 moved authority onto the principal for
+the same reason; item 5's device policy needed four definer functions because a
+policy expressed at the call site would have been three-quarters right. Here the
+transition table is the object; the `if` was a summary of it that nobody could
+read as one.
+
 ## Closed
 
 ### 19. A roster row's label sat outside the sensitivity check — **fixed 2026-09-06**
