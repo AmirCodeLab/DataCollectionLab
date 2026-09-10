@@ -39,6 +39,7 @@ fun SubmissionListRoot(
     viewModel: SubmissionListViewModel,
     onNavigateToCollection: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToUpdates: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -53,6 +54,7 @@ fun SubmissionListRoot(
         state = state,
         onAction = viewModel::onAction,
         onNavigateToSettings = onNavigateToSettings,
+        onNavigateToUpdates = onNavigateToUpdates,
     )
 }
 
@@ -61,6 +63,7 @@ fun SubmissionListScreen(
     state: SubmissionListState,
     onAction: (SubmissionListAction) -> Unit,
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToUpdates: () -> Unit = {},
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
@@ -90,6 +93,18 @@ fun SubmissionListScreen(
                 TextButton(onClick = onNavigateToSettings) { Text("Settings") }
             }
             SyncBar(state = state, onAction = onAction)
+            // A link, and deliberately not a third button. Sending a morning's
+            // interviews and fetching a 38,000-row list are not the same kind
+            // of decision, and a row of equal buttons says they are (item 4,
+            // A1). One button on this screen; the choices are one tap away.
+            if (state.updatesWaiting != null) {
+                TextButton(
+                    onClick = onNavigateToUpdates,
+                    modifier = Modifier.padding(start = 8.dp),
+                ) {
+                    Text(state.updatesWaiting)
+                }
+            }
             HorizontalDivider()
             if (state.isChoosingForm) {
                 FormPicker(
@@ -104,25 +119,25 @@ fun SubmissionListScreen(
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
 
-                state.submissions.isEmpty() && state.assignedCases.isEmpty() &&
-                    state.releasedCases.isEmpty() -> Box(
+                state.emptyState != null -> Box(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        // Two different situations, and telling an enumerator
-                        // the wrong one wastes their morning: with no forms the
-                        // next step is a sync, not a tap on "New submission".
-                        text = if (state.startableForms.isEmpty()) {
-                            "No forms on this device yet. Tap Sync to get the forms " +
-                                "your project has deployed."
-                        } else {
-                            "No submissions yet. Start one with “New submission”."
-                        },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
+                    // Four situations wore one sentence before item 4, and two
+                    // of them are not this person's to fix. "No submissions
+                    // yet" said to someone nobody has assigned a case to sends
+                    // them looking for a button that does not exist.
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = state.emptyState.text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        if (state.emptyState.opensUpdates) {
+                            TextButton(onClick = onNavigateToUpdates) { Text("Open Updates") }
+                        }
+                    }
                 }
 
                 else -> WorkList(state, onAction)
@@ -289,7 +304,10 @@ private fun SyncBar(state: SubmissionListState, onAction: (SubmissionListAction)
                     strokeWidth = 2.dp,
                 )
             } else {
-                Text("Sync")
+                // Named for what it does, now that it is not the only sync:
+                // this one sends the answers and brings the assignments, and
+                // it never waits for a form document or a village list.
+                Text("Sync work")
             }
         }
     }

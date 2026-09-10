@@ -42,7 +42,7 @@ async def pull(
     session: Annotated[AsyncSession, Depends(get_db)],
     identity: Annotated[Identity, Depends(access(app=True))],
     cursor: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=service.MAX_PULL_LIMIT)] = service.DEFAULT_PULL_LIMIT,
+    limit: Annotated[int, Query(ge=0, le=service.MAX_PULL_LIMIT)] = service.DEFAULT_PULL_LIMIT,
     scope: Annotated[str | None, Query()] = None,
     device_id: Annotated[str | None, Query(alias="deviceId", max_length=64)] = None,
 ) -> PullResponse:
@@ -51,6 +51,13 @@ async def pull(
 
     `scope` is the comma-separated list of spec §5: `assignments`, `forms`,
     `datasets`.
+
+    `limit=0` asks for **no ops**: the manifests and nothing else. It is what a
+    device sends when a person tapped "update forms" on a village connection
+    and should spend bytes on the form rather than on the op stream (item 4,
+    §5.2). `nextCursor` echoes the cursor it was given, so a manifest-only
+    request cannot advance the op stream past ops it never carried — that
+    silent skip is known defect 21's shape.
 
     `scope=assignments` returns the complete statement of the cases held by
     the session's person (item 2): a device notices a case it no longer holds

@@ -124,6 +124,13 @@ VALUES (?, ?, ?);
 countRows:
 SELECT COUNT(*) FROM dataset_row WHERE dataset_version_id = ?;
 
+-- What the rows this device already holds actually weigh, so "about 11 MB"
+-- on a button is measured rather than guessed at from a constant. COALESCE,
+-- because SUM over no rows is NULL and a version with nothing fetched is the
+-- ordinary case here.
+bytesForVersion:
+SELECT COALESCE(SUM(LENGTH(data_json)), 0) FROM dataset_row WHERE dataset_version_id = ?;
+
 deleteRows:
 DELETE FROM dataset_row WHERE dataset_version_id = ?;
 
@@ -145,15 +152,34 @@ JOIN dataset_version v ON v.dataset_version_id = r.dataset_version_id
 WHERE p.form_version_id = ? AND p.dataset_key = ? AND v.complete = 1
 ORDER BY r.rowid;
 
--- Whether a form version can be collected at all: every list it pins is held
--- and whole. What a client asks before offering the form, so "the reference
--- data has not arrived" is a sentence an enumerator reads rather than an empty
--- select they mistrust.
-missingDatasetsForFormVersion:
-SELECT p.dataset_key, p.dataset_version_id
+-- The pin-readiness query (item 4): every list this form version pins, and how
+-- much of each is on this device.
+--
+-- Whether a form version can be collected at all, and what it is still waiting
+-- for, are the same question, so this is one query and it replaced the two that
+-- used to answer halves of it. Two surfaces ask: the finalisation gate, which
+-- refuses to call an interview complete when the device could not put its
+-- questions, and the updates screen, which says what is missing and offers the
+-- fetch. If they asked separately the screen could say ready while the gate
+-- refused — the shape known defect 24 had. It is read through
+-- `ReferenceData` and nowhere else, and `ReferenceDataOneAnswerTest` fails the
+-- build if a second caller appears.
+--
+-- LEFT JOIN, so a pin whose placeholder never landed comes back with nulls
+-- rather than vanishing: "this form needs a list I know nothing about" is a
+-- real state and it must not read as ready.
+pinnedListsForFormVersion:
+SELECT p.dataset_key,
+       p.dataset_version_id,
+       v.version,
+       v.row_count,
+       v.complete,
+       (SELECT COUNT(*) FROM dataset_row r WHERE r.dataset_version_id = p.dataset_version_id)
+           AS rows_held
 FROM form_version_dataset p
 LEFT JOIN dataset_version v ON v.dataset_version_id = p.dataset_version_id
-WHERE p.form_version_id = ? AND (v.dataset_version_id IS NULL OR v.complete = 0);
+WHERE p.form_version_id = ?
+ORDER BY p.dataset_key ASC;
 
 replaceFormVersionPins:
 DELETE FROM form_version_dataset WHERE form_version_id = ?;

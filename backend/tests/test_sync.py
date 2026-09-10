@@ -209,8 +209,19 @@ async def _push(client: Any, device_id: str, ops: list[dict[str, Any]]) -> dict[
     return response.json()
 
 
-async def _pull(client: Any, cursor: int = 0, limit: int = 200) -> dict[str, Any]:
-    response = await client.get("/api/v1/sync/pull", params={"cursor": cursor, "limit": limit})
+async def _pull(
+    client: Any,
+    cursor: int = 0,
+    limit: int = 200,
+    scope: str | None = None,
+    device_id: str | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {"cursor": cursor, "limit": limit}
+    if scope is not None:
+        params["scope"] = scope
+    if device_id is not None:
+        params["deviceId"] = device_id
+    response = await client.get("/api/v1/sync/pull", params=params)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -409,6 +420,45 @@ def test_pull_with_cursor_returns_only_newer_ops(sync_api: Any) -> None:
         assert pulled["formId"] == FORM_KEY
         assert pulled["formVersion"] == FORM_VERSION
         assert pulled["counter"] == 402
+
+    _run_with_client(sync_api, scenario)
+
+
+@pytest.mark.db
+def test_a_manifest_only_pull_carries_no_ops_and_leaves_the_cursor_where_it_was(
+    sync_api: Any,
+) -> None:
+    """`limit=0` is what a device sends when a person tapped "update forms"
+    (item 4 §5.2): the manifests and nothing else.
+
+    The cursor is the point. A manifest-only request that advanced the op
+    stream would skip the ops it never carried, which is known defect 21 —
+    "a stale cursor pulls nothing and says synced" — at a new door.
+    """
+
+    async def scenario(client: Any) -> None:
+        await _push(
+            client,
+            "dev-a",
+            [_op("01OPMANI1", "01SUBMANIFEST", "dev-a", 700, value="mine")],
+        )
+        before = await _pull(client, cursor=0)
+        assert "01OPMANI1" in {op["opId"] for op in before["ops"]}
+
+        manifest_only = await _pull(
+            client, cursor=0, limit=0, scope="forms", device_id="dev-a"
+        )
+        assert manifest_only["ops"] == []
+        assert manifest_only["tombstones"] == []
+        assert manifest_only["hasMore"] is False
+        # Echoed, not advanced: the ops are still there to be pulled.
+        assert manifest_only["nextCursor"] == 0
+        # And the scope still answers, which is the whole point of the request.
+        assert manifest_only["forms"] is not None
+
+        again = await _pull(client, cursor=0)
+        assert "01OPMANI1" in {op["opId"] for op in again["ops"]}
+        assert again["nextCursor"] == before["nextCursor"]
 
     _run_with_client(sync_api, scenario)
 

@@ -1,6 +1,11 @@
 package com.dcp.core.sync
 
 import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import com.dcp.core.db.DcpDatabase
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -45,6 +50,23 @@ data class DatasetManifestEntry(
 
 /** A dataset a form version needs and this device does not have whole. */
 data class MissingDataset(val datasetKey: String, val datasetVersionId: String)
+
+/**
+ * One list a form version pins, and how much of it is on this device.
+ *
+ * [version] and [rowCount] are null when no manifest has landed a placeholder
+ * for the pinned version — the device knows a list is wanted and nothing else
+ * about it. That is not readiness, and it is not an error either: it is a pin
+ * ahead of its manifest.
+ */
+data class PinnedList(
+    val datasetKey: String,
+    val datasetVersionId: String,
+    val version: Int?,
+    val rowCount: Int?,
+    val complete: Boolean,
+    val rowsHeld: Long,
+)
 
 /**
  * The reference data this device holds, and the one way to read it.
@@ -97,6 +119,20 @@ class DatasetStore(
     /** Every dataset version held, whole or part-transferred. */
     fun all(): List<StoredDatasetVersion> =
         queries.heldDatasetVersions(::toStored).executeAsList()
+
+    /**
+     * [all], as a flow that re-emits when the table changes.
+     *
+     * A screen saying what is still waiting has to follow the store rather
+     * than read it once: rows arrive from a screen the reader is not looking
+     * at, and a badge that still says "1 list waiting" after the list arrived
+     * is the screen contradicting the thing it was opened to report. Found
+     * exactly that way, on a device.
+     */
+    fun observeVersions(
+        context: CoroutineContext = Dispatchers.Default,
+    ): Flow<List<StoredDatasetVersion>> =
+        queries.heldDatasetVersions(::toStored).asFlow().mapToList(context)
 
     fun find(datasetVersionId: String): StoredDatasetVersion? =
         queries.datasetVersion(datasetVersionId, ::toStored).executeAsOneOrNull()
@@ -355,15 +391,52 @@ class DatasetStore(
     }
 
     /**
+     * Every list [formVersionId] pins, with how much of each is here — the one
+     * query behind item 4's readiness, and the only place either surface asks.
+     *
+     * Read it through `ReferenceData`, never from a screen or a gate directly:
+     * two callers computing readiness separately is how a screen comes to say
+     * ready while the gate refuses (known defect 24's shape). The note in
+     * `datasets.sq` carries the rest of the reason.
+     */
+    /** Rows of one version on this device, whole or part-transferred. */
+    fun rowsHeld(datasetVersionId: String): Long =
+        queries.countRows(datasetVersionId).executeAsOne()
+
+    /**
+     * What those rows weigh, for the estimate a person reads before choosing
+     * to spend a morning's connection on them. Measured off this device rather
+     * than assumed: a village list and a facility list do not weigh the same
+     * per row, and a constant would be wrong for one of them.
+     */
+    fun bytesHeld(datasetVersionId: String): Long =
+        queries.bytesForVersion(datasetVersionId).executeAsOne()
+
+    fun pinnedLists(formVersionId: String): List<PinnedList> =
+        queries.pinnedListsForFormVersion(formVersionId) {
+            datasetKey, datasetVersionId, version, rowCount, complete, rowsHeld ->
+            PinnedList(
+                datasetKey = datasetKey,
+                datasetVersionId = datasetVersionId,
+                version = version?.toInt(),
+                rowCount = rowCount?.toInt(),
+                complete = complete == 1L,
+                rowsHeld = rowsHeld,
+            )
+        }.executeAsList()
+
+    /**
      * The datasets this form version needs and this device cannot serve.
      *
-     * Asked before a form is offered, so that "the village list has not arrived
-     * yet" is something an enumerator is told at the start rather than
-     * something they infer from an empty dropdown in the middle.
+     * Derived from [pinnedLists] rather than asked separately: one query
+     * answers "is it ready" and "what is it waiting for", and deriving is what
+     * keeps the two answers the same answer. A pin with no placeholder counts
+     * as missing, because a list the device knows nothing about is not held.
      */
     fun missingFor(formVersionId: String): List<MissingDataset> =
-        queries.missingDatasetsForFormVersion(formVersionId) { key, id -> MissingDataset(key, id) }
-            .executeAsList()
+        pinnedLists(formVersionId)
+            .filterNot { it.complete }
+            .map { MissingDataset(it.datasetKey, it.datasetVersionId) }
 
     /** What the server said this form version was published against. */
     fun pinsFor(formVersionId: String): Map<String, String> =

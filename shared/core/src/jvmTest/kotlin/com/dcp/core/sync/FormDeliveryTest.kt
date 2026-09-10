@@ -17,6 +17,7 @@ import java.io.IOException
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -175,21 +176,54 @@ class FormDeliveryTest {
         assertNull(result.error, "one unreachable form must not fail the sync")
         assertEquals(1, result.fetchedForms)
         assertNotNull(fixture.forms.find("household", 1))
-        assertNull(fixture.forms.find("clinic", 1))
 
-        // ...and the one that did not arrive is REPORTED. Skipping it silently
-        // is what this looked like before: the device holds no `clinic` form,
-        // the sync is green, and nothing anywhere distinguishes that from a
-        // project which has deployed no clinic form at all. `applyManifest` has
-        // no document to upsert and `markDeployed` updates no row, so the entry
-        // simply vanishes. The settings screen states that diagnosis out loud,
-        // which is how this was found.
+        // The one that did not arrive is now RECORDED, not vanished. Before
+        // handset v10 `applyManifest` had no document to upsert and
+        // `markDeployed` updated no row, so the entry disappeared: the device
+        // held no `clinic` form, the sync was green, and nothing
+        // distinguished that from a project which deploys no clinic form at
+        // all. It is a placeholder now — deployed, no document — which is the
+        // same state a person sees before they have tapped "update forms"
+        // (item 4, D1).
+        val clinic = assertNotNull(
+            fixture.forms.find("clinic", 1),
+            "a deployed version whose document would not fetch must be recorded, not dropped",
+        )
+        assertNull(clinic.irJson, "recorded, but not pretending to hold a document")
+        assertFalse(clinic.held)
+        assertEquals(listOf("fv-clinic-1"), fixture.forms.deployedNotHeld().map { it.formVersionId })
+        // And it cannot be started: there is nothing to render.
+        assertTrue(fixture.forms.startable().none { it.formId == "clinic" })
+
+        // ...and it is still REPORTED, which is the guarantee this test was
+        // written for. The settings screen states the diagnosis out loud,
+        // which is how the vanishing was found.
         val formError = assertNotNull(
             result.formError,
             "a manifest entry whose document would not fetch must be reported",
         )
         assertTrue("clinic v1" in formError, "the missing form must be named: $formError")
         assertTrue("household" !in formError, "the one that arrived is not a failure: $formError")
+
+        // And the placeholder must not read as held: the next sync, with the
+        // route back, has to fetch the document it stood in for. A placeholder
+        // carries the manifest's checksum, so a `missingFrom` that compared it
+        // would find nothing missing and the device would sit on a form it has
+        // never downloaded, for ever, with a green sync.
+        val working = client(fixture) { request ->
+            when {
+                request.url.encodedPath.endsWith("/pull") -> jsonResponse(
+                    pullBody(manifestEntry("household", 1), manifestEntry("clinic", 1))
+                )
+                request.url.encodedPath.endsWith("fv-clinic-1") ->
+                    jsonResponse(documentBody("clinic", 1))
+                else -> jsonResponse(documentBody("household", 1))
+            }
+        }
+        assertNull(working.syncOnce().error)
+        assertNotNull(assertNotNull(fixture.forms.find("clinic", 1)).irJson)
+        assertTrue(fixture.forms.deployedNotHeld().isEmpty())
+        assertTrue(fixture.forms.startable().any { it.formId == "clinic" })
     }
 
     @Test

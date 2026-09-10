@@ -4,8 +4,14 @@ import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dcp.core.sync.CaseStore
+import com.dcp.core.sync.DatasetStore
+import com.dcp.core.sync.FormStore
+import com.dcp.core.sync.PendingFetch
+import com.dcp.core.sync.ReferenceData
+import com.dcp.core.sync.formatBytes
 import com.dcp.core.sync.RejectReasons
 import com.dcp.core.sync.SubmissionStatus
+import com.dcp.core.sync.SyncScope
 import com.dcp.core.sync.SubmissionStore
 import com.dcp.core.sync.SyncClient
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +57,13 @@ data class SubmissionListState(
      * work had started. Cleared by the next action.
      */
     val caseRefusal: String? = null,
+    /**
+     * What is waiting to be downloaded, if anything — a link, never a button
+     * beside the work sync (item 4, A1). Null when there is nothing to choose.
+     */
+    val updatesWaiting: String? = null,
+    /** What to say when there is nothing to show. See [EmptyState]. */
+    val emptyState: EmptyState? = null,
     /** The case a new submission is being started against, while the form
      *  picker is up; null for uncased work. */
     val startingForCase: String? = null,
@@ -100,11 +113,28 @@ sealed interface SubmissionListEvent {
     data class NavigateToCollection(val submissionId: String) : SubmissionListEvent
 }
 
+/**
+ * What the list says when it has nothing to list.
+ *
+ * Four different situations wore one sentence before item 4, and two of them
+ * are not the enumerator's to fix. Telling somebody "no submissions yet" when
+ * the truth is "nobody has assigned you a case" sends them looking for a
+ * button that does not exist.
+ */
+data class EmptyState(
+    val text: String,
+    /** True when the person can act on it themselves, from Updates. */
+    val opensUpdates: Boolean = false,
+)
+
 class SubmissionListViewModel(
     private val store: SubmissionStore,
     private val catalog: FormCatalog,
     private val syncClient: SyncClient,
     private val cases: CaseStore,
+    private val forms: FormStore,
+    private val datasets: DatasetStore,
+    private val referenceData: ReferenceData,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SubmissionListState())
@@ -116,6 +146,7 @@ class SubmissionListViewModel(
     init {
         viewModelScope.launch {
             refreshStartableForms()
+            refreshShellState()
             store.observeSubmissions().collect { rows ->
                 // One title lookup per distinct version on screen, not per row:
                 // a device holding three versions of one form renders rows for
@@ -140,6 +171,7 @@ class SubmissionListViewModel(
                         },
                     )
                 }
+                refreshShellState()
             }
         }
         viewModelScope.launch {
@@ -148,8 +180,14 @@ class SubmissionListViewModel(
                 _state.update {
                     it.copy(assignedCases = sections.assigned, releasedCases = sections.releasedWithWork)
                 }
+                refreshShellState()
             }
         }
+        // What is waiting to download changes on the Updates screen, which is
+        // a different ViewModel: without these the badge here still said
+        // "2 forms and 1 list" after both had arrived. Seen on a device.
+        viewModelScope.launch { forms.observeAll().collect { refreshShellState() } }
+        viewModelScope.launch { datasets.observeVersions().collect { refreshShellState() } }
         viewModelScope.launch {
             store.observeSyncStatus().collect { status ->
                 _state.update {
@@ -213,9 +251,12 @@ class SubmissionListViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isSyncing = true) }
             try {
-                // The error text lands in sync_status and is observed above;
-                // only the registration verdict needs carrying by hand.
-                val result = withContext(Dispatchers.Default) { syncClient.syncOnce() }
+                // `syncWork`, not `syncOnce`: the answers, the assignments and
+                // both manifests, and not one form document or dataset row
+                // (item 4, A1). This is the action a person must never have to
+                // think twice about, so it is also the one that cannot
+                // surprise them with a 38,000-row list.
+                val result = withContext(Dispatchers.Default) { syncClient.syncWork() }
                 _state.update {
                     it.copy(
                         registrationFailure = result.registrationFailure,
@@ -223,8 +264,9 @@ class SubmissionListViewModel(
                     )
                 }
                 // A sync is how forms arrive, so the picker's list is stale the
-                // moment one finishes.
+                // moment one finishes — and so is what is waiting to download.
                 refreshStartableForms()
+                refreshShellState()
             } finally {
                 _state.update { it.copy(isSyncing = false) }
             }
@@ -257,4 +299,108 @@ class SubmissionListViewModel(
         catalog.startable().also { forms ->
             _state.update { it.copy(startableForms = forms) }
         }
+
+    /**
+     * What is waiting to be downloaded, and what it would cost — read from
+     * local state, so it is answerable between syncs and offline.
+     *
+     * A link, not a button: the work sync is the one action on this screen,
+     * and three peers would say that sending a morning's interviews is the
+     * same kind of choice as fetching a village list (item 4, A1).
+     */
+    private suspend fun refreshShellState() {
+        val snapshot = withContext(Dispatchers.Default) {
+            Triple(
+                forms.deployedNotHeld().size,
+                referenceData.pendingFetches(),
+                store.scopeStatuses(),
+            )
+        }
+        val (waitingForms, pending, statuses) = snapshot
+        fun answered(scope: String) = statuses.any { it.scope == scope && it.lastOkAt != null }
+        val current = _state.value
+        _state.update {
+            it.copy(
+                updatesWaiting = waitingLine(waitingForms, pending),
+                emptyState = if (current.submissions.isEmpty() &&
+                    current.assignedCases.isEmpty() &&
+                    current.releasedCases.isEmpty()
+                ) {
+                    emptyStateFor(
+                        startable = current.startableForms.size,
+                        waitingForms = waitingForms,
+                        cases = current.assignedCases.size,
+                        assignmentsAnswered = answered(SyncScope.ASSIGNMENTS),
+                        // The manifests ride the work sync, so its success is
+                        // what makes "deploys nothing" a statement rather than
+                        // a guess.
+                        manifestsAnswered = answered(SyncScope.WORK),
+                    )
+                } else {
+                    null
+                },
+            )
+        }
+    }
+
+    private fun waitingLine(waitingForms: Int, pending: List<PendingFetch>): String? {
+        run {
+            if (waitingForms == 0 && pending.isEmpty()) return null
+            val parts = buildList {
+                if (waitingForms > 0) add(if (waitingForms == 1) "1 form" else "$waitingForms forms")
+                if (pending.isNotEmpty()) {
+                    add(if (pending.size == 1) "1 list" else "${pending.size} lists")
+                }
+            }
+            // Only full downloads carry a number. A delta's size is not
+            // knowable before it is asked for — the server does not know what
+            // changed until it computes the diff — and an invented total on
+            // this line would be the first thing a person stopped trusting.
+            val fullBytes = pending
+                .filter { it.deltaBaseVersion == null }
+                .mapNotNull { it.estimatedFullBytes }
+                .sum()
+            val size = if (fullBytes > 0) " (about ${formatBytes(fullBytes)})" else ""
+            return "Updates waiting: ${parts.joinToString(" and ")}$size"
+        }
+    }
+
+}
+
+/**
+ * Which of the four empty states this is.
+ *
+ * Two of them are not this person's to fix, and saying so is the point:
+ * an enumerator told "no submissions yet" when nobody has assigned them a
+ * case goes looking for a button that does not exist.
+ */
+internal fun emptyStateFor(
+    startable: Int,
+    waitingForms: Int,
+    cases: Int,
+    assignmentsAnswered: Boolean,
+    manifestsAnswered: Boolean,
+): EmptyState = when {
+    startable == 0 && waitingForms > 0 -> EmptyState(
+        if (waitingForms == 1) "One form is deployed to this device and not downloaded yet."
+        else "$waitingForms forms are deployed to this device and not downloaded yet.",
+        opensUpdates = true,
+    )
+    // Never asked is not the same as answered "none" — the same distinction
+    // the manifests themselves turn on, and the device cannot make a claim
+    // about what a project deploys until it has been told. Found on a phone:
+    // a fresh install said "no form has been deployed to this device" before
+    // it had ever spoken to a server.
+    startable == 0 && !manifestsAnswered -> EmptyState(
+        "Nothing has been synced to this device yet. Tap Sync work to find out what " +
+            "this project has deployed to you.",
+    )
+    startable == 0 -> EmptyState(
+        "No form has been deployed to this device yet. A programme manager does that, " +
+            "and there is nothing to collect until they have.",
+    )
+    assignmentsAnswered && cases == 0 -> EmptyState(
+        "You hold no cases. A supervisor assigns them; they will appear here after a sync.",
+    )
+    else -> EmptyState("No submissions yet. Start one with \u201cNew submission\u201d.")
 }

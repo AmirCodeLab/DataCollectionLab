@@ -1,5 +1,9 @@
 package com.amr.data_collection_lab.collection
 
+import com.dcp.core.sync.PinnedList
+import com.dcp.core.sync.Readiness
+import com.dcp.core.sync.label
+
 /**
  * Form-language string handling. The form's language is chosen inside the app
  * (a field team shares devices across languages), so these cannot come from the
@@ -55,8 +59,39 @@ object UiStrings {
      * filter matched nothing, and only one of those is theirs to fix (§3.2).
      */
     fun referenceDataMissing(keys: String, l: String) =
-        if (ar(l)) "لم تصل البيانات المرجعية بعد: $keys. زامن الجهاز قبل المتابعة."
-        else "Reference data has not arrived yet: $keys. Sync before collecting."
+        // Names the action that actually fetches it. "Sync" was right when
+        // there was one button; since item 4 the work sync deliberately does
+        // not download a list, and sending somebody to the wrong button is
+        // worse than saying nothing.
+        if (ar(l)) "لم تصل البيانات المرجعية بعد: $keys. افتح \"التحديثات\" لتنزيلها."
+        else "Reference data has not arrived yet: $keys. Open Updates to download it."
+
+    /**
+     * Why finalisation was refused when the device is missing a list the form
+     * was published against (item 4, D3). The facts come from `Readiness`;
+     * only the frame is here, and the English frame is in `Readiness.refusal`
+     * so the two cannot say different things.
+     */
+    fun cannotFinalizeReferenceData(l: String, lists: List<PinnedList>): String {
+        if (lists.isEmpty()) return ""
+        if (!ar(l)) return Readiness.Waiting(lists).refusal() ?: ""
+        // Built from the same facts rather than from the English sentence, and
+        // every Latin run isolated. A list name and a version number are
+        // strong-LTR inside an RTL paragraph, and without U+2068/U+2069 the
+        // neutrals around them move: the English refusal rendered in an Arabic
+        // form put its full stop at the far left of the line. Seen on a phone,
+        // which is the only place it shows.
+        val shortfalls = lists.joinToString("، ") { list ->
+            val name = isolate(list.label)
+            if (list.rowsHeld == 0L) "$name لم يتم تنزيلها"
+            else "$name لديك ${isolate(list.rowsHeld.toString())} من " +
+                "${isolate((list.rowCount ?: 0).toString())} صفًا"
+        }
+        return "لا يمكن الإنهاء: $shortfalls — اضغط \"البيانات المرجعية\"."
+    }
+
+    /** U+2068 … U+2069, the same isolation the engine gives every label slot. */
+    private fun isolate(text: String) = "\u2068$text\u2069"
 
     fun noOptionsMatch(l: String) =
         if (ar(l)) "لا يوجد خيار مطابق" else "No option matches what you typed"

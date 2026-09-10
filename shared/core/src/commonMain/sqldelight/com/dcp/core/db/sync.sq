@@ -93,6 +93,23 @@ CREATE TABLE device_state (
     registered INTEGER NOT NULL DEFAULT 0
 );
 
+-- One row per sync scope: when it last succeeded, when it was last attempted,
+-- and why it last failed (item 4). A table rather than columns on sync_status,
+-- for app_setting's reason — the set of scopes grows when a scope is added,
+-- and a migration per scope is a migration per screen.
+--
+-- What a scope HOLDS is not here and must not be: rows held against row_count
+-- lives in dataset_version, documents held in form_version, and a timestamp
+-- that claimed to summarise them would be the sentence that lies ("reference
+-- data: updated 3 minutes ago" over 12,400 of 38,000 rows). This table carries
+-- when the device last asked, which is the secondary half of that line.
+CREATE TABLE sync_scope (
+    scope TEXT NOT NULL PRIMARY KEY,
+    last_ok_at TEXT,
+    last_attempt_at TEXT,
+    last_error TEXT
+);
+
 -- Single-row sync state: the pull cursor (persisted only after a pulled batch
 -- is durably written, sync §5), the last successful sync, and the last error.
 CREATE TABLE sync_status (
@@ -341,3 +358,24 @@ ORDER BY c.assigned DESC, c.priority DESC, c.case_key ASC, c.case_id ASC;
 -- over a NOT NULL column as non-null and a case with no work yet has none.
 latestSubmissionForCase:
 SELECT submission_id FROM submission WHERE case_id = ? ORDER BY updated_at DESC LIMIT 1;
+
+-- Per-scope status (item 4). Attempt, then outcome: a scope that was asked and
+-- failed keeps its last success time, so a screen can say "last updated
+-- Tuesday" and "failed just now" at once, which is what a person deciding
+-- whether to retry needs.
+-- Two statements rather than an UPSERT: the dialect this schema compiles
+-- under (SQLite 3.18) predates ON CONFLICT DO UPDATE. Same as the case rows.
+insertScopeIfAbsent:
+INSERT OR IGNORE INTO sync_scope(scope) VALUES (?);
+
+markScopeAttempted:
+UPDATE sync_scope SET last_attempt_at = ? WHERE scope = ?;
+
+markScopeOk:
+UPDATE sync_scope SET last_ok_at = ?, last_error = NULL WHERE scope = ?;
+
+markScopeFailed:
+UPDATE sync_scope SET last_error = ? WHERE scope = ?;
+
+scopeStatuses:
+SELECT scope, last_ok_at, last_attempt_at, last_error FROM sync_scope ORDER BY scope ASC;

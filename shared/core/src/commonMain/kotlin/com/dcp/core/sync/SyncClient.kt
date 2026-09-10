@@ -85,6 +85,21 @@ data class SyncResult(
 }
 
 /**
+ * What one explicit update managed (item 4).
+ *
+ * [nowNeeded] is what makes a form update honest: the lists the new pins want
+ * and this device lacks, reported the moment the form lands rather than
+ * discovered in a village at the roster.
+ */
+data class UpdateResult(
+    val fetched: Int = 0,
+    val error: String? = null,
+    val nowNeeded: List<PendingFetch> = emptyList(),
+) {
+    val isSuccess: Boolean get() = error == null
+}
+
+/**
  * The server refused to register this device. [reason] is its machine-readable
  * code (project_not_found, project_ambiguous, project_mismatch,
  * device_revoked) and is null only when the response carried no structured
@@ -275,7 +290,31 @@ class SyncClient(
         session?.forget()
     }
 
-    suspend fun syncOnce(): SyncResult {
+    /**
+     * Everything in one pass: work, form documents and reference data.
+     *
+     * What the desktop review client and the end-to-end tests want, and what
+     * the handset did before item 4 split the choice up. The handset now calls
+     * [syncWork] and lets a person decide about the expensive halves.
+     */
+    suspend fun syncOnce(): SyncResult = pass(fetchDocuments = true, fetchRows = true)
+
+    /**
+     * The answers, and everything cheap enough not to be a decision (item 4).
+     *
+     * Pushes the outbox, pulls peers' ops, applies the assignments statement,
+     * applies **both manifests**, uploads media. It fetches no form document
+     * and no dataset row: those are what a person chooses, and this is what
+     * they must never have to choose about — deferring it risks the morning's
+     * interviews, or a walk to a household somebody else now holds.
+     *
+     * The manifests riding along are what makes the other two actions honest:
+     * after this, the device knows exactly what it is missing and what
+     * fetching it would cost, offline, until the next time it is asked.
+     */
+    suspend fun syncWork(): SyncResult = pass(fetchDocuments = false, fetchRows = false)
+
+    private suspend fun pass(fetchDocuments: Boolean, fetchRows: Boolean): SyncResult {
         var pushed = 0
         var rejected = 0
         var pulled = 0
@@ -299,15 +338,9 @@ class SyncClient(
         // It is also what the failure message reports, so a sync that failed
         // against the old address cannot name the new one.
         val base = serverConfig.baseUrl()
+        store.recordScopeAttempt(SyncScope.WORK)
         return try {
-            // The server rejects every op from a device it has never seen, so
-            // an unregistered install must introduce itself before its first
-            // push. Registration is idempotent: "already registered" is a 2xx
-            // success, and only a server acknowledgement sets the local flag.
-            if (!store.isDeviceRegistered()) {
-                withRetry { registerDevice(base) }
-                store.markDeviceRegistered()
-            }
+            ensureRegistered(base)
 
             // Before anything is pushed, never after: an op that should have
             // been encrypted cannot be recalled once it has left in the clear.
@@ -392,7 +425,7 @@ class SyncClient(
             // means when the failure is the server's rather than the network's.
             forms?.let { store ->
                 try {
-                    val refresh = refreshForms(base, store, manifest)
+                    val refresh = refreshForms(base, store, manifest, fetchDocuments)
                     fetchedForms = refresh.fetched
                     if (refresh.undelivered.isNotEmpty()) {
                         formError = "could not download " +
@@ -416,7 +449,7 @@ class SyncClient(
             // failure nothing else can see.
             datasets?.let { store ->
                 try {
-                    val refresh = refreshDatasets(base, store, datasetManifest)
+                    val refresh = refreshDatasets(base, store, datasetManifest, fetchRows, null)
                     fetchedDatasetRows = refresh.rows
                     if (refresh.incomplete.isNotEmpty()) {
                         datasetError = "reference data is out of date on this device: " +
@@ -447,6 +480,8 @@ class SyncClient(
             }
 
             store.recordSyncSuccess()
+            store.recordScopeOk(SyncScope.WORK)
+            if (assignedCases != null) store.recordScopeOk(SyncScope.ASSIGNMENTS)
             SyncResult(
                 pushed, rejected, pulled,
                 uploadedMedia = uploadedMedia,
@@ -465,6 +500,7 @@ class SyncClient(
             // of it. See SyncFailure.
             val message = SyncFailure.describe(base, e)
             store.recordSyncError(message)
+            store.recordScopeError(SyncScope.WORK, message)
             SyncResult(
                 pushed, rejected, pulled,
                 error = message,
@@ -478,6 +514,109 @@ class SyncClient(
                 assignedCases = assignedCases,
             )
         }
+    }
+
+    private suspend fun ensureRegistered(baseUrl: String) {
+        // The server rejects every op from a device it has never seen, so an
+        // unregistered install must introduce itself before its first push.
+        // Registration is idempotent: "already registered" is a 2xx success,
+        // and only a server acknowledgement sets the local flag.
+        if (!store.isDeviceRegistered()) {
+            withRetry { registerDevice(baseUrl) }
+            store.markDeviceRegistered()
+        }
+    }
+
+    /**
+     * Fetch the documents for versions the server deploys and this device does
+     * not hold (item 4). Explicit, because a form update is a decision on a
+     * field connection, and separate from the work sync for that reason.
+     *
+     * Reports what the new pins now need, immediately: the moment after a form
+     * update is the only moment a person is still deciding what to spend bytes
+     * on, and it is cheap to say because the dataset manifest rode along.
+     */
+    suspend fun updateForms(): UpdateResult {
+        val formStore = forms ?: return UpdateResult(error = "this client holds no forms")
+        val base = serverConfig.baseUrl()
+        store.recordScopeAttempt(SyncScope.FORMS)
+        return try {
+            ensureRegistered(base)
+            val page = withRetry {
+                pullPage(
+                    base,
+                    store.syncStatus().pullCursor,
+                    wantForms = true,
+                    wantDatasets = datasets != null,
+                    limit = 0,
+                )
+            }
+            val refresh = refreshForms(base, formStore, page.forms, fetchDocuments = true)
+            datasets?.let {
+                refreshDatasets(base, it, page.datasets, fetchRows = false, onlyDatasetKey = null)
+            }
+            val undelivered = refresh.undelivered.takeIf { it.isNotEmpty() }?.let {
+                "could not download " + it.joinToString(", ") + " from " + base +
+                    " — the manifest lists it but the document would not fetch"
+            }
+            if (undelivered == null) store.recordScopeOk(SyncScope.FORMS)
+            else store.recordScopeError(SyncScope.FORMS, undelivered)
+            UpdateResult(refresh.fetched, undelivered, pendingReferenceData())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val message = SyncFailure.describe(base, e)
+            store.recordScopeError(SyncScope.FORMS, message)
+            UpdateResult(error = message)
+        }
+    }
+
+    /**
+     * Fetch the rows of the lists this device's forms pin and it does not hold
+     * whole — one list when [datasetKey] names one, every waiting list when it
+     * does not.
+     *
+     * Per list, because this is the megabyte-scale scope and a person on a
+     * village connection should be able to take the village list today and the
+     * facility list tomorrow. Resumable, and one list failing does not cost the
+     * others: both were already true inside the fetch, and the per-list choice
+     * is what makes them worth anything to the person holding the phone.
+     */
+    suspend fun updateReferenceData(datasetKey: String? = null): UpdateResult {
+        val datasetStore = datasets ?: return UpdateResult(error = "this client holds no lists")
+        val base = serverConfig.baseUrl()
+        store.recordScopeAttempt(SyncScope.DATASETS)
+        return try {
+            ensureRegistered(base)
+            val page = withRetry {
+                pullPage(base, store.syncStatus().pullCursor, wantDatasets = true, limit = 0)
+            }
+            val refresh = refreshDatasets(base, datasetStore, page.datasets, true, datasetKey)
+            val incomplete = refresh.incomplete.takeIf { it.isNotEmpty() }?.let {
+                "reference data is out of date on this device: " + it.joinToString(", ") +
+                    " did not finish downloading from " + base + ". Forms using those lists " +
+                    "will not offer them until it does."
+            }
+            if (incomplete == null) store.recordScopeOk(SyncScope.DATASETS)
+            else store.recordScopeError(SyncScope.DATASETS, incomplete)
+            UpdateResult(refresh.rows, incomplete, pendingReferenceData())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val message = SyncFailure.describe(base, e)
+            store.recordScopeError(SyncScope.DATASETS, message)
+            UpdateResult(error = message)
+        }
+    }
+
+    /**
+     * What is still wanted, and what each would cost — from `ReferenceData`,
+     * which is the only place that decides readiness (item 4, D2).
+     */
+    fun pendingReferenceData(): List<PendingFetch> {
+        val formStore = forms ?: return emptyList()
+        val datasetStore = datasets ?: return emptyList()
+        return ReferenceData(formStore, datasetStore, store).pendingFetches()
     }
 
     /**
@@ -590,10 +729,15 @@ class SyncClient(
         wantForms: Boolean = false,
         wantDatasets: Boolean = false,
         wantAssignments: Boolean = false,
+        limit: Int = config.pullLimit,
     ): WirePullResponse =
         http.get("$baseUrl/api/v1/sync/pull") {
             parameter("cursor", cursor)
-            parameter("limit", config.pullLimit)
+            // `limit=0` asks for the manifests and no ops (item 4 §5.2): a
+            // person who tapped "update forms" on a village connection spends
+            // bytes on the form, not on the op stream. The server echoes the
+            // cursor, so nothing is skipped by asking.
+            parameter("limit", limit)
             val scopes = buildList {
                 if (wantForms) add("forms")
                 if (wantDatasets) add("datasets")
@@ -633,6 +777,7 @@ class SyncClient(
         baseUrl: String,
         store: FormStore,
         manifest: List<WireDeployedFormVersion>?,
+        fetchDocuments: Boolean,
     ): FormRefresh {
         if (manifest == null) return FormRefresh(0, emptyList())
 
@@ -648,7 +793,13 @@ class SyncClient(
 
         val documents = mutableMapOf<String, String>()
         val undelivered = mutableListOf<String>()
-        for (entry in store.missingFrom(entries)) {
+        // Applying the manifest is free and has consequences worth having for
+        // nothing: a withdrawn version is marked undeployed, and a deployed
+        // one this device has not downloaded becomes a placeholder it can
+        // offer. Fetching the documents is the part that costs, and on a work
+        // sync it is not done (item 4, D1).
+        val wanted = if (fetchDocuments) store.missingFrom(entries) else emptyList()
+        for (entry in wanted) {
             val document = try {
                 withRetry { fetchFormVersion(baseUrl, entry.formVersionId) }
             } catch (e: CancellationException) {
@@ -711,6 +862,8 @@ class SyncClient(
         baseUrl: String,
         store: DatasetStore,
         manifest: List<WireDeployedDatasetVersion>?,
+        fetchRows: Boolean,
+        onlyDatasetKey: String?,
     ): DatasetRefresh {
         if (manifest == null) return DatasetRefresh(0, emptyList())
 
@@ -729,7 +882,16 @@ class SyncClient(
 
         var fetched = 0
         val incomplete = mutableListOf<String>()
-        for (entry in store.missingFrom(entries)) {
+        // The manifest above is applied either way; the rows are the choice.
+        // One list at a time when a person asked for one: `villages` today and
+        // `health_facilities` tomorrow is a decision the field makes, and an
+        // all-or-nothing fetch takes it away from them.
+        val wanted = if (!fetchRows) {
+            emptyList()
+        } else {
+            store.missingFrom(entries).filter { onlyDatasetKey == null || it.datasetKey == onlyDatasetKey }
+        }
+        for (entry in wanted) {
             try {
                 // A complete earlier version of the same list is a base to diff
                 // against, and the difference is the whole of part 5: a device
