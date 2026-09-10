@@ -1007,9 +1007,13 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    so there is no typed-id shape to design re-resolution for. Still open, and
    asked rather than assumed: what an enumerator *reads* to tell one roster row
    from another — scope doc §5.1 and §13 question 7
-4. **Separate sync for sample and form.** A 37,000-row sample over a village
+4. **Separate sync for sample and form.** Reference data over a village
    connection is a different proposition from a small form update, and the person
-   holding the handset should decide which they are doing
+   holding the handset should decide which they are doing. Analysis:
+   `docs/phase3-item4-separate-sync.md` (9 September 2026). Its §0 corrects the
+   number this line used to carry: RCons's sample is 1,129 rows, and the
+   38,000-row / 11.3 MB artefact is the village reference list (break 52,
+   measured), so the expensive scope is reference data rather than the sample
 5. **Supervisor monitoring**, within scope only
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
