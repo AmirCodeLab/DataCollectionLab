@@ -1182,7 +1182,17 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    submission a reviewer moves to `correction_required` can never come back,
    and the corrected work leaves the queue and item 5's coverage with nothing
    erroring. Rules are IR expressions on the existing evaluator; a rule the
-   server could not evaluate is reported as *not evaluated*, never as passed
+   server could not evaluate is reported as *not evaluated*, never as passed.
+   **Status, 10 September 2026:** A1–A8 confirmed; A9 confirmed as a
+   correction — the pilot's reviewers are supervisors, so 016 widens
+   `submission.review` to the Supervisor role and `seed_dev.py` matches.
+   Defect 27 filed **before** its fix existed. Schema is migration **016**
+   (no new table: policies on `quality_rule`, `quality_flag` and `review`, a
+   flag's provenance and an `outcome` that can say "could not be evaluated",
+   and a per-project review policy) plus the status machine in
+   `app/modules/submissions/status.py`, which replaces the condition at the
+   call site that was defect 27. Breaks 212–218, two of which passed on the
+   first run and are recorded as such. Next: routes, screens, both runs
 
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
