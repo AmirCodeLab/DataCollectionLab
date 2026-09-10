@@ -704,6 +704,30 @@ The tell is that the test names a public, pre-authentication path — register,
 log in, resolve an organisation — and gets its session from the same helper
 every authenticated test uses.
 
+### A control that "does nothing" is two claims
+
+> **Before reporting that a control did nothing, establish that the input
+> reached it. "The app ignored the tap" and "the tap reached the app" are
+> different claims and only the first is about the software.**
+
+Item 5's handset run reported that Household Survey v1 would not page past
+`1 / 3`, and reasoned from there to either a reachability guard that had missed
+an uncollectable form or a renderer dropping questions. Neither was true. The
+Next button is in a bar pinned to the bottom of the screen, its coordinate was
+converted from the wrong row of a scaled screenshot, and every tap landed in
+blank space in the middle of the form. Walked again, the form pages, renders
+the date picker and the consent question, and the counter goes from `3` to
+`24` the moment consent makes the rest reachable.
+
+Two things made the wrong conclusion feel safe, and both are the trap. The
+observation was real — the screen genuinely did not change — and the form is
+the **seed** form, so "every run since has walked past this" reads as
+corroboration when it is the opposite: a defect that survived that many runs is
+less likely, not more. The correction is written into
+`docs/e2e-run-2026-09-10-item5.md` beside the finding rather than deleted,
+because a withdrawn finding is evidence about the method and deleting it
+leaves the next person free to make the same inference.
+
 ## Commands
 
 ```bash
@@ -1104,8 +1128,8 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    separately so public registration keeps working. One thing §7 asks for that
    the server cannot know: pending ops live in the device's outbox, so the
    device reports them. **Status, 10 September 2026:** analysis on #49's
-   successor #51; the schema, routes and console page are on
-   `feat/item5-device-scope` (#52). Migration **015**: the device policy gains
+   successor #51; the schema, routes and console page on #52. **Both merged
+   10 September 2026.** Migration **015**: the device policy gains
    the person (no new column: `device.user_id` is bound at login), `USING` and
    `WITH CHECK` deliberately differ with the reason written at the policy,
    **four** definer functions carry the statements that must work before
@@ -1119,9 +1143,19 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    the project, an enumerator refused by name on all four routes, a handset's
    backlog rendered with the time it was reported, and one defect the whole
    suite could not see (a fresh handset could not register; the fixture's
-   *principal* was wider than the scope under test). Next: item 6
-6. **Review and correction.** Reviewing what is flagged rather than everything is
-   the differentiator, and it is a project setting
+   *principal* was wider than the scope under test — and the run's other
+   finding, that the seed form would not page forward, was withdrawn: it was
+   a mis-tap, not the app). Next: item 6
+6. **Review and correction.** Analysis:
+   `docs/phase3-item6-review-correction.md` (10 September 2026), A1–A9 awaiting
+   confirmation. A correction is the **same** submission — `submission_op` has
+   admitted a `reopen` kind since 001, both folds handle it, and nothing has
+   ever emitted one. The failure that would ship is narrower than a double
+   count: the fold writes status only while it is `draft` or `finalized`, so a
+   submission a reviewer moves to `correction_required` can never come back,
+   and the corrected work leaves the queue and item 5's coverage with nothing
+   erroring. Rules are IR expressions on the existing evaluator; a rule the
+   server could not evaluate is reported as *not evaluated*, never as passed
 
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
