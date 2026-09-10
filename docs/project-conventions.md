@@ -1213,6 +1213,16 @@ dev seed, nowhere to run the server, no screen for quality rules or for export,
 and no real RCons form has ever been imported. That last one is the cheapest
 step and the one most likely to change the plan.
 
+**Gate 1 — provisioning — is analysed and awaiting confirmation of A1–A9:**
+`docs/gate1-provisioning.md`. Its two non-code deliverables are done and
+merged ahead of the code, because neither depends on the assumptions:
+`docs/key-custody.md` (who holds a project's private key, where the backup
+lives, and what happens when someone leaves — the only absence in this system
+that no later work recovers from) and
+`docs/restore-drill-2026-09-10.md` (a database with real rows dumped,
+destroyed, restored, synced into from a handset that had synced with its
+predecessor, then written into to prove the sequence came back right).
+
 **The skip-to prototype was item 0 and is closed** (scope doc §12): the source
 skip logic is Urdu prose in a codes column, and a person converts it to relevance
 when entering the question in the dashboard. The conversion happens before any
