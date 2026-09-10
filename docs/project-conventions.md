@@ -1043,7 +1043,16 @@ device but not a person. Phase 3 closes that. Seven items, in this order:
    `device.user_id` and `visible_user_ids`, with `WITH CHECK` written
    separately so public registration keeps working. One thing §7 asks for that
    the server cannot know: pending ops live in the device's outbox, so the
-   device reports them
+   device reports them. **Status, 10 September 2026:** analysis on #49's
+   successor #51; the schema is migration **015** on `feat/item5-device-scope`
+   — the device policy gains the person (no new column: `device.user_id` is
+   bound at login), `USING` and `WITH CHECK` deliberately differ with the
+   reason written at the policy, three definer functions carry the statements
+   that must work before anybody has signed in, and
+   `reported_pending_ops`/`reported_at` are named for whose word they are.
+   `test_monitoring_scope.py` is the agreement guard: a supervisor's figure
+   equals their list, is strictly less than org-wide, and matches an expected
+   subset. Breaks 205–209. Next: the routes, the console page, and the runs
 6. **Review and correction.** Reviewing what is flagged rather than everything is
    the differentiator, and it is a project setting
 
