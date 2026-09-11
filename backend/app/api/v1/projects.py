@@ -28,12 +28,15 @@ from app.modules.media import service as media_service
 from app.modules.media.schemas import MediaPolicyResponse, MediaPolicyUpdate
 from app.modules.projects import service
 from app.modules.projects.schemas import (
+    ProjectCreate,
+    ProjectCreateRefusalResponse,
     ProjectKeyCreate,
     ProjectKeyDetail,
     ProjectKeyError,
     ProjectKeyErrorResponse,
     ProjectKeyListResponse,
     ProjectListResponse,
+    ProjectSummary,
 )
 
 router = APIRouter()
@@ -106,6 +109,47 @@ async def list_project_keys(
     if keys is None:
         raise HTTPException(status_code=404, detail="project not found")
     return keys
+
+
+@router.post(
+    "",
+    response_model=ProjectSummary,
+    response_model_by_alias=True,
+    status_code=201,
+    responses={409: {"model": ProjectCreateRefusalResponse}},
+)
+async def create_project(
+    request: ProjectCreate,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    identity: Annotated[Identity, Depends(access(permission="project.manage"))],
+) -> ProjectSummary:
+    """Create a project and its three environments (gate 1).
+
+    An ordinary authenticated route, and that is the decision rather than an
+    implementation detail. An **organisation** cannot be created this way —
+    there is no principal until it exists, so the act needs a privilege no
+    request may hold, and `scripts/provision.py` is where it lives. By the time
+    anybody asks for a project an administrator exists, so this is refused like
+    anything else.
+
+    The organisation comes from the session, never from the body: `project` is
+    an organisation root under row-level security, and a caller does not get to
+    name which organisation their project lands in.
+
+    All three environments are created here, in the same transaction. A project
+    that can deploy nowhere is not a project, and the person who would find
+    that out is whoever was trying to get a form onto a phone.
+    """
+    async with session.begin():
+        try:
+            return await service.create_project(
+                session, request, organization_id=identity.principal.org_id
+            )
+        except service.ProjectCreateError as refusal:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": refusal.reason, "message": refusal.message},
+            ) from refusal
 
 
 @router.post(

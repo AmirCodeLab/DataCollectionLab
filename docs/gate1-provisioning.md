@@ -275,10 +275,27 @@ If anything else wants a migration, that is the signal to re-read §3.1.
 The four roles and their permissions are currently written in four places:
 `008_identity.sql` creates them, `010_people.sql` adds `user.assign_role` to
 Supervisor, `016_review.sql` adds `submission.review` to Supervisor, and
-`scripts/seed_dev.py` writes its own copy of the whole set. The dev seed's copy
-is already a *different list* from the migrations' — it has been kept in step
-by hand each time, including on 10 September when A9 moved
-`submission.review`.
+`scripts/seed_dev.py` writes its own copy of the whole set.
+
+**Measured on 11 September, before reconciling anything: the two lists agree
+exactly.** An organisation created before `0007` and carried through every
+migration, and an organisation provisioned by the seed against a head
+database, hold identical grants — Admin 15, Programme manager 14, Supervisor
+5, permission for permission.
+
+That corrects this section, which said the seed's copy was *already* a
+different list. It is not, and the reasoning behind the claim was wrong: the
+seed's own `VALUES` list carries `project.manage` where `008` does not, but
+`0009` adds it on the migrations' side, and the two converge. The four copies
+have been kept in step by hand every time, including on 10 September when A9
+moved `submission.review`, and every time it has been done correctly.
+
+**Which does not make the refactor less worth doing — it makes it cheap.**
+There is nothing to reconcile, so the single definition can be adopted without
+choosing between two answers, and the lint arrives before the first divergence
+rather than after it. Had the measurement gone the other way, this section
+would record which list was right and what had been wrong since 10 September.
+It went this way, and that is the record.
 
 A fifth copy in a provisioning tool is how a customer's Supervisor ends up
 unable to review while the dev one can, and the failure is silent: every screen

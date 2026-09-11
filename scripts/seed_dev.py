@@ -148,6 +148,7 @@ async def _provision_organization(database: str | None) -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.infrastructure.database import create_admin_engine
+    from app.modules.auth import builtin_roles
 
     engine = create_admin_engine(database=database)
     try:
@@ -160,50 +161,13 @@ async def _provision_organization(database: str | None) -> None:
                 {"id": ORG_ID, "slug": ORG_SLUG},
             )
             _report(bool(getattr(created, "rowcount", 0)), "organisation", ORG_SLUG)
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO role (id, organization_id, name, scope_kind, builtin)
-                    SELECT :org || '_' || r.suffix, :org, r.name, r.scope_kind, true
-                    FROM (VALUES ('admin', 'Admin', 'organization'),
-                                 ('pm', 'Programme manager', 'project'),
-                                 ('supervisor', 'Supervisor', 'team'),
-                                 ('enumerator', 'Enumerator', 'team'))
-                         AS r(suffix, name, scope_kind)
-                    ON CONFLICT (id) DO NOTHING
-                    """
-                ),
-                {"org": ORG_ID},
-            )
-            # Admin: everything. PM: everything but device.revoke. Supervisor
-            # (§3.2, 010 §3, 016 §1): creates enumerators in their own team,
-            # assigns sample, sees submissions — and reviews them, because in
-            # RCons the supervisor is the reviewer. Enumerator: nothing —
-            # their access is their device's session.
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO role_permission (role_id, permission)
-                    SELECT r.id, p.name
-                    FROM role r,
-                         (VALUES ('user.create'), ('user.approve'), ('user.deactivate'),
-                                 ('user.assign_role'), ('team.manage'), ('sample.upload'),
-                                 ('sample.assign'), ('form.edit'), ('form.publish'),
-                                 ('form.deploy'), ('submission.view'), ('submission.review'),
-                                 ('export.download'), ('device.revoke'), ('project.manage'))
-                         AS p(name)
-                    WHERE r.organization_id = :org AND r.builtin AND (
-                        r.name = 'Admin'
-                        OR (r.name = 'Programme manager' AND p.name <> 'device.revoke')
-                        OR (r.name = 'Supervisor' AND p.name IN
-                            ('user.create', 'user.assign_role', 'sample.assign',
-                             'submission.view', 'submission.review'))
-                    )
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {"org": ORG_ID},
-            )
+            # The roles and their grants are NOT written here. One definition,
+            # `app/modules/auth/builtin_roles.sql`, executed by this and by
+            # scripts/provision.py — so "the same roles everywhere" is one file
+            # run twice rather than two lists kept in step by hand (gate 1,
+            # A7). test_builtin_roles_have_one_definition.py is what stops a
+            # copy reappearing here.
+            await builtin_roles.install(session, ORG_ID)
     finally:
         await engine.dispose()
 
