@@ -1213,8 +1213,22 @@ dev seed, nowhere to run the server, no screen for quality rules or for export,
 and no real RCons form has ever been imported. That last one is the cheapest
 step and the one most likely to change the plan.
 
-**Gate 1 — provisioning — is analysed and awaiting confirmation of A1–A9:**
-`docs/gate1-provisioning.md`. Its two non-code deliverables are done and
+**Gate 1 — provisioning — is built and walked.** `docs/gate1-provisioning.md`
+is the analysis (A1–A10 confirmed 11 September);
+`docs/e2e-run-2026-09-11-gate1.md` is the run, and it is the first time this
+platform has been **stood up rather than seeded** — every walk before it used
+the dev seed's one organisation and its published password.
+
+`scripts/provision.py` creates an organisation, its roles, its first
+administrator and an `audit_event`; it **cannot run without a terminal**,
+which is what stops it being wrapped in a convenience script and pointed at
+production, and it is a no-op on an organisation that already exists.
+`POST /projects` and the console's New project are the other half, because by
+then an administrator exists. The builtin roles have **one definition**,
+`app/modules/auth/builtin_roles.sql`, with a lint that fails if a second
+writer appears and a test that a provisioned organisation matches a migrated
+one — measured before the refactor, the four copies agreed exactly, so it is a
+regression guard rather than a reconciliation. Breaks 221–225. Its two non-code deliverables are done and
 merged ahead of the code, because neither depends on the assumptions:
 `docs/key-custody.md` (who holds a project's private key, where the backup
 lives, and what happens when someone leaves — the only absence in this system

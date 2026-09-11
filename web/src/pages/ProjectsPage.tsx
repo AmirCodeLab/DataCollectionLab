@@ -93,7 +93,12 @@ export function ProjectsPage() {
           </table>
           {projects.data.projects.length === 0 && (
             <p className="py-6 text-slate-500">
-              No projects. Run <code>scripts/seed_dev.py</code>.
+              {/* Not "run the dev seed". Until gate 1 that was the only way
+                  a project could exist, so it was true; it is now advice that
+                  would have a customer running a script which refuses outside
+                  development and publishes a password. Found by the run, on an
+                  organisation no seed made. */}
+              No projects yet.
             </p>
           )}
         </div>
