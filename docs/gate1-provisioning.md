@@ -75,6 +75,22 @@ The private key is downloaded by the user and never transmitted to the server."
 Gate 1 supplies the missing half — a project to generate it for — and adds
 nothing to the key path except the custody wording around it.
 
+**D6 — one definition of the builtin roles, and a lint that keeps it one.**
+They are written in four places today and the dev seed's copy is already a
+different list from the migrations'. A fifth copy in the provisioning tool is
+how a customer's Supervisor ends up unable to review while the dev one can, and
+it fails silently. One file, executed by both callers, plus a test that fails
+when a second writer appears and a test that a provisioned organisation's
+grants equal a migrated one's. §4.1, and it is the reason to do this refactor
+now rather than after something depends on it.
+
+**D7 — the operator tool cannot run without a terminal.** The password is read
+from a TTY, so a convenience wrapper, a CI step and a remote one-liner all fail
+closed; and the tool is a no-op on an organisation that already exists, so the
+worst case of pointing it at production is a message. §3.4 also says what that
+does *not* buy, which is anything at all against somebody who holds the owner
+credential and means it.
+
 **D5 — custody is stated where the key is generated, not only in a document.**
 `project_key.role` has admitted `primary`, `backup` and `recovery` since 001
 and nothing has ever used more than one of them. The procedure in §6 says what
@@ -194,6 +210,46 @@ decision, not a schema one.
 
 ---
 
+### 3.4 What stops this being run casually against production
+
+An operator action over the owner connection is exactly the thing somebody
+wraps in a convenience script, and the wrapper is how it ends up in a CI job
+and then in a terminal pointed at the wrong host. So the guards are structural
+rather than advisory, and the first one is the one that matters:
+
+**It cannot run without a terminal.** The administrator's password is read from
+a TTY and never from an argument or an environment variable (A3). With no TTY
+it refuses and exits non-zero. That single property takes out the whole class:
+a convenience wrapper cannot supply the password, `ssh host 'provision …'`
+cannot, a CI step cannot, and a cron entry cannot. Anyone who wants to automate
+it has to first defeat it, which turns an accident into a decision.
+
+**It is a no-op on an organisation that already exists.** Creating is the only
+thing it does. Pointed at a live production database it finds the organisation,
+reports it, and changes nothing — so the worst case of the mistake this section
+is about is a message on a terminal.
+
+**It refuses a database that is not at migration head**, and **refuses a slug
+that does not match `ORGANIZATION_SLUG`** (A4). Both are cheap and both catch
+the "wrong host" case from a different angle: a laptop's stack is rarely at the
+same revision as production, and the configured slug of a production deployment
+is not `dev`.
+
+**It leaves a trace.** `audit_event` has existed since 001 with no writer.
+Provisioning is the first thing that should write one: what was created, under
+which slug, at what time. A provisioning run that nobody can find afterwards is
+how two administrators appear and nobody knows which is which.
+
+**And what none of this buys.** A person holding `DATABASE_ADMIN_URL` for
+production can do anything to it, with or without this tool — that credential
+*is* the boundary, and no script can be the thing that protects it. What these
+guards do is make the careless path fail closed and the deliberate path
+visible. The real control is that the owner credential lives on the server and
+not in anybody's `.env`, and that is a hosting decision this repository cannot
+make.
+
+---
+
 ## 4. Schema, in outline
 
 **Probably none at all**, and that is worth stating as a target rather than
@@ -213,6 +269,42 @@ the dev one has it. One file, executed by the migration and by the tool, with a
 test that the two produce the same grants.
 
 If anything else wants a migration, that is the signal to re-read §3.1.
+
+### 4.1 One definition of the builtin roles, enforced
+
+The four roles and their permissions are currently written in four places:
+`008_identity.sql` creates them, `010_people.sql` adds `user.assign_role` to
+Supervisor, `016_review.sql` adds `submission.review` to Supervisor, and
+`scripts/seed_dev.py` writes its own copy of the whole set. The dev seed's copy
+is already a *different list* from the migrations' — it has been kept in step
+by hand each time, including on 10 September when A9 moved
+`submission.review`.
+
+A fifth copy in a provisioning tool is how a customer's Supervisor ends up
+unable to review while the dev one can, and the failure is silent: every screen
+works, the permission is simply absent, and it is discovered by a supervisor
+who cannot do their job.
+
+**So: one file, and a lint.**
+
+- `backend/migrations/schema/builtin_roles.sql` — the roles and the grants for
+  one organisation, parameterised by its id. Executed by the provisioning tool
+  and by `scripts/seed_dev.py`.
+- **The migrations are not rewritten.** They are an append-only record of what
+  happened to databases that already exist; 008, 010 and 016 stay exactly as
+  they are. The shared file is what anything running *now* uses, and a new
+  migration that changes a builtin permission adds to it and re-runs it.
+- **A lint**, in the shape of `test_form_version_has_one_writer.py`: any
+  `INSERT INTO role` or `INSERT INTO role_permission` outside the shared file
+  and the historical migrations is a failure naming the file and the line. That
+  test is what makes it structural rather than a convention somebody remembers.
+- **An equivalence test**: provision a fresh organisation, and assert its
+  grants equal those of an organisation built by running every migration —
+  role by role, permission by permission. The lint stops a fifth copy
+  appearing; this catches the drift already there.
+
+The lint is the point of doing the refactor now rather than later. A single
+definition that nothing enforces is four copies again within two items.
 
 ---
 
@@ -263,6 +355,10 @@ database has never issued, gets nothing, and reports **"All changes synced"**.
 
 ## 8. Assumptions this analysis was written under — say if any is wrong
 
+Ten, not nine: **A10** was added on 11 September at the user's instruction,
+and **A7** was strengthened from "a test that they agree" to a lint that
+fails when a second definition appears.
+
 **A1.** Organisation, builtin roles and the first administrator are an
 **operator action over the owner connection**, run on the server like a
 migration — never an HTTP route, because a route that creates an organisation
@@ -285,9 +381,13 @@ transaction. A project that can deploy nowhere is not a project.
 **A6.** The keypair path is **not rebuilt**. It works, and the envelope spec
 already describes exactly what it does.
 
-**A7.** The builtin roles and their permissions get **one definition**, shared
-by the migration and the tool, with a test that they agree. Four copies is how
-a customer's Supervisor loses a permission the dev one has.
+**A7.** The builtin roles and their permissions get **one definition**, and it
+is enforced rather than agreed: a single SQL file that provisioning and the dev
+seed both execute, **a lint that fails when a second writer of `role` or
+`role_permission` appears** anywhere outside it, and a test that a freshly
+provisioned organisation's grants equal a migrated one's, role by role. Four
+copies is how a customer's Supervisor loses a permission the dev one has, and
+a convention is not what stops the fifth. §4.1.
 
 **A8.** Key custody is a **document in this repository** (`docs/key-custody.md`),
 and the keys screen states whether a project has what the document requires.
@@ -296,6 +396,14 @@ The document is a deliverable of this gate.
 **A9.** The restore is **performed**, against a database holding real rows,
 and a handset syncs against the restored database before it is called done.
 What is written is what happened.
+
+**A10.** The provisioning tool **cannot run non-interactively**. It reads the
+administrator's password from a terminal and refuses when there is not one, so
+a convenience wrapper, a CI step and an `ssh host 'provision …'` one-liner all
+fail closed. Beyond that it is a **no-op on an organisation that already
+exists**, refuses a slug mismatch, refuses a database not at migration head,
+and records what it did in `audit_event`. §3.4 says what this does and does not
+buy.
 
 ---
 
