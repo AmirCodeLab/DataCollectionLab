@@ -1076,6 +1076,36 @@ export interface PersonListResponse {
 }
 
 /**
+ * A new project (gate 1, A2 and A5).
+ *
+ * An organisation is provisioned on the server, because creating one needs a
+ * privilege no request may hold. A project is not: by the time anybody asks
+ * for one, an administrator exists and can be refused like anybody else.
+ *
+ * `securityMode` is chosen here and is not changed afterwards. It decides
+ * whether the server ever holds a readable answer, and changing it later
+ * would leave a project whose submissions mean two different things.
+ */
+export interface ProjectCreate {
+  name: string;
+  slug: string;
+  securityMode?: SecurityMode;
+}
+
+export const PROJECT_CREATE_FAILURES = ["slug_taken", "organization_unknown"] as const;
+
+export type ProjectCreateFailure = (typeof PROJECT_CREATE_FAILURES)[number];
+
+export interface ProjectCreateRefusal {
+  reason: ProjectCreateFailure;
+  message: string;
+}
+
+export interface ProjectCreateRefusalResponse {
+  detail: ProjectCreateRefusal;
+}
+
+/**
  * A public key being registered as a recipient (envelope §4.1).
  *
  * `extra="forbid"`, deliberately. The private key is generated in the browser

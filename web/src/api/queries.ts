@@ -52,6 +52,8 @@ import type {
   ReviewRequest,
   ReviewResponse,
   SubmissionQualityResponse,
+  ProjectCreate,
+  ProjectSummary,
 } from "./types";
 
 /** Who this session is. One query, read by the layout to gate every screen
@@ -398,3 +400,12 @@ export const qualityRulesQuery = (projectId: string) =>
     queryFn: () =>
       apiGet<QualityRuleListResponse>("/api/v1/quality/rules", { projectId }),
   });
+
+/** Create a project and its three environments (gate 1).
+ *
+ * An organisation is not created this way and never will be: there is no
+ * principal until one exists, so the act needs a privilege no request may
+ * hold. It is `scripts/provision.py`, run on the server.
+ */
+export const createProject = (request: ProjectCreate) =>
+  apiPost<ProjectSummary>("/api/v1/projects", request);

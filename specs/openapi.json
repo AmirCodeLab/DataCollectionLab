@@ -2564,6 +2564,56 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "description": "Create a project and its three environments (gate 1).\n\nAn ordinary authenticated route, and that is the decision rather than an\nimplementation detail. An **organisation** cannot be created this way —\nthere is no principal until it exists, so the act needs a privilege no\nrequest may hold, and `scripts/provision.py` is where it lives. By the time\nanybody asks for a project an administrator exists, so this is refused like\nanything else.\n\nThe organisation comes from the session, never from the body: `project` is\nan organisation root under row-level security, and a caller does not get to\nname which organisation their project lands in.\n\nAll three environments are created here, in the same transaction. A project\nthat can deploy nowhere is not a project, and the person who would find\nthat out is whoever was trying to get a form onto a phone.",
+        "operationId": "create_project_api_v1_projects_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSummary"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCreateRefusalResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/projects/{project_id}/keys": {
@@ -7735,6 +7785,71 @@
           "people"
         ],
         "title": "PersonListResponse"
+      },
+      "ProjectCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Slug"
+          },
+          "securityMode": {
+            "$ref": "#/components/schemas/SecurityMode",
+            "default": "standard"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "slug"
+        ],
+        "title": "ProjectCreate",
+        "description": "A new project (gate 1, A2 and A5).\n\nAn organisation is provisioned on the server, because creating one needs a\nprivilege no request may hold. A project is not: by the time anybody asks\nfor one, an administrator exists and can be refused like anybody else.\n\n`securityMode` is chosen here and is not changed afterwards. It decides\nwhether the server ever holds a readable answer, and changing it later\nwould leave a project whose submissions mean two different things."
+      },
+      "ProjectCreateFailure": {
+        "type": "string",
+        "enum": [
+          "slug_taken",
+          "organization_unknown"
+        ]
+      },
+      "ProjectCreateRefusal": {
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ProjectCreateFailure"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "title": "ProjectCreateRefusal"
+      },
+      "ProjectCreateRefusalResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ProjectCreateRefusal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ProjectCreateRefusalResponse"
       },
       "ProjectKeyCreate": {
         "properties": {

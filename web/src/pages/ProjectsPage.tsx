@@ -1,15 +1,18 @@
 /** Projects, their security mode, and whether they can actually receive data. */
 
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { projectListQuery } from "@/api/queries";
-import type { ProjectSummary } from "@/api/types";
+import { createProject, meQuery, projectListQuery } from "@/api/queries";
+import { SECURITY_MODES, type ProjectSummary, type SecurityMode } from "@/api/types";
 import { Td, Th } from "@/components/Table";
 import { formatTimestamp } from "@/lib/format";
+import { may } from "@/lib/permissions";
 
 export function ProjectsPage() {
   const projects = useQuery(projectListQuery());
+  const me = useQuery(meQuery());
 
   return (
     <section>
@@ -19,6 +22,8 @@ export function ProjectsPage() {
         mean re-encrypting or decrypting everything already collected, which is
         the point of having chosen it.
       </p>
+
+      {me.data && may(me.data, "project.manage") && <NewProject />}
 
       {projects.isPending && <p className="mt-4 text-slate-500">Loading…</p>}
       {projects.isError && (
@@ -111,4 +116,119 @@ function KeyCount({ project }: { project: ProjectSummary }) {
     );
   }
   return <span>{project.activeKeyCount}</span>;
+}
+
+
+/** Creating a project, and the two things it settles that cannot be changed.
+ *
+ * The security mode is fixed at creation, and the slug is what URLs are built
+ * from — so both are stated here rather than discovered later.
+ *
+ * There is deliberately no "new organisation" anywhere in this console. An
+ * organisation cannot be created under row-level security, because there is no
+ * principal until it exists, so the act belongs to an operator on the server
+ * (`scripts/provision.py`) and not to a screen.
+ */
+function NewProject() {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [securityMode, setSecurityMode] = useState<SecurityMode>("standard");
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: () => createProject({ name, slug, securityMode }),
+    onSuccess: () => {
+      setOpen(false);
+      setName("");
+      setSlug("");
+      setRefusal(null);
+      void client.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (error: unknown) => {
+      const detail = (error as { detail?: { message?: string } })?.detail;
+      setRefusal(detail?.message ?? String(error));
+    },
+  });
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="mt-4 rounded bg-slate-900 px-3 py-2 text-sm text-white"
+        onClick={() => setOpen(true)}
+      >
+        New project
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-4 max-w-xl rounded border border-slate-200 p-3">
+      <label className="block text-sm">
+        <span className="font-medium">Name</span>
+        <input
+          className="mt-1 block w-full rounded border border-slate-300 p-2"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </label>
+      <label className="mt-3 block text-sm">
+        <span className="font-medium">Slug</span>
+        <span className="mt-1 block text-slate-600">
+          Lowercase, no spaces. URLs are built from it and it does not change.
+        </span>
+        <input
+          className="mt-1 block w-full rounded border border-slate-300 p-2 font-mono"
+          value={slug}
+          onChange={(event) => setSlug(event.target.value)}
+        />
+      </label>
+      <label className="mt-3 block text-sm">
+        <span className="font-medium">Security mode</span>
+        <span className="mt-1 block text-slate-600">
+          Fixed at creation. <code>standard</code> stores answers the server can
+          read; the other two do not, and then a lost key is lost data — read
+          docs/key-custody.md before choosing one.
+        </span>
+        <select
+          className="mt-1 block w-full max-w-xs rounded border border-slate-300 p-2"
+          value={securityMode}
+          onChange={(event) => setSecurityMode(event.target.value as SecurityMode)}
+        >
+          {SECURITY_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-3 text-sm text-slate-600">
+        Development, staging and production environments are created with it.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-400"
+          disabled={create.isPending || name.trim() === "" || slug.trim() === ""}
+          onClick={() => create.mutate()}
+        >
+          {create.isPending ? "Creating…" : "Create project"}
+        </button>
+        <button
+          type="button"
+          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+      {refusal && (
+        <p role="alert" className="mt-2 text-sm text-red-700">
+          {refusal}
+        </p>
+      )}
+    </div>
+  );
 }

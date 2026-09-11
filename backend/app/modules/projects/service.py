@@ -22,13 +22,15 @@ from app.core.ulid import new_ulid
 from app.modules.crypto.envelope import is_usable_recipient_key
 from app.modules.crypto.models import ProjectKey
 from app.modules.crypto.published_test_keys import refusal_for_test_only_key
-from app.modules.projects.models import Device, Project
+from app.modules.projects.models import Device, Environment, Project
 from app.modules.projects.schemas import (
     DeviceCryptoResponse,
     DeviceRegisterRequest,
     DeviceRegisterResponse,
     KeyRegistrationFailure,
     KeyRole,
+    ProjectCreate,
+    ProjectCreateFailure,
     ProjectKeyCreate,
     ProjectKeyDetail,
     ProjectKeyListResponse,
@@ -479,3 +481,81 @@ async def revoke_project_key(
     await session.flush()
     await session.refresh(key)
     return _key_detail(key)
+
+
+# ---------------------------------------------------------------------------
+# Creating a project (gate 1, A2 and A5)
+# ---------------------------------------------------------------------------
+
+#: Every environment a project gets, at creation, in one transaction.
+#:
+#: All three, always. A deployment names an environment, so a project with none
+#: accepts a published form version and can deploy it nowhere — and the person
+#: who finds that out is whoever was trying to get a form onto a phone. There
+#: is no case for fewer and no setting to get it wrong (A5).
+ENVIRONMENT_KINDS = ("development", "staging", "production")
+
+
+class ProjectCreateError(Exception):
+    """A refusal a console can put beside a field."""
+
+    def __init__(self, reason: ProjectCreateFailure, message: str) -> None:
+        super().__init__(f"{reason}: {message}")
+        self.reason: ProjectCreateFailure = reason
+        self.message = message
+
+
+async def create_project(
+    session: AsyncSession, request: ProjectCreate, *, organization_id: str
+) -> ProjectSummary:
+    """A project and its three environments, or neither.
+
+    Runs on the request's connection under the request's principal, like every
+    other route. `project` is an organisation root under row-level security, so
+    the organisation this lands in is the principal's and cannot be chosen by
+    the caller — which is why `organization_id` comes from the identity rather
+    than from the body.
+    """
+    if not organization_id:
+        raise ProjectCreateError(
+            "organization_unknown",
+            "This session is not scoped to an organisation, so there is nothing "
+            "to create a project in.",
+        )
+    taken = (
+        await session.execute(
+            select(Project.id).where(
+                Project.organization_id == organization_id, Project.slug == request.slug
+            )
+        )
+    ).scalar_one_or_none()
+    if taken is not None:
+        raise ProjectCreateError(
+            "slug_taken",
+            f"A project with the slug {request.slug!r} already exists here. "
+            "The slug is what URLs and environment names are built from, so it "
+            "has to be unique — pick another.",
+        )
+
+    project = Project(
+        id=new_ulid(),
+        organization_id=organization_id,
+        name=request.name,
+        slug=request.slug,
+        security_mode=request.security_mode,
+    )
+    session.add(project)
+    await session.flush()
+    for kind in ENVIRONMENT_KINDS:
+        session.add(Environment(id=new_ulid(), project_id=project.id, kind=kind))
+    await session.flush()
+
+    return ProjectSummary(
+        id=project.id,
+        name=project.name,
+        slug=project.slug,
+        security_mode=project.security_mode,
+        active_key_count=0,
+        created_at=project.created_at,
+        archived_at=None,
+    )

@@ -53,6 +53,10 @@ class DeviceRegisterResponse(BaseModel):
 
 
 # Both mirror CHECK constraints in migrations/schema/001_initial.sql.
+#: Why a project could not be created. `slug_taken` is the one a console shows
+#: beside the field; the rest are a person in the wrong organisation.
+type ProjectCreateFailure = Literal["slug_taken", "organization_unknown"]
+
 type SecurityMode = Literal["standard", "field_level", "project_e2e"]
 type KeyRole = Literal["primary", "backup", "recovery"]
 
@@ -131,6 +135,35 @@ class ProjectListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     projects: list[ProjectSummary]
+
+
+class ProjectCreate(BaseModel):
+    """A new project (gate 1, A2 and A5).
+
+    An organisation is provisioned on the server, because creating one needs a
+    privilege no request may hold. A project is not: by the time anybody asks
+    for one, an administrator exists and can be refused like anybody else.
+
+    `securityMode` is chosen here and is not changed afterwards. It decides
+    whether the server ever holds a readable answer, and changing it later
+    would leave a project whose submissions mean two different things.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    #: Lowercase, for URLs and for the environment names under it.
+    slug: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    security_mode: SecurityMode = Field(default="standard", alias="securityMode")
+
+
+class ProjectCreateRefusal(BaseModel):
+    reason: ProjectCreateFailure
+    message: str
+
+
+class ProjectCreateRefusalResponse(BaseModel):
+    detail: ProjectCreateRefusal
 
 
 class ProjectKeyCreate(BaseModel):
