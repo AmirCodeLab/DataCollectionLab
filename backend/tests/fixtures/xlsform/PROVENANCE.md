@@ -52,3 +52,27 @@ differing only by case or surrounding whitespace (Form IR §3.1).
 **Anything published from a run against them must say they are synthetic.** The
 acceptance they support is that the pipeline works with data *shaped like* the
 real thing — not that it works with UCL's files, which nobody here has seen.
+
+## The Sindh listing scale probe — synthetic, and not RCons's questionnaire
+
+`sindh-scale/` holds a workbook and two companion CSVs produced by
+`scripts/generate_sindh_scale_form.py`. It is the same arrangement as the UCL
+CSVs above and for a stronger reason: what this repository has of RCons's
+largest questionnaire is a **measurement of it**, in
+`docs/rcons-current-system.md`, and never the questionnaire. There is no
+`questions` table here to read, so nothing could be extracted even in principle.
+
+The generator reproduces every published number exactly — 95 sections, 2,128
+questions, 7,080 options, the twelve-row type census of §5, three languages, a
+45,327-row school list and a 4,035-row health facility list, two rosters — and
+invents every string, every relevance condition and every constraint. The
+module docstring says which is which, line by line.
+
+    python scripts/generate_sindh_scale_form.py
+    python scripts/import_xlsform.py \
+        backend/tests/fixtures/xlsform/sindh-scale/sindh-listing-scale.xlsx --out reports/
+
+**It is not RCons's questionnaire and nothing produced from it may be described
+as theirs.** What it supports is a claim about size and shape: that this
+platform does or does not survive an instrument 700 times the largest form it
+had ever been shown. The run is `docs/scale-run-2026-09-12-sindh.md`.
