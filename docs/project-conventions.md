@@ -471,6 +471,49 @@ with the same three functions in the Python reference specifically so that the
 clients could not each decide it for themselves, which is what they had been
 doing.
 
+### Two engines can agree on every vector and be a thousand times apart
+
+The boundary above is about *which* artifact is chosen. This one is about what
+an engine **spent**, and it is the same structural blindness arriving through
+cost.
+
+> **A vector fixes the inputs and compares the outputs. It says nothing about
+> what either implementation spent producing them, so two engines can agree
+> element for element and differ by three orders of magnitude.**
+
+Found on 12 September 2026, the first time this platform was shown a form its
+own size. `_topological_order` in the Python engine re-sorted its ready set with
+`ready.sort(key=self.order.index)` on every iteration of Kahn's loop.
+`self.order` is a list, so the key is a linear scan; the scan ran once per ready
+element per iteration. Every form this repository had ever compiled was three
+screens, where that is unmeasurable. On a 2,128-question questionnaire it was
+**16.3 seconds** — paid once by the importer and once by every
+`POST /forms/compile`, which the builder calls on every edit — against 9.6 ms
+for a min-heap keyed on document position, producing the identical order.
+
+The Kotlin twin never had it: `Runtime.kt` has always kept its document index in
+a `Map`. So the gap was **between the engines**, in the one dimension the
+contract that exists to hold them together cannot express. Every vector was
+green the whole time, on both sides, and they were right to be.
+
+Three things follow, and only the third is about performance:
+
+- **A green cross-engine run is evidence about agreement, not about either
+  implementation.** Anything where the two engines could have been written
+  differently — a data structure, a lookup, a cache — is a place they can drift
+  with nothing to see.
+- **The corpus is the instrument.** Not the vector set: the vectors are small on
+  purpose and will stay small, so a cost that is quadratic in form size cannot
+  appear in one. It took a form 700× the largest fixture to make a 1,600×
+  difference visible at all.
+- **A cost guard needs a bound with room on both sides.**
+  `backend/tests/test_compile_scales.py` asserts 2,000 questions compile in
+  under two seconds: 200× over the pass, 7× under the failure. Tight enough to
+  go red on a slow CI morning and it stops being read, which is the failure mode
+  this whole file is written against.
+
+Break 226, and `docs/scale-run-2026-09-12-sindh.md` for the run.
+
 ### A guard that enumerates what exists cannot see what stopped existing
 
 **The fourth blind spot, and the one that was found the hard way.** On

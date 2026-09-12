@@ -1,10 +1,12 @@
 """Compiling a form is linear-ish in its size, and the tie-break still holds.
 
-No conformance vector can see either claim, and they fail in opposite ways.
+The two tests are not equally exposed, and it is worth saying which is which
+rather than letting the file read as one claim.
 
-A vector fixes the inputs and compares the outputs, so it sees the *order*
-`_topological_order` produces and nothing about what that order cost. For the
-life of this repository the ready set was a list re-sorted with
+**The first is outside what a vector can report.** A vector fixes the inputs and
+compares the outputs, so it sees the *order* `_topological_order` produces and
+nothing about what that order cost. For the life of this repository the ready
+set was a list re-sorted with
 `key=self.order.index` — a linear scan per element per iteration — and every
 form anyone had ever compiled was three screens, where the difference is
 unmeasurable. On the 2,128-question questionnaire in
@@ -14,12 +16,18 @@ it: `Runtime.kt` keeps its document index in a map. Two engines agreeing
 exactly and differing by three orders of magnitude is precisely what the
 vectors cannot report. Break 226.
 
-The second test is the other half of the same change. A min-heap over document
-positions and a re-sorted list agree only while the heap is keyed on position
-rather than on insertion — and a form where they disagree needs the dependency
-edges to *cross* document order, which is the fixture property that matters and
-the one a sequential fixture cannot supply (docs/project-conventions.md, "A
-sequential fixture cannot see an ordering bug").
+**The second is not**, and the run says so: keying the heap on insertion order
+instead of document position fails six conformance vectors as well as this test
+(`screens-009`, `-010`, `-011`, `-025` among them). It is here anyway because
+those six fail with a relevance disagreement four steps into a repeat, and this
+one fails with the two orders printed side by side. Break 227.
+
+A min-heap over document positions and a re-sorted list agree only while the
+heap is keyed on document position rather than on insertion — and a form where
+they disagree needs the dependency edges to *cross* document order, which is
+the fixture property that matters and the one a sequential fixture cannot
+supply (docs/project-conventions.md, "A sequential fixture cannot see an
+ordering bug").
 """
 
 from __future__ import annotations

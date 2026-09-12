@@ -749,6 +749,28 @@ for a container.
 | **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
 | **Blocks** | Nothing; an author may read a fresh screen as already failing |
 
+## 28. The publish gate never asks whether a question can be collected
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/forms/service.py` `check_publishable` — it runs every Form IR §10 check and never consults `app/modules/forms/xlsform/datatypes.py::collectable_types`. That registry is read by the XLSForm importer and by nothing else |
+| **Status** | Open — found 12 September 2026, `docs/scale-run-2026-09-12-sindh.md` §5.1 |
+| **What happens** | The importer **refuses** a `time` or `geoshape` question by name: "That is a valid Form IR type, but no client can present it yet, so an enumerator would see a question they cannot answer." The same document, handed to `POST /forms/versions`, publishes — 201, deployed to two environments, no warning. Watched on the Sindh-scale form: three such questions, refused at import, published and deployed anyway |
+| **Why it matters** | This is defect 7 one layer out. Defect 7 was a type that was in the spec, carried a vector, was agreed by both engines and arrived on a phone as a label with empty space under it; the registry exists so an author is told. Reading it in the importer only means the guarantee holds for exactly one route in. The builder's Publish button is not that route, and neither is the API |
+| **Why not fixed** | Not yet decided **where** it belongs, and the choice is real. `check_publishable` is Form IR §10, which is a statement about the document; collectability is a statement about an app version, and the registry is versioned for that reason (`collectable-types-v0.1.json`). Putting an app-version fact inside a spec-version gate makes a form that publishes today refuse to publish against an older client build. The likelier shape is a separate gate at publish that reports the version it checked against — which is a decision, not a patch |
+| **Blocks** | A form authored in the console can carry a question no enumerator can answer, with nothing between the builder and the handset to say so. The importer's refusal reads as platform-wide and is route-wide |
+
+## 29. The Updates screen tells a handset a form is "tens of kilobytes"
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/src/commonMain/kotlin/com/amr/data_collection_lab/collection/UpdatesScreen.kt:101` — `text = "A form is tens of kilobytes."`, a constant |
+| **Status** | Open — found 12 September 2026 on a Pixel 6 Pro, `docs/scale-run-2026-09-12-sindh.md` §6.3 |
+| **What happens** | The Sindh-scale form's IR is **1.53 MB**. The card offering to download it says tens of kilobytes: wrong by about fifty times, on the first real questionnaire the screen has been shown |
+| **Why it matters** | Item 4 is the item that made every card on this screen state what the tap will cost, because the person holding the handset decides whether to spend a village connection on it (`docs/phase3-item4-separate-sync.md`). The reference-data cards do exactly that — "Full download — about 11.3 MB", measured off rows this device holds. The forms card is the one that does not, and a constant is how a cost statement goes stale without anything going red |
+| **Why not fixed** | The size is not in the manifest. `GET /sync/pull?limit=0&scope=forms` reports which versions are deployed and not held; it does not report how large their IR is, so the fix is a field on the manifest entry and a migration of the sync contract, not a string change. Worth doing with the next sync-contract change rather than on its own |
+| **Blocks** | Nothing refuses; an enumerator on a metered connection is told a wrong number and cannot find out the right one |
+
 ## Closed
 
 ### 27. A submission that reaches a review state can never leave it
