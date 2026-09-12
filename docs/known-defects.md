@@ -762,6 +762,18 @@ for a container.
 
 ## Closed
 
+### 30. Every `select_multiple` and every `note` rendered a blank screen
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/.../CollectionViewModel.kt`: `private val SUPPORTED_TYPES = setOf("text", "integer", "decimal", "select_one", "date", "image", "signature", "geopoint")`, and `questionUi` returning null for anything outside it |
+| **Status** | **Closed 12 September 2026**, the day it was found — on the handset walk this run owed, `docs/scale-run-2026-09-12-sindh.md` §6.4 |
+| **What happened** | A `select_multiple` or `note` question was dropped before a widget was chosen, so the collection screen drew **nothing at all**: no label, no control, not even the "this build cannot ask you this" message the composable's `else` branch exists for. A section heading with empty space under it, Next still working, and no error anywhere. Watched on two different questions at screens 297 and 300 of 2,096, with a `select_one` rendering correctly on either side |
+| **How big** | 154 of 2,128 questions in the scale form. In RCons's real census it is `Multiple Selection` (65) plus `Custom Multiple Selection` (88) plus `Note` (1) — **154 questions, 7% of the instrument, silently blank** |
+| **Why nothing caught it** | Three things lined up. The seed form has no `select_multiple` and no `note`, so five end-to-end runs walked past it. `CollectableTypesTest` drives the real composable in both directions — the right idea — but constructs its own `QuestionUi`, and `questionUi` is the function that decides whether a `QuestionUi` exists at all; the gap was *between* two tested things, which is break 57's shape exactly. And the registry lists `select_multiple` as collectable, so the importer told authors the question was fine. It was fine everywhere except on the screen |
+| **What fixed it** | `SUPPORTED_TYPES` deleted, not synchronised — break 57's lesson, that removing the choice beats testing it. One place decides what a type renders as: the `when` in `CollectionScreen`, whose `else` says so out loud. `OneCollectableGateTest` is the guard and it is a **lint**, because what is being asserted is that a piece of code does not exist. Break 230 |
+| **What is not verified** | The fix is verified by test and by build, **not by a second handset walk**. The phone became unavailable before the rebuilt APK could be walked. That re-walk is owed — `docs/scale-run-2026-09-12-sindh.md` §9 |
+
 ### 28. The publish gate never asked whether a question can be collected
 
 | | |

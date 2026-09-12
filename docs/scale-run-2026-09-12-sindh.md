@@ -56,20 +56,28 @@ generator is.
 
 ## 1. The headline, before the detail
 
-**The platform survives it, and one thing in it did not.**
+**The platform survives the size. Three things in it did not, and only one of
+them was about size at all.**
 
 The importer, both engines, the screen planner, the publish gate, the sync
 protocol and the handset all handle 2,128 questions without a change. The
-console's builder renders it correctly and is too slow to use. And the Python
-engine's topological sort turned out to be quadratic-with-a-linear-key — 16.3
-seconds per compile — which no conformance vector could ever have reported,
-because the *order* it produced was right.
+console's builder renders it correctly and is too slow to use.
+
+| Found | What it was | Where |
+|---|---|---|
+| **The Python engine's topological sort** | quadratic with a linear key: **16.3 s per compile**, paid by every import and every keystroke-triggered recompile in the builder. No conformance vector could ever have reported it, because the *order* it produced was right — and the Kotlin engine never had it | §3.1, break 226 |
+| **The publish gate never asked whether a question could be collected** | the importer refused three unpresentable questions by name and `POST /forms/versions` published the identical document to two environments. Defect 7 one layer out | §5.1, defect 28 |
+| **Every `select_multiple` and every `note` drew a blank screen on the handset** | a second hand-maintained list of types in the view model, drifted. **154 of 2,128 questions** — and 154 of RCons's real census. Nothing in this repository could see it | §6.4, defect 30 |
+
+Only the first is a scaling defect. The other two were always there and it took
+an instrument with 154 multi-selects and 95 sections to walk into them.
 
 | | Before this run | After |
 |---|---|---|
 | `import_xlsform.py` over the workbook | 16.2 s | **1.3 s** |
 | `check_publishable` on the IR | 16.3 s | **14 ms** |
 | `POST /forms/compile` over HTTP | (would have been ~16.4 s) | **44–49 ms** |
+| Screens for 2,128 questions | 2,101 | **469** with `field-list` (§4.1) |
 
 ---
 
@@ -395,16 +403,63 @@ over a loopback tunnel, so it is a measurement of the device's write path and
 not of a village connection; `docs/known-defects.md` 9 (56 s to apply a delta on
 a Pixel) is a different operation and is not contradicted by this.
 
-**What did not happen: the form was never opened on the device. This is owed,
-not dropped — see §9.** The screen
-timed out during the dataset download and the handset has a secure lock, which
-is not something to work around. So §6.1's numbers are the JVM's and §4.3's are
-Wasm-in-Chrome; **ART on a real handset, walking a 2,101-screen form, is the one
-measurement this run does not have.** It is a ten-minute job with the phone
-unlocked and it should be done before anything is concluded about the collection
-screen at this size — in particular, whether a `select_one` backed by a
-45,327-row list renders as the searchable lazy list the registry's note
-describes.
+**The form was not opened on the device at this point** — the screen timed out
+during the dataset download and the handset has a secure lock, which is not
+something to work around. **The phone came back later the same evening and the
+walk happened after all: §6.4, and it found the worst defect in this run.**
+
+
+### 6.4 The walk, on ART, and what it found
+
+The phone came back unlocked later the same evening. The app opened the form
+**offline** — no server, everything out of the local encrypted database — which
+is the case that matters and is the one no earlier run had exercised at this
+size.
+
+| | |
+|---|---|
+| Tap the form → first screen drawn | **1.5–1.9 s** (parse 1.53 MB from SQLCipher, compile 2,128 fields, plan 2,101 screens, draw) |
+| Answer one question → screen settled | **< 260 ms**, and the count moved `1 / 2101` → `1 / 2096` |
+| 100 `Next` taps | 4.03 s — **40 ms per screen** |
+| 193 more | 7.04 s — **36 ms per screen**, no drift 300 screens in |
+| A `select_one` over the **45,327-row** school list | renders immediately as "Search 45327 options" with a lazy list |
+| Typing 8 characters into that search | 0.69 s total, filtering live, one exact match found |
+
+Every worry in the old §9 came back negative. The engine is not the constraint
+on a phone either, and the searchable lazy list the registry's note describes is
+real and is fast at 45,327 rows.
+
+**And then screen 300 of 2,096 was blank.** Section heading, empty space, Next
+still working. Screens 299 and 301 rendered correctly on either side.
+
+It was not the size and it was not the dataset. `s13q0317` is a
+`select_multiple` with two inline options, and `CollectionViewModel` held a
+second hand-maintained list of collectable types — `SUPPORTED_TYPES` — which was
+missing `select_multiple` and `note`. `questionUi` returned null for them, so
+the question was dropped before any widget was chosen and the screen drew
+nothing: not the label, not the "this build cannot ask you this" message the
+composable's `else` branch exists for. Confirmed on a second question, screen
+297, before concluding anything — "a control that does nothing is two claims".
+
+**154 of 2,128 questions.** In RCons's own census it is the same number:
+`Multiple Selection` 65 + `Custom Multiple Selection` 88 + `Note` 1 = **154
+questions, 7% of the instrument, silently blank.**
+
+Nothing could have caught it. The seed form has neither type, so five
+end-to-end runs walked past. `CollectableTypesTest` drives the real composable
+in both directions — the right design — but constructs its own `QuestionUi`,
+and `questionUi` is what decides whether a `QuestionUi` exists. The gap was
+*between* two tested things, which is break 57's shape exactly. And the registry
+lists `select_multiple`, so the importer had been telling authors the question
+was fine.
+
+Fixed by **deleting** the list rather than synchronising it — break 57's lesson
+again, that removing the choice beats testing it. `OneCollectableGateTest` is
+the guard, and it is a lint, because what it asserts is that a piece of code
+does not exist. Defect 30, break 230.
+
+**The fix is verified by test and by build, not by a second walk.** The phone
+became unavailable before the rebuilt APK could be driven. See §9.
 
 ### 6.3 One thing the handset said that is wrong
 
@@ -437,7 +492,15 @@ questionnaire it was shown. `docs/known-defects.md` 29.
    they are unanswerable from here — §10.2 of the RCons analysis needs an answer
    from RCons before any number in §5 is trustworthy.
 5. **Reference data at 45k rows is fine.** 4.9 s to publish, under 8 s to apply
-   on a phone, 23 pages, no special handling.
+   on a phone, 23 pages, no special handling — and on the phone it renders as a
+   searchable lazy list that filters in under a second (§6.4).
+6. **The gap between two tested things is where the worst one was.** Defect 30
+   was not about size, and no test in this repository could reach it: the seed
+   form lacked the types, the composable test built its own input, and the
+   registry said the type was fine. What found it was walking a form that
+   contained one. The lesson is not "write more tests" — it is that a corpus
+   with every type in it, walked on hardware, sees what a unit test above the
+   engine and a unit test below it both miss.
 
 ---
 
@@ -459,34 +522,25 @@ questionnaire it was shown. `docs/known-defects.md` 29.
 
 ---
 
-## 9. Owed: the form walked on a handset
+## 9. Owed
 
-One measurement from this run is outstanding and it is the only one that needs a
-person rather than a script.
+**One thing, and it is smaller than what §9 used to say.** The handset walk
+happened (§6.4) and answered every question it was written for. What is left is
+its consequence:
 
-**Walk the 2,128-question form on a real handset and record what ART costs.**
-§6.1 is Kotlin/JVM on a laptop and §4.3 is the same engine as Wasm in Chrome;
-neither is a phone. What is unmeasured:
+**Walk the rebuilt APK and watch screens 297 and 300 render.** Defect 30's fix
+is verified by `OneCollectableGateTest` and by a clean build; it has not been
+watched on hardware, and the defect it closes was one that every test in this
+repository passed through. A fix for a defect nothing could see deserves to be
+seen. Screens 297 and 300 of the same form, on the same device, is the check.
 
-- time from tapping the form to the first screen being drawn (the JVM says
-  ~390 ms for parse plus compile; ART's JIT and a 1.53 MB IR read out of
-  SQLCipher are both different problems);
-- the per-answer cost with 2,128 fields recalculating;
-- what `1 / 2101` does to paging — whether `next()` stays instant 1,800 screens
-  in;
-- **and the one with a real chance of being bad: a `select_one` backed by the
-  45,327-row school list.** The registry's own note says the screen picks a
-  searchable lazy list above a threshold, and `docs/known-defects.md` 10 already
-  records per-keystroke filtering degrading tenfold when a second dataset
-  version is held. That is the question this run was closest to answering and
-  did not.
+Two smaller things worth doing at the same time, neither of them blocking:
 
-Why it did not happen: the device's screen timed out during the dataset
-download and the handset has a secure lock. Everything up to that point is in
-§6.2 and worked. It is ten minutes with the phone unlocked, and the recipe is
-`docs/project-conventions.md`'s handset section plus `adb reverse tcp:8000
-tcp:8000` — which is how this run reached the server and is worth writing down,
-because the conventions only describe the emulator's `10.0.2.2`.
-
-Until it is done, no claim in this document is a claim about a phone rendering
-this form.
+- **`note` has never been rendered on a handset by anything.** It was in the
+  same missing list and no run has ever shown one. The scale form has exactly
+  one, and nobody has looked at it.
+- **The recipe for reaching a laptop server from a real phone is not written
+  down.** `docs/project-conventions.md` describes the emulator's `10.0.2.2`;
+  this run used `adb reverse tcp:8000 tcp:8000` with the app pointed at
+  `http://localhost:8000`, which is what makes a physical device work over
+  wireless adb without touching a firewall.
