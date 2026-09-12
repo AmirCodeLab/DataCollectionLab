@@ -760,6 +760,18 @@ for a container.
 | **Why not fixed** | The size is not in the manifest. `GET /sync/pull?limit=0&scope=forms` reports which versions are deployed and not held; it does not report how large their IR is, so the fix is a field on the manifest entry and a migration of the sync contract, not a string change. Worth doing with the next sync-contract change rather than on its own |
 | **Blocks** | Nothing refuses; an enumerator on a metered connection is told a wrong number and cannot find out the right one |
 
+## 31. A `note` marked `required` can never be answered, so the form can never be finalised
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/form_engine/runtime.py` and `shared/form-engine/.../Runtime.kt` evaluate `required` for any field; §2.1 says a `note` has no value. Neither the XLSForm importer nor `check_publishable` refuses the combination |
+| **Status** | Open — found 12 September 2026 on the Sindh-scale re-walk, `docs/scale-run-2026-09-12-sindh.md` §6.6 |
+| **What happens** | A note is display-only and can never acquire a value, so a `required` note is permanently blocking. Reproduced on the Python reference: `required=True, value=None, errors=[{'kind': 'required'}]`, `blocking_fields == ['n1']`, `can_finalize == False`. The enumerator gets a Finalize that refuses and, via `goToFirstBlocking`, a screen holding a sentence and nothing to do |
+| **How it got in** | The scale form marks 70% of its questions required and did not exempt the one type that stores no value. An author would make the same mistake. It imported with no diagnostic and published with no refusal, and reached a handset, where the note renders with a `*` |
+| **Not defect 15** | Same family — a blocking field nobody can answer — different shape. Defect 15 is a `calculate`, which has **no screen** at all, so there is nowhere to send anyone. This has a screen; there is simply nothing on it |
+| **Why not fixed** | Because the right fix is a §10 rule rather than a patch, and a §10 rule is a piece of spec work. Unlike collectability (defect 28) this **is** a property of the document — "a question that stores no value cannot be required" is true wherever the document is read — so it belongs in `check_publishable`, in `Reachability`'s neighbourhood, with a Kotlin twin and a conformance vector so the two engines cannot disagree about which forms publish. Patching one engine would create exactly the divergence `docs/project-conventions.md` warns about under "The refusals no vector format can express" |
+| **Blocks** | Any form carrying one. On the device the reference-data gate refused first, so the answer gate was never reached and this was **not** observed on hardware — only on the Python reference |
+
 ## Closed
 
 ### 30. Every `select_multiple` and every `note` rendered a blank screen

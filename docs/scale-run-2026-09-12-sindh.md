@@ -458,8 +458,62 @@ again, that removing the choice beats testing it. `OneCollectableGateTest` is
 the guard, and it is a lint, because what it asserts is that a piece of code
 does not exist. Defect 30, break 230.
 
-**The fix is verified by test and by build, not by a second walk.** The phone
-became unavailable before the rebuilt APK could be driven. See §9.
+### 6.5 The re-walk, on the rebuilt APK
+
+Because everything else about defect 30 was found by walking the phone, the fix
+was too. Same device, same draft, same answer, so the screen numbers are the
+ones §6.4 reported blank.
+
+| | |
+|---|---|
+| **Screen 297** — `s13q0314`, `select_multiple`, 2 options | **renders**: label, two checkboxes, hint |
+| Ticking both boxes | both hold — the control takes input, it does not merely draw |
+| **Screen 299** — `select_one`, the control | renders, as it did before |
+| **Screen 300** — `s13q0317`, `select_multiple`, 2 options | **renders** |
+| **Screen 1779** — `s79q1811`, the form's one `note` | **renders**: a label and nothing under it, which is what a note is (§2.1). **The first time this platform has shown a `note` on a handset** |
+| Paging 300 → 1500 | 1,200 taps advanced exactly 1,200 screens |
+| **Screen 2096 of 2096** | reached; `Next` becomes `Finalize` |
+
+The whole 2,096-screen form pages end to end and every screen in it draws.
+
+Tapping `Finalize` refused, by name and for the right reason:
+
+> Cannot finalise: health_facility v1 not downloaded — tap Reference data.
+
+That is item 4's pin-readiness gate, and it fires **before** the answer gate —
+which is why the run could not also observe §6.6 on the device.
+
+### 6.6 A `note` marked `required` can never be answered
+
+The note at screen 1779 renders with a `*`. It is marked required because the
+generator marks 70% of questions required and did not exempt the one type that
+stores no value — an author would make the same mistake, and nothing anywhere
+stopped it.
+
+Nothing stopped it at import (no diagnostic), nothing stopped it at publish
+(`check_publishable` passed), and on the Python reference the consequence is
+exact:
+
+```
+note state: required=True value=None errors=[{'kind': 'required'}]
+blocking:   ['n1']
+can_finalize: False
+```
+
+**A note has no value and can never acquire one, so the submission can never be
+finalised** and `goToFirstBlocking` sends the enumerator to a screen holding a
+sentence and nothing else. It is defect 15's family — a blocking field nobody
+can answer — but not defect 15: that one has *no screen*, this one has a screen
+with nothing on it.
+
+Filed as `docs/known-defects.md` 31 and deliberately not fixed here. Unlike
+defect 28, this **is** a property of the document: "a question that stores no
+value cannot be required" is true wherever the document is read, so it is §10
+shaped — which means it can have a Kotlin twin and a conformance vector, and
+should get both rather than a patch in one engine.
+
+Not observed on the device, and the run says so rather than inferring it: the
+reference-data gate refuses first, so the answer gate was never reached.
 
 ### 6.3 One thing the handset said that is wrong
 
@@ -524,21 +578,20 @@ questionnaire it was shown. `docs/known-defects.md` 29.
 
 ## 9. Owed
 
-**One thing, and it is smaller than what §9 used to say.** The handset walk
-happened (§6.4) and answered every question it was written for. What is left is
-its consequence:
+**Nothing from §6.4 is outstanding.** The re-walk happened (§6.5): screens 297,
+300 and 1779 all render on the rebuilt APK, the form pages end to end, and a
+`note` has now been shown on a handset for the first time.
 
-**Walk the rebuilt APK and watch screens 297 and 300 render.** Defect 30's fix
-is verified by `OneCollectableGateTest` and by a clean build; it has not been
-watched on hardware, and the defect it closes was one that every test in this
-repository passed through. A fix for a defect nothing could see deserves to be
-seen. Screens 297 and 300 of the same form, on the same device, is the check.
+What the run leaves behind, in the order it matters:
 
-Two smaller things worth doing at the same time, neither of them blocking:
-
-- **`note` has never been rendered on a handset by anything.** It was in the
-  same missing list and no run has ever shown one. The scale form has exactly
-  one, and nobody has looked at it.
+- **Defect 31** (§6.6) — a `required` note can never be answered and blocks
+  finalisation forever. Open, and wanting a §10 rule with a vector and a Kotlin
+  twin rather than a patch, because unlike collectability it is a property of
+  the document.
+- **Defect 29** — the Updates screen's "A form is tens of kilobytes" about a
+  1.53 MB IR. Needs an IR size on the sync manifest.
+- **The builder's windowing.** 1.5 s per click is the one number in this run
+  that says "not usable" rather than "slower than it should be".
 - **The recipe for reaching a laptop server from a real phone is not written
   down.** `docs/project-conventions.md` describes the emulator's `10.0.2.2`;
   this run used `adb reverse tcp:8000 tcp:8000` with the app pointed at
