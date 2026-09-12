@@ -95,7 +95,14 @@ _METADATA_TYPES = {
 #: Separated from unknown columns because "we ignored your appearance hint" and
 #: "we did not recognise this column at all" are different things to be told.
 _KNOWN_IGNORED_COLUMNS = {
-    "appearance": "the IR carries `appearance` but no client reads it yet",
+    # On a GROUP this is read — `field-list` becomes one screen (§11.1), and
+    # `_appearance` consumes the cell before this map is consulted. What is left
+    # here is appearance on a *question*, where the IR carries the string and no
+    # widget varies on it.
+    "appearance": (
+        "the IR carries it and no widget varies on it. On a *group* this column "
+        "is read: `field-list` puts that group's questions on one screen"
+    ),
     "choice_filter": (
         "a choice filter over an inline list needs the filter columns carried "
         "into the IR, which Form IR §3 defines only for dataset-backed lists"
@@ -555,6 +562,18 @@ class _Importer:
         # question inside them with it.
         self._expressions(row, node, name)
 
+        # `appearance` on a container, which is the one appearance value this
+        # platform reads (Form IR §2.2, §11.1): `field-list` puts the group's
+        # questions on ONE screen instead of one screen each.
+        #
+        # It was a known-ignored column for the life of the importer, and the
+        # Sindh-scale run is what made that indefensible: 2,128 questions
+        # imported to 2,101 screens, so an enumerator taps 2,101 times through a
+        # questionnaire whose paper original groups them. Both engines and
+        # `build_screen_plan` have implemented field-list since §11.1 existed;
+        # only the column was missing. docs/scale-run-2026-09-12-sindh.md §4.1.
+        self._appearance(row, node, name, kind)
+
         # `repeat_count` is `countExpr` (§2.3): with it the count is computed
         # and the enumerator cannot add or remove instances; without it they
         # can. That is a difference in what gets collected, so it is imported
@@ -586,9 +605,71 @@ class _Importer:
             node_id=name,
             handled={
                 "type", "name", "relevant", "constraint", "calculation", "repeat_count",
+                "appearance",
             },
         )
         return node
+
+    #: XLSForm appearance tokens that mean "one screen for this whole group".
+    #: `table-list` is ODK's field-list plus a tabular layout; the layout half
+    #: is a display hint the IR does not carry, and dropping the *grouping* as
+    #: well because of that would be the worse of the two answers.
+    _FIELD_LIST_TOKENS = {"field-list", "table-list"}
+
+    def _appearance(self, row: Row, node: dict[str, Any], name: str, kind: str) -> None:
+        """Carry `field-list` on a group; report anything else by name.
+
+        Real workbooks write `field-list minimal` and `table-list quick`, so the
+        cell is read as tokens rather than compared whole. A single unknown
+        token used to vanish into "the IR carries `appearance` but no client
+        reads it yet", which was true of the column and is no longer true of
+        this value.
+        """
+        cell = row.cells.get("appearance")
+        if cell is None:
+            return
+        tokens = [t for t in re.split(r"[\s,]+", cell.value.strip().lower()) if t]
+        grouping = [t for t in tokens if t in self._FIELD_LIST_TOKENS]
+        rest = [t for t in tokens if t not in self._FIELD_LIST_TOKENS]
+
+        if grouping and kind == "repeat":
+            # §11.3 already makes a repeat one screen you enter and leave, and
+            # §10.2 refuses a repeat *inside* a field-list. Honouring it here
+            # would be asserting the contradiction rather than reporting it.
+            self.log.warning(
+                "appearance_on_repeat",
+                f"`{name}` is a repeat with `{' '.join(grouping)}`, which was not "
+                "applied. A repeat is already one screen the enumerator enters "
+                "and leaves (Form IR §11.3), so there is nothing for it to mean "
+                "here.",
+                ref=cell.ref,
+                cell_value=cell.value,
+                node_id=name,
+            )
+        elif grouping:
+            node["appearance"] = "field-list"
+            if "table-list" in grouping:
+                self.log.info(
+                    "appearance_table_list",
+                    f"`{name}` asked for `table-list`. Its questions will share one "
+                    "screen, which is the half of that we implement; the table "
+                    "layout is a display hint the Form IR does not carry.",
+                    ref=cell.ref,
+                    cell_value=cell.value,
+                    node_id=name,
+                )
+
+        if rest:
+            self.log.info(
+                "appearance_not_read",
+                f"`{name}` asked for `{' '.join(rest)}`, which nothing reads. The "
+                "IR carries `appearance` and this platform acts on `field-list` "
+                "alone.",
+                ref=cell.ref,
+                cell_value=cell.value,
+                node_id=name,
+            )
+        self.ledger.consume(cell.ref)
 
     def _question(self, row: Row, type_cell: Cell, raw_type: str) -> dict[str, Any] | None:
         lowered = raw_type.lower()

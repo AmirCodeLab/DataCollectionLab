@@ -216,7 +216,7 @@ SURVEY_COLUMNS = [
     "type", "name",
     "label::English (en)", "label::Urdu (ur)", "label::Sindhi (sd)",
     "hint::English (en)", "required", "relevant", "constraint",
-    "constraint_message::English (en)", "default", "repeat_count",
+    "constraint_message::English (en)", "default", "repeat_count", "appearance",
 ]
 
 CHOICES_COLUMNS = [
@@ -439,6 +439,25 @@ class Builder:
 
         self.row(**cells)
 
+    def open_block(self, section: int, index: int) -> None:
+        """A `field-list` group — one screen for the questions inside it.
+
+        `docs/xlsform-template.md` §2 now tells RCons to emit this where the
+        paper original shows questions together, and the importer reads it as of
+        12 September 2026. It is a flag rather than the default because the
+        published shape of the real instrument says nothing about its grouping:
+        95 sections and 2,128 questions is all `docs/rcons-current-system.md`
+        records, so any block size here is ours and not theirs.
+        """
+        english, urdu, sindhi = self.labels(f"Block {index + 1}")
+        self.row(
+            **{
+                "type": "begin group", "name": f"sec{section + 1:02d}blk{index + 1:02d}",
+                "label::English (en)": english, "label::Urdu (ur)": urdu,
+                "label::Sindhi (sd)": sindhi, "appearance": "field-list",
+            }
+        )
+
     def open_roster(self, section: int, local_numerics: list[str]) -> None:
         """`begin repeat`, counted from an earlier answer or driven by the enumerator.
 
@@ -486,7 +505,7 @@ class Builder:
         return f"${{{gate}}} = '{self.selects[gate]}' and ${{{other}}} != '{self.selects[other]}'"
 
 
-def build(rng: Rng) -> Builder:
+def build(rng: Rng, block: int = 0) -> Builder:
     builder = Builder(rng)
     pool = type_pool(rng)
 
@@ -540,6 +559,9 @@ def build(rng: Rng) -> Builder:
         local_numerics: list[str] = []
         local_texts: list[str] = []
         gate: str | None = None
+        open_block = False
+        in_block = 0
+        blocks_made = 0
 
         roster_at = -1
         roster_size = 0
@@ -549,6 +571,14 @@ def build(rng: Rng) -> Builder:
 
         for position, kind in enumerate(types):
             if position == roster_at and roster_size > 0:
+                # A repeat inside a `field-list` group is a §10.2 contradiction
+                # and the importer refuses it — which it did, the first time
+                # this flag was run, because the block was still open. Closing
+                # it here is the fixture obeying the rule rather than the rule
+                # being relaxed for the fixture.
+                if open_block:
+                    builder.row(type="end group")
+                    open_block = False
                 builder.open_roster(section, local_numerics)
                 for inner in types[position : position + roster_size]:
                     builder.question(
@@ -560,10 +590,25 @@ def build(rng: Rng) -> Builder:
                 builder.row(**{"type": "end repeat"})
             if roster_at <= position < roster_at + roster_size and roster_size > 0:
                 continue
+            # The section's gate keeps a screen of its own: a filter question
+            # answered before the block it filters is what the paper form does,
+            # and it keeps the relevance in `local_selects` readable.
+            if block and position > 0 and not open_block:
+                builder.open_block(section, blocks_made)
+                blocks_made += 1
+                open_block = True
+                in_block = 0
             builder.question(kind, section, gate, local_selects, local_numerics, local_texts)
             if gate is None and local_selects:
                 gate = local_selects[0]
+            if open_block:
+                in_block += 1
+                if in_block >= block:
+                    builder.row(**{"type": "end group"})
+                    open_block = False
 
+        if open_block:
+            builder.row(**{"type": "end group"})
         builder.row(**{"type": "end group"})
 
     return builder
@@ -625,12 +670,21 @@ def main() -> int:
         help="directory to write the workbook and its two CSVs into",
     )
     parser.add_argument("--seed", type=int, default=20260912, help="PRNG seed")
+    parser.add_argument(
+        "--field-list",
+        type=int,
+        default=0,
+        metavar="N",
+        help="wrap each section's questions in `field-list` groups of N, so they "
+        "share a screen (0, the default, is one question per screen)",
+    )
     arguments = parser.parse_args()
     arguments.out.mkdir(parents=True, exist_ok=True)
 
-    builder = build(Rng(arguments.seed))
+    builder = build(Rng(arguments.seed), block=arguments.field_list)
 
-    workbook_path = arguments.out / "sindh-listing-scale.xlsx"
+    suffix = f"-fieldlist{arguments.field_list}" if arguments.field_list else ""
+    workbook_path = arguments.out / f"sindh-listing-scale{suffix}.xlsx"
     write_workbook(builder, workbook_path)
     write_dataset(arguments.out / "school.csv", SCHOOL_ROWS, "sch", Rng(arguments.seed + 1))
     write_dataset(

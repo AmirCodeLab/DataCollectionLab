@@ -199,13 +199,40 @@ conformance vector stay green — which is exactly the signature the row claims.
 inside instance plans and contribute one screen each. §11.3 holds: a repeat is
 one screen whatever it contains.
 
-**There is no field-list group anywhere in it**, and that is not a choice the
-generator made — `appearance` is a known-ignored column in the importer ("the IR
-carries `appearance` but no client reads it yet"). So an imported XLSForm is one
-question per screen, always. For a 95-section listing survey that means an
-enumerator reads **`1 of 2101`** and taps 2,101 times. Whether that is
-acceptable is a question for RCons and not for us; what is certain is that no
-workbook they send can currently ask for anything else.
+**There was no field-list group anywhere in it, and there could not have been.**
+`appearance` was a known-ignored column in the importer — "the IR carries
+`appearance` but no client reads it yet", a reason that was true of the column
+and not of the value. Both engines and `build_screen_plan` have implemented
+§11.1's field-list screen since the partition existed; only the column was
+missing, so **no workbook could ever ask for one** and every imported form was
+one question per screen. For a 95-section listing survey that means an
+enumerator reads `1 of 2101` and taps 2,101 times.
+
+**Fixed the same day, and here is what it is worth.** The importer now reads
+`field-list` and `table-list` on a group (break 229). Re-importing the same
+2,128 questions with them grouped in blocks of six:
+
+| | one question per screen | blocks of six |
+|---|---|---|
+| Screens | **2,101** | **469** |
+| — question screens | 2,099 | 467 |
+| — repeat screens | 2 | 2 |
+| Askable questions | 2,128 | 2,128 |
+| Import | 980 ms | 937 ms |
+| Errors | 3 | 3 |
+
+Nothing else moves: every question is still asked, both rosters are intact, the
+same three refusals and no others. 2,101 against 469 is the difference between a
+form an enumerator can work through and one they cannot — and **where the
+groupings belong is RCons's to say**, because they are on the paper original and
+in nothing they have sent us. `docs/xlsform-template.md` §2.1 now asks for them,
+which it could not honestly do while the column was discarded.
+
+The first run of the flag is worth keeping: it put a `begin repeat` inside an
+open block, and the importer refused it — a repeat inside a field-list group is
+§10.2's contradiction, and until the column was read no workbook could produce
+one. Four errors, 29 roster questions unaskable, and the refusal is what said
+so. The fixture was fixed, not the rule.
 
 ### 4.2 The builder
 
@@ -304,10 +331,23 @@ The importer refuses the three. `check_publishable` does not — and the form wa
 handset would have stopped a `time` question reaching an enumerator who cannot
 answer it.
 
-That is defect 7's shape one layer up: the collectable registry is consulted by
+That is defect 7's shape one layer up: the collectable registry was consulted by
 the importer and by nothing else, so any path that is not an import — the
-builder's Publish button included — bypasses it. Filed as
-`docs/known-defects.md` 28.
+builder's Publish button included — bypassed it.
+
+**Fixed the same day.** `check_collectability` joins §10's checks in
+`check_publishable`, the importer now says the sentence that module owns rather
+than its own copy, and the refusal names the registry version it refused
+against. It is deliberately not a §10 rule and has no Kotlin twin: §10 is a
+statement about a document and collectability is a statement about an app
+version, so there is nothing for two engines to agree about. `docs/known-defects.md`
+28, break 228, `backend/tests/test_collectability_gate.py`.
+
+One case it does not close, stated rather than assumed: a self-hosted install
+running an older APK than its server. The form publishes here and still arrives
+unanswerable there, and closing it needs a device to report its build's registry
+version at registration — sync §4, which the registry file's own comment already
+names as the shape left open.
 
 ---
 
@@ -355,7 +395,8 @@ over a loopback tunnel, so it is a measurement of the device's write path and
 not of a village connection; `docs/known-defects.md` 9 (56 s to apply a delta on
 a Pixel) is a different operation and is not contradicted by this.
 
-**What did not happen: the form was never opened on the device.** The screen
+**What did not happen: the form was never opened on the device. This is owed,
+not dropped — see §9.** The screen
 timed out during the dataset download and the handset has a secure lock, which
 is not something to work around. So §6.1's numbers are the JVM's and §4.3's are
 Wasm-in-Chrome; **ART on a real handset, walking a 2,101-screen form, is the one
@@ -388,10 +429,10 @@ questionnaire it was shown. `docs/known-defects.md` 29.
    can work in. The tree, the editor and the screen plan all need windowing
    before a 95-section questionnaire is edited in the console rather than
    imported into it.
-3. **One question per screen is a product decision nobody has made.** 2,101 taps
-   is what an imported XLSForm currently produces, because `appearance` is not
-   read. Field-list groups are implemented in both engines and in the screen
-   planner; only the importer's column is missing.
+3. **One question per screen was a product decision nobody had made.** 2,101
+   taps was what an imported XLSForm produced, because `appearance` was not
+   read. Now it is, and the same questions in blocks of six are 469 screens.
+   What remains is not ours: RCons has to say where the groupings go.
 4. **The type gap is three questions.** The `Custom` prefixes are 96 more, and
    they are unanswerable from here — §10.2 of the RCons analysis needs an answer
    from RCons before any number in §5 is trustworthy.
@@ -415,3 +456,37 @@ questionnaire it was shown. `docs/known-defects.md` 29.
 - **The fixture is synthetic** (§0), and its two structural assumptions —
   per-question choice lists and invented relevance at 55% density — are the two
   places a real workbook would move a number.
+
+---
+
+## 9. Owed: the form walked on a handset
+
+One measurement from this run is outstanding and it is the only one that needs a
+person rather than a script.
+
+**Walk the 2,128-question form on a real handset and record what ART costs.**
+§6.1 is Kotlin/JVM on a laptop and §4.3 is the same engine as Wasm in Chrome;
+neither is a phone. What is unmeasured:
+
+- time from tapping the form to the first screen being drawn (the JVM says
+  ~390 ms for parse plus compile; ART's JIT and a 1.53 MB IR read out of
+  SQLCipher are both different problems);
+- the per-answer cost with 2,128 fields recalculating;
+- what `1 / 2101` does to paging — whether `next()` stays instant 1,800 screens
+  in;
+- **and the one with a real chance of being bad: a `select_one` backed by the
+  45,327-row school list.** The registry's own note says the screen picks a
+  searchable lazy list above a threshold, and `docs/known-defects.md` 10 already
+  records per-keystroke filtering degrading tenfold when a second dataset
+  version is held. That is the question this run was closest to answering and
+  did not.
+
+Why it did not happen: the device's screen timed out during the dataset
+download and the handset has a secure lock. Everything up to that point is in
+§6.2 and worked. It is ten minutes with the phone unlocked, and the recipe is
+`docs/project-conventions.md`'s handset section plus `adb reverse tcp:8000
+tcp:8000` — which is how this run reached the server and is worth writing down,
+because the conventions only describe the emulator's `10.0.2.2`.
+
+Until it is done, no claim in this document is a claim about a phone rendering
+this form.

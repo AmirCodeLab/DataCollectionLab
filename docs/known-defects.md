@@ -749,17 +749,6 @@ for a container.
 | **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
 | **Blocks** | Nothing; an author may read a fresh screen as already failing |
 
-## 28. The publish gate never asks whether a question can be collected
-
-| | |
-|---|---|
-| **Where** | `backend/app/modules/forms/service.py` `check_publishable` — it runs every Form IR §10 check and never consults `app/modules/forms/xlsform/datatypes.py::collectable_types`. That registry is read by the XLSForm importer and by nothing else |
-| **Status** | Open — found 12 September 2026, `docs/scale-run-2026-09-12-sindh.md` §5.1 |
-| **What happens** | The importer **refuses** a `time` or `geoshape` question by name: "That is a valid Form IR type, but no client can present it yet, so an enumerator would see a question they cannot answer." The same document, handed to `POST /forms/versions`, publishes — 201, deployed to two environments, no warning. Watched on the Sindh-scale form: three such questions, refused at import, published and deployed anyway |
-| **Why it matters** | This is defect 7 one layer out. Defect 7 was a type that was in the spec, carried a vector, was agreed by both engines and arrived on a phone as a label with empty space under it; the registry exists so an author is told. Reading it in the importer only means the guarantee holds for exactly one route in. The builder's Publish button is not that route, and neither is the API |
-| **Why not fixed** | Not yet decided **where** it belongs, and the choice is real. `check_publishable` is Form IR §10, which is a statement about the document; collectability is a statement about an app version, and the registry is versioned for that reason (`collectable-types-v0.1.json`). Putting an app-version fact inside a spec-version gate makes a form that publishes today refuse to publish against an older client build. The likelier shape is a separate gate at publish that reports the version it checked against — which is a decision, not a patch |
-| **Blocks** | A form authored in the console can carry a question no enumerator can answer, with nothing between the builder and the handset to say so. The importer's refusal reads as platform-wide and is route-wide |
-
 ## 29. The Updates screen tells a handset a form is "tens of kilobytes"
 
 | | |
@@ -772,6 +761,17 @@ for a container.
 | **Blocks** | Nothing refuses; an enumerator on a metered connection is told a wrong number and cannot find out the right one |
 
 ## Closed
+
+### 28. The publish gate never asked whether a question can be collected
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/forms/service.py` `check_publishable` ran every Form IR §10 check and never consulted the collectable registry. That registry was read by the XLSForm importer and by nothing else |
+| **Status** | **Closed 12 September 2026**, the same day it was found — `docs/scale-run-2026-09-12-sindh.md` §5.1 |
+| **What happened** | The importer **refused** a `time` or `geoshape` question by name: "That is a valid Form IR type, but no client can present it yet, so an enumerator would see a question they cannot answer." The same document, handed to `POST /forms/versions`, published — 201, deployed to two environments, no warning. Watched on the Sindh-scale form: three such questions, refused at import, published and deployed anyway. Defect 7 one layer out — the guarantee held for exactly one route in |
+| **What fixed it** | `app/modules/forms/collectability.py`: `check_collectability` joins §10's checks in `check_publishable`, and the importer now says the sentence that module owns rather than its own copy — two texts is how the two gates came to decide differently. `test_collectability_gate.py` is the guard and break 228 is this defect restored, watched to fail |
+| **The decision inside it** | It is deliberately **not** in `form_engine` and **not** a §10 rule. §10 is a statement about a document, true wherever it is read, which is why both engines implement it and why `conformance/reachability` can compare them. Collectability is a statement about an **app version**, which is why the registry is versioned — putting it in the engine would make one implementation's build date part of the spec. So it has no Kotlin twin, no vector can express it, and the refusal names the registry version it refused against |
+| **What it does not close** | A self-hosted install running an older APK than its server: the form publishes here and still arrives unanswerable there. Nothing can close that from this side — a device would have to report its build's registry version at registration (sync §4, and the registry file's own comment already names that as the shape left open) |
 
 ### 27. A submission that reaches a review state can never leave it
 
