@@ -27,6 +27,7 @@ from app.modules.entities.models import Dataset, DatasetVersion, FormVersionData
 from app.modules.form_engine.expression import forbidden_regex_feature
 from app.modules.form_engine.reachability import check_reachability
 from app.modules.form_engine.runtime import CompiledForm
+from app.modules.forms.collectability import check_collectability
 from app.modules.forms.models import Form, FormDeployment, FormDraft, FormVersion
 from app.modules.forms.schemas import (
     DatasetPin,
@@ -139,6 +140,14 @@ def check_publishable(ir: dict[str, Any]) -> CompiledForm:
     # import record, which a builder structurally cannot supply; here every
     # caller gets both (docs/phase3-item0-builder-scope.md §0).
     violations += check_reachability(ir)
+    # Whether every question can actually be presented — the registry in
+    # `specs/collectable-types-v0.1.json`, which until 12 September 2026 was
+    # consulted by the XLSForm importer and by nothing else. A form built in the
+    # console never runs the importer, and neither does `POST /forms/versions`,
+    # so the identical document that the importer refused by name published and
+    # deployed. `docs/known-defects.md` 28, and see the module docstring for why
+    # it is not a §10 rule and has no Kotlin twin.
+    violations += check_collectability(ir)
     if violations:
         raise PublishRefused(violations)
     return compiled

@@ -25,6 +25,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.modules.entities.rows import check_keys, content_address
+from app.modules.forms.collectability import (
+    uncollectable_type_message as collectability_message,
+)
 
 from . import datatypes
 from .datasets import (
@@ -711,11 +714,17 @@ class _Importer:
         collectability = datatypes.classify(data_type)
         if collectability == "in_spec_only":
             self.instrumentation.note_uncollectable(data_type)
+            # The sentence comes from `forms.collectability`, which is also what
+            # the publish gate says, because the two saying different things is
+            # how they came to *decide* different things: this refusal was the
+            # importer's alone until 12 September 2026 and the same document
+            # published (docs/known-defects.md 28). What is still this file's
+            # own is the cell reference and the remedy — a builder has no cell.
             self.log.error(
                 "type_not_collectable",
-                f"`{name}` is a `{data_type}` question. That is a valid Form IR type, "
-                "but no client can present it yet, so an enumerator would see a "
-                "question they cannot answer.",
+                collectability_message(
+                    name, data_type, datatypes.collectable_types_version()
+                ),
                 ref=type_cell.ref,
                 cell_value=raw_type,
                 node_id=name,
