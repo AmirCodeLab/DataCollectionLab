@@ -512,7 +512,73 @@ Three things follow, and only the third is about performance:
   go red on a slow CI morning and it stops being read, which is the failure mode
   this whole file is written against.
 
-Break 226, and `docs/scale-run-2026-09-12-sindh.md` for the run.
+Break 226, and `docs/scale-run-2026-09-12-sindh.md` for the run. The section
+below is the third kind, and it is where the three are read together.
+
+### A statement about an app version is not a statement a vector can hold
+
+The third kind, and the one that finally makes the shape of the other two
+obvious.
+
+> **A vector fixes a document and compares two engines' answers to it. So it
+> can only ever hold claims that are *properties of the document*. A claim
+> about anything surrounding the document — which artifact was chosen, what
+> producing the answer cost, or what the app of the day can put on a screen —
+> is outside the format by construction, not by omission.**
+
+Read the three together:
+
+| Kind | The claim | Why no vector holds it | Instance |
+|---|---|---|---|
+| **Choice** | *which* document, version or list the evaluation ran against | a vector hands the engine one compiled artifact; it never chooses | breaks 30, 40, 42, 57, 61 |
+| **Cost** | what the engine *spent* producing an answer that was right | a vector compares outputs; two engines agree and differ 1,600× | break 226 |
+| **Capability** | whether a client can *present* the question at all | there is nothing for two engines to disagree about — it is not about the engines | defect 28, break 228 |
+
+Capability is the newest and it arrived through `specs/collectable-types-v0.1.json`.
+A `time` question is valid Form IR, both engines evaluate it identically, every
+vector passes, and no phone has a widget for it. The registry existed for
+exactly that and was read by the XLSForm importer and by nothing else, so
+`POST /forms/versions` published three unpresentable questions into two
+environments while the importer had refused the identical document by name.
+That is defect 7's shape one layer out, and it is the same failure as the
+reachability gap item 0 step 2 closed: **a guard that only one route in
+consults is not a guard on the platform.**
+
+**What that means for where such a check lives, and it is a real decision
+rather than a placement detail.** Form IR §10 is a statement about a document:
+true wherever it is read, which is why both engines implement it and why
+`conformance/reachability` can compare them. Collectability is a statement
+about an **app version** — `barcode` is refused today and will not be in v0.2,
+and the registry is versioned for precisely that reason. Putting it inside the
+engine would make one implementation's build date part of the specification. So
+`app/modules/forms/collectability.py` sits beside the publish gate, not in
+`form_engine`; it has no Kotlin twin and needs none; and no vector should be
+written for it.
+
+Two habits follow, and the second is the one that is easy to skip:
+
+- **A capability refusal names the version it refused against.** "no client can
+  present it yet (collectable types v0.1)" is answerable on a self-hosted
+  install; the same sentence without the version is not.
+- **Say what the check does not cover, at the check.** This one is correct for
+  a deployment whose server and clients ship together, which is every
+  deployment today. It is wrong for a self-hosted install running an older APK
+  than its server: the form publishes here and still arrives unanswerable
+  there. Nothing can close that from the server's side — a device would have to
+  report its build's registry version at registration — so the module docstring
+  says so and names sync §4 as the place. An open case written down at the code
+  is a decision; the same case left to be noticed is a defect waiting.
+
+And the capability kind has a second face, further out, which is defect 30: the
+registry can be right, the engine can be right, the publish gate can be right,
+and a **second copy** of the capability list somewhere in a client can still
+drop the question before a widget is chosen. `select_multiple` was listed,
+evaluated, published and delivered, and `CollectionViewModel.SUPPORTED_TYPES`
+had not heard of it — 154 of 2,128 questions rendering as an empty page. The
+fix was to delete the list rather than synchronise it, which is break 57's
+lesson arriving in the same week as its sibling: **remove the choice rather
+than test it.** `OneCollectableGateTest` is a lint, because what it asserts is
+that a piece of code does not exist.
 
 ### A guard that enumerates what exists cannot see what stopped existing
 
