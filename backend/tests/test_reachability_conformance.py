@@ -56,8 +56,22 @@ def test_the_publish_gate_agrees_with_the_vector(path: pathlib.Path) -> None:
 
 
 def test_the_six_shapes_are_the_probe_s_own() -> None:
-    """The vectors are the scope doc's six shapes, not cases written for the
-    occasion — lifted from the probe script, in its order."""
+    """`reachability-001`…`-006` are the scope doc's six shapes, not cases
+    written for the occasion — lifted from the probe script, in its order.
+
+    **The first six, not all of them.** This asserted equality with the whole
+    directory until 13 September 2026, which pinned the provenance and pinned
+    the set's size to it at the same time. Those are two different claims: the
+    six came from the probe and must not drift from it, and the set is the
+    right home for any §10.2/§10.3 case that needs `expectedWarnings` — which
+    is what it was built for (defect 17, a specified warning neither engine
+    emitted being indistinguishable from a clean form).
+
+    So the six are still compared element for element, in order, against the
+    script; anything after them is a later case and says so by not being in the
+    script. A seventh vector claiming to be a probe shape still fails here,
+    because the zip is over the probe's list and the `shape` field must match.
+    """
     import importlib.util
 
     script = VECTOR_DIR.parents[1] / "scripts" / "probe_publishable_empty_containers.py"
@@ -67,8 +81,15 @@ def test_the_six_shapes_are_the_probe_s_own() -> None:
     spec.loader.exec_module(probe)
 
     shapes = [(name, ir) for name, ir in probe.SHAPES]
-    assert len(shapes) == len(VECTORS) == 6
-    for path, (name, ir) in zip(VECTORS, shapes, strict=True):
+    assert len(shapes) == 6
+    assert len(VECTORS) >= 6, "the probe's six must all still be on disk"
+    for path, (name, ir) in zip(VECTORS[:6], shapes, strict=True):
         vector = json.loads(path.read_text())
         assert vector["shape"] == name
         assert vector["form"] == ir
+    # A later vector must not claim to be one of the probe's.
+    for path in VECTORS[6:]:
+        vector = json.loads(path.read_text())
+        assert vector["shape"] not in {name for name, _ in shapes}, (
+            f"{path.name} reuses a probe shape name; the six are 001-006"
+        )

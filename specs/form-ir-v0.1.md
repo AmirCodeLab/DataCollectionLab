@@ -1369,6 +1369,20 @@ it blocks publish in every security mode.
 
 ### 10.3 Warnings
 
+**A template slot with no argument behind it.** `{0}` in a `label`,
+`constraintMessage` or `summaryLabel` with no corresponding entry in the
+matching `…Args` is legal — §7.1 says a document with no arguments is
+substituted not at all — and it reaches a respondent as the three characters
+`{0}`. §7.1 argues that visible brace is a feature, and it is: of a *renderer*
+that ignores the arguments. It is not a feature of an author who forgot them,
+and nothing told them apart. So it is a warning rather than an error, because
+the spec permits the document.
+
+Reported once per node rather than once per language: an author writes the slot
+once and translates around it, so three languages naming the same missing
+argument is three copies of one problem. `conformance/reachability-007` pins it
+on both engines.
+
 Allow publish: missing translation, decimal equality comparison, unreachable
 relevance (statically false), repeat with no bound, unused calculate.
 

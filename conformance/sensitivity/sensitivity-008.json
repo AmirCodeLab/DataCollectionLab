@@ -1,0 +1,103 @@
+{
+  "id": "sensitivity-008",
+  "type": "sensitivity",
+  "description": "A label or a constraint message that interpolates a sensitive field is a leak. The text is shown to whoever holds the phone and travels in the export's column headers; §7.1 makes the argument a dependency, so the check has always seen it — no vector pinned the two engines to agreeing about it until an editor made it one click to build (docs/builder-audit-2026-09-13.md)",
+  "spec": "form-ir 10.2, 7.1, encryption-envelope 5.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "leak_label",
+    "version": 1,
+    "title": {
+      "en": "leak_label"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "hiv_status",
+        "dataType": "select_one",
+        "label": {
+          "en": "HIV status"
+        },
+        "sensitive": true,
+        "choices": {
+          "kind": "inline",
+          "items": [
+            {
+              "value": "positive"
+            },
+            {
+              "value": "negative"
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "counselling",
+        "dataType": "text",
+        "label": {
+          "en": "Counselling notes for a client who is {0}"
+        },
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "hiv_status"
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "visits",
+        "dataType": "integer",
+        "label": {
+          "en": "Visits"
+        },
+        "constraint": {
+          "op": "lte",
+          "args": [
+            {
+              "op": "ref",
+              "path": "visits"
+            },
+            {
+              "op": "lit",
+              "value": 12
+            }
+          ]
+        },
+        "constraintMessage": {
+          "en": "At most 12 visits for status {0}"
+        },
+        "constraintMessageArgs": [
+          {
+            "op": "ref",
+            "path": "hiv_status"
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "safe",
+        "dataType": "text",
+        "label": {
+          "en": "Notes"
+        },
+        "sensitive": true,
+        "labelArgs": [
+          {
+            "op": "ref",
+            "path": "hiv_status"
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'counselling' is not sensitive but depends on sensitive field 'hiv_status'",
+    "'visits' is not sensitive but depends on sensitive field 'hiv_status'"
+  ]
+}

@@ -311,6 +311,38 @@ class CompiledForm(val ir: FormIr) {
      * rather than something a renderer discovers. `{5}` with three arguments
      * would otherwise be an empty gap in a sentence nobody could explain.
      */
+    /**
+     * A template slot with no argument behind it (§7.1, §10.3).
+     *
+     * One sentence per node rather than one per language: an author writes the
+     * slot once and translates around it, so three languages naming the same
+     * missing argument is three copies of one problem.
+     */
+    private fun warnUnfilledSlots(
+        nodeId: String,
+        key: String,
+        argsKey: String,
+        strings: Map<String, String>?,
+        argCount: Int,
+    ) {
+        // A plain set sorted at the end, not `sortedSetOf`: this is commonMain
+        // and compiles to Wasm and Android as well as the JVM, where
+        // `sortedSetOf` does not exist. CI caught it; `:shared:form-engine:jvmTest`
+        // alone cannot.
+        val missing = mutableSetOf<Int>()
+        strings?.values?.forEach { template ->
+            missing += Interpolation.slotIndices(template).filter { it >= argCount }
+        }
+        if (missing.isNotEmpty()) {
+            warnings.add(
+                "$nodeId: $key uses slot " +
+                    missing.sorted().joinToString(", ") { "{$it}" } +
+                    " and $argsKey has $argCount argument(s), so the slot is " +
+                    "shown to a respondent as written"
+            )
+        }
+    }
+
     private fun checkInterpolation() {
         for ((fieldId, compiled) in fields) {
             val pairs = listOf(
@@ -322,7 +354,14 @@ class CompiledForm(val ir: FormIr) {
                 ),
             )
             for ((key, strings, args) in pairs) {
-                if (args.isNullOrEmpty()) continue
+                if (args.isNullOrEmpty()) {
+                    // §7.1: a document with no `…Args` is substituted not at
+                    // all, so this is legal and the label reads `{0}` to a
+                    // respondent. Almost always a mistake, and nothing said so.
+                    // A warning, not an error, because the spec allows it.
+                    warnUnfilledSlots(fieldId, key, "${key}Args", strings, 0)
+                    continue
+                }
                 strings?.forEach { (language, template) ->
                     val missing = Interpolation.slotIndices(template)
                         .filter { it >= args.size }
@@ -353,7 +392,12 @@ class CompiledForm(val ir: FormIr) {
         // that are compile errors, so they belong here and not in the renderer.
         for ((repeatId, node) in repeats) {
             val args = node.summaryLabelArgs
-            if (args.isNullOrEmpty()) continue
+            if (args.isNullOrEmpty()) {
+                warnUnfilledSlots(
+                    repeatId, "summaryLabel", "summaryLabelArgs", node.summaryLabel, 0
+                )
+                continue
+            }
             node.summaryLabel?.forEach { (language, template) ->
                 val missing = Interpolation.slotIndices(template)
                     .filter { it >= args.size }
