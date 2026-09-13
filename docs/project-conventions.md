@@ -1114,6 +1114,17 @@ notice. `./scripts/status.sh` section 5 asks locally.
   written here because it has already cost an afternoon's engine work, on
   2026-09-06, in the middle of proving the very breaks that work was for. The
   order is: implement, run the suites, **commit**, then break, watch, revert.
+  **It happened again on 2026-09-13**, while proving breaks 233–236, and the
+  second time is worth recording for what caught it. The §7.1 warning spans
+  both engines; `git checkout --` on the Python file took the uncommitted
+  implementation with the break, and the Kotlin half survived because no
+  checkout touched it. So the two engines disagreed, and
+  `conformance/reachability-007` failed on one side — which is how a wiped
+  implementation announced itself at all. A single-engine change would have
+  reverted silently and the suite would have gone green over nothing. Two
+  lessons, not one: commit first, and a cross-engine change is the only kind
+  whose accidental removal is self-reporting.
+
   Committing first also makes the break's evidence exact, because `git diff`
   after the revert is empty or the revert did not finish
 - A defect left unfixed on purpose goes in `docs/known-defects.md` with the
