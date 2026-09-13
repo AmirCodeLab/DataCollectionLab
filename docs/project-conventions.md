@@ -670,14 +670,22 @@ assumes a form that compiled**. There is no way to write "this document must be
 refused" in it. Two sets were built to cover that: `malformed` for §10.1, and
 `sensitivity` for exactly one §10.2 rule.
 
-**The rest of §10.2 is held by a test in each engine and nothing else** — the
-nested-repeat refusal, and now the repeat-inside-a-field-list refusal. That is a
-real exposure rather than a tidy division of labour: two engines that disagree
-about which forms compile is a form author meeting a refusal their builder told
-them was not there, which is the same failure the sensitivity set was built to
-prevent and is prevented here only by whoever edits one file remembering the
-other. The pairs are named in the table above so the second file is findable
-from the first.
+`reachability` was the third set, and `answerability` is the fourth: one §10.2
+rule each, both about a question that a form ships and nobody can answer —
+reachability if it reaches no screen, answerability if it reaches one and cannot
+be answered on it (a `note` carrying `required`, defect 31). A form can pass the
+first and fail the second, which is how that defect got to a handset.
+
+**The rest of §10.2 is still held by a test in each engine and nothing else** —
+the nested-repeat refusal, the repeat-inside-a-field-list refusal, and the four
+`rowSource` refusals. That is a real exposure rather than a tidy division of
+labour: two engines that disagree about which forms compile is a form author
+meeting a refusal their builder told them was not there, which is the same
+failure the sensitivity set was built to prevent and is prevented here only by
+whoever edits one file remembering the other. The pairs are named in the table
+above so the second file is findable from the first, and
+`conformance/answerability` is the shape those refusals should move into when
+somebody moves them.
 
 ### A spec sentence that names two operations needs two vectors
 

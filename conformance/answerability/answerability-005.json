@@ -1,0 +1,51 @@
+{
+  "id": "answerability-005",
+  "type": "answerability",
+  "description": "A constraint and a readOnly on a note are inert, not refused: only `required` changes what the form does",
+  "spec": "form-ir 10.2, 2.1, 6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "a5",
+    "version": 1,
+    "title": {
+      "en": "a5"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "intro",
+        "dataType": "note",
+        "label": {
+          "en": "intro"
+        },
+        "readOnly": true,
+        "constraint": {
+          "op": "eq",
+          "args": [
+            {
+              "op": "lit",
+              "value": 1
+            },
+            {
+              "op": "lit",
+              "value": 1
+            }
+          ]
+        }
+      },
+      {
+        "type": "question",
+        "id": "name",
+        "dataType": "text",
+        "label": {
+          "en": "name"
+        }
+      }
+    ]
+  },
+  "expectedViolations": []
+}

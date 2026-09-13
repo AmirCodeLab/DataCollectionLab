@@ -1,0 +1,40 @@
+{
+  "id": "answerability-001",
+  "type": "answerability",
+  "description": "A note marked required can never be answered, so the form could never be finalised",
+  "spec": "form-ir 10.2, 2.1, 6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "a1",
+    "version": 1,
+    "title": {
+      "en": "a1"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "intro",
+        "dataType": "note",
+        "label": {
+          "en": "intro"
+        },
+        "required": true
+      },
+      {
+        "type": "question",
+        "id": "name",
+        "dataType": "text",
+        "label": {
+          "en": "name"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'intro' is a `note`, which holds no value (Form IR §2.1), and it is marked `required`. Nothing can ever answer it, so this submission could never be finalised and the enumerator would be sent to a screen with nothing on it (Form IR §10.2, §6.2)."
+  ]
+}
