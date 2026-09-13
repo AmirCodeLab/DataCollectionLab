@@ -95,17 +95,29 @@ builder, no amount of usability polish matters and the user test is wasted.
 Two halves, in order. Roughly a day each, plus 45 minutes of somebody else's
 time. And one thing before either.
 
-### 3.0 First, fix the five console defects we already know about
+### 3.0 ~~First, fix the five console defects we already know about~~ — already done
 
-`docs/e2e-run-2026-09-07.md` records five, all of them in the authoring path:
-popovers that do not dismiss on Escape, an Add menu clipped mid-word, badges
-sitting over tree labels, a publish panel that keeps a stale refusal, and no
-accessible names on the palette or the tree.
+**This step was wrong when it was written, and it is left visible rather than
+deleted.** `docs/e2e-run-2026-09-07.md` records five console defects — popovers
+that do not dismiss, an Add menu clipped mid-word, badges over tree labels, a
+publish panel that keeps a stale refusal, no accessible names — and this section
+planned a day to fix them.
 
-They were found by the author, who worked around them without noticing. **A
-stranger will not work around them**; they will spend the session on them, and
-the session will measure our unfixed backlog instead of our design. About a day,
-and it removes the noise.
+They were fixed the same day they were found, in `21c0467`, six days before this
+was written. Verified in the source on 13 September: `useDismiss` on all three
+popovers, the palette menu positioned against the viewport, a badge on a line of
+its own, a refusal carrying the document it was for and hidden once that
+document changes, and `aria-label` on the palette items and the tree's select
+buttons.
+
+The mistake is worth keeping because of where it came from. **A run record's
+"what was seen" list was read as a list of what is still open.** A run record is
+evidence of what happened at a moment; six days later it is not a status board,
+and nothing in it said so. The run doc now carries a note pointing at the fix,
+which is the cheap half of the lesson. The expensive half is that this plan
+asserted a day of work without running `git log` over the files it named.
+
+Half one starts directly.
 
 ### 3.1 Half one — the capability audit. No user. Done by us.
 
@@ -219,11 +231,12 @@ stranger turn a page of questions into a working form, without us in the room.**
 
 | | |
 |---|---|
-| Fix the five known console defects | ~1 day |
+| ~~Fix the five known console defects~~ — done 7 September | 0 |
 | Capability audit (§3.1) | ~1 day |
 | One session plus its analysis (§3.2) | 45 min of theirs, ~½ day of ours |
 
-Call it two and a half days to put evidence under the commercial argument.
+Call it a day and a half to put evidence under the commercial argument: the
+first line turned out to be already paid.
 
 **It belongs before gate 3, not after.** Gate 3 is the two self-service screens,
 and self-service presumes the thing being served is usable. If §3.1 finds that a
