@@ -325,14 +325,18 @@ class CompiledForm(val ir: FormIr) {
         strings: Map<String, String>?,
         argCount: Int,
     ) {
-        val missing = sortedSetOf<Int>()
+        // A plain set sorted at the end, not `sortedSetOf`: this is commonMain
+        // and compiles to Wasm and Android as well as the JVM, where
+        // `sortedSetOf` does not exist. CI caught it; `:shared:form-engine:jvmTest`
+        // alone cannot.
+        val missing = mutableSetOf<Int>()
         strings?.values?.forEach { template ->
             missing += Interpolation.slotIndices(template).filter { it >= argCount }
         }
         if (missing.isNotEmpty()) {
             warnings.add(
                 "$nodeId: $key uses slot " +
-                    missing.joinToString(", ") { "{$it}" } +
+                    missing.sorted().joinToString(", ") { "{$it}" } +
                     " and $argsKey has $argCount argument(s), so the slot is " +
                     "shown to a respondent as written"
             )

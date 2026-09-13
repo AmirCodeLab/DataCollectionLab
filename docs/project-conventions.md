@@ -903,6 +903,14 @@ cd backend && pytest tests/test_conformance.py -v
 cd backend && pytest tests/test_malformed_conformance.py -v   # document shape, §10.1
 cd backend && pytest tests/test_function_conformance.py -v    # §4.3 x every shape
 ./gradlew :shared:form-engine:jvmTest      # the Kotlin half of all of them
+#   …but jvmTest is NOT the whole Kotlin half of a change to commonMain.
+#   commonMain compiles to Wasm and Android too, and a JVM-only stdlib call
+#   (`sortedSetOf`) compiles there and nowhere else. `:jvmTest` was green and
+#   CI failed on `compileKotlinWasmJs`. For any commonMain edit:
+./gradlew :shared:form-engine:jvmTest :shared:form-engine:wasmJsNodeTest \
+          :shared:form-engine:testAndroidHostTest --rerun-tasks
+#   `--rerun-tasks` because an UP-TO-DATE suite reports the last run's result,
+#   which is break 41 in a different hat
 
 # Kotlin engine (from the repo root — one build)
 ./gradlew :shared:form-engine:jvmTest
