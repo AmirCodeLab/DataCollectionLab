@@ -506,11 +506,18 @@ sentence and nothing else. It is defect 15's family — a blocking field nobody
 can answer — but not defect 15: that one has *no screen*, this one has a screen
 with nothing on it.
 
-Filed as `docs/known-defects.md` 31 and deliberately not fixed here. Unlike
-defect 28, this **is** a property of the document: "a question that stores no
-value cannot be required" is true wherever the document is read, so it is §10
-shaped — which means it can have a Kotlin twin and a conformance vector, and
-should get both rather than a patch in one engine.
+Filed as `docs/known-defects.md` 31 and **closed the next day as a §10.2 rule**,
+which is what it always wanted to be. Unlike defect 28, this **is** a property
+of the document: "a question that stores no value cannot be required" is true
+wherever the document is read. So it got the whole treatment — Form IR §10.2,
+`form_engine/answerability.py`, `Answerability.kt`, `conformance/answerability`
+(five vectors), the publish gate, and the importer reporting it against
+`survey row 1975, column 'required'` of this very workbook. Breaks 231 and 232.
+
+The generator was changed to exempt notes, so the fixture now obeys the rule it
+caused. The mistake it made is the artefact worth keeping, and it is kept in the
+generator's comment and in the vector set's README rather than in a file that
+imports with a permanent error.
 
 Not observed on the device, and the run says so rather than inferring it: the
 reference-data gate refuses first, so the answer gate was never reached.
@@ -582,12 +589,10 @@ questionnaire it was shown. `docs/known-defects.md` 29.
 300 and 1779 all render on the rebuilt APK, the form pages end to end, and a
 `note` has now been shown on a handset for the first time.
 
-What the run leaves behind, in the order it matters:
+What the run leaves behind, in the order it matters. **Defect 31 is closed** —
+it became Form IR §10.2 on 13 September, with both engines, a vector set and the
+importer (§6.6).
 
-- **Defect 31** (§6.6) — a `required` note can never be answered and blocks
-  finalisation forever. Open, and wanting a §10 rule with a vector and a Kotlin
-  twin rather than a patch, because unlike collectability it is a property of
-  the document.
 - **Defect 29** — the Updates screen's "A form is tens of kilobytes" about a
   1.53 MB IR. Needs an IR size on the sync manifest.
 - **The builder's windowing.** 1.5 s per click is the one number in this run

@@ -542,6 +542,12 @@ VECTOR_SETS: dict[str, tuple[str, str | tuple[str, ...], str]] = {
         "TEST-com.dcp.form.ReachabilityConformanceTest.xml",
         "backend/tests/test_reachability_conformance.py",
     ),
+    "answerability": (
+        "a question shown that nobody can answer (§10.2)",
+        "shared/form-engine/build/test-results/jvmTest/"
+        "TEST-com.dcp.form.AnswerabilityConformanceTest.xml",
+        "backend/tests/test_answerability_conformance.py",
+    ),
 }
 
 #: Vector ids appear in a JUnit test name as `vector[choice-002][jvm]`, or as

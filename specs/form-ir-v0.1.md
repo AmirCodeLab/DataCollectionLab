@@ -1298,8 +1298,8 @@ a field-list group**, **a repeat carrying both `countExpr` and `rowSource`**, **
 `rowSource` filter that references an answer**, **a `bind` naming a question
 outside its repeat**, **an inline `bind` naming `label`**, and **a `rowSource`
 with `kind: "dataset"`** while §2.3's two conditions are unmet,
-and **a statically-unreachable container holding answerable questions**
-(§10.3).
+**a statically-unreachable container holding answerable questions**
+(§10.3), and **a `note` carrying `required`**.
 
 The four `rowSource` refusals are one reason wearing four hats: each is a form
 that would run, and run differently on two engines or on two days. Two row
@@ -1325,6 +1325,27 @@ the refusal states what is already the case rather than picking a side. The
 alternative — dropping the repeat's questions from the field-list screen — is
 the silent-omission defect §11.1 exists to close, reappearing in a corner nobody
 would look in.
+
+A **`note` carrying `required`** is refused because §2.1 gives a note no value
+and nothing can give it one. `required` is the only property that turns that
+absence into a fault: the field is permanently blocking under §6.2, so the
+submission can never be finalised, and §6.2's `firstBlockingScreen` sends the
+enumerator to a screen holding a sentence and nothing to answer. The refusal is
+of `required` **present at all**, not of `required` evaluating true: a
+statically-false one is merely pointless, and distinguishing the two would leave
+an author one edit away from a form that cannot be finished.
+
+This is deliberately narrow. A `constraint` or a `readOnly` on a note is equally
+meaningless and is **not** refused — a constraint over null coerces true
+(§4.4.7) and a readOnly over null coerces false, so both are inert. Only
+`required` changes what the form does, which is what earns it a rule. Nothing
+else in §2.1 has no value, so nothing else is reached by this.
+
+It is a property of the **document**, true wherever the document is read, which
+is why both engines implement it and `conformance/answerability` compares them.
+An author writes it by accident: the first questionnaire large enough to contain
+a note carried `required` on it and published, and nothing between the workbook
+and the handset said a word (`docs/known-defects.md` 31).
 
 A **sensitivity leak** is any expression that reads a `sensitive` field from
 somewhere that does not itself carry the same protection. Two shapes:

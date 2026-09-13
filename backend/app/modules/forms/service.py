@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ulid import new_ulid
 from app.modules.crypto.envelope import check_sensitivity_propagation
 from app.modules.entities.models import Dataset, DatasetVersion, FormVersionDataset
+from app.modules.form_engine.answerability import check_answerability
 from app.modules.form_engine.expression import forbidden_regex_feature
 from app.modules.form_engine.reachability import check_reachability
 from app.modules.form_engine.runtime import CompiledForm
@@ -140,6 +141,12 @@ def check_publishable(ir: dict[str, Any]) -> CompiledForm:
     # import record, which a builder structurally cannot supply; here every
     # caller gets both (docs/phase3-item0-builder-scope.md §0).
     violations += check_reachability(ir)
+    # §10.2: a question the form shows and nobody can answer — today, a `note`
+    # carrying `required`. Reachability's sibling, and the distinction matters:
+    # that one asks whether a question reaches a screen, this asks whether one
+    # that reached a screen can be answered. Defect 31 passed the first and
+    # failed the second, published, deployed and reached a phone.
+    violations += check_answerability(ir)
     # Whether every question can actually be presented — the registry in
     # `specs/collectable-types-v0.1.json`, which until 12 September 2026 was
     # consulted by the XLSForm importer and by nothing else. A form built in the

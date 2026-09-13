@@ -1,0 +1,35 @@
+{
+  "id": "answerability-003",
+  "type": "answerability",
+  "description": "A statically-false `required` on a note is refused too: present at all is the rule",
+  "spec": "form-ir 10.2, 2.1, 6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "a3",
+    "version": 1,
+    "title": {
+      "en": "a3"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "intro",
+        "dataType": "note",
+        "label": {
+          "en": "intro"
+        },
+        "required": {
+          "op": "lit",
+          "value": false
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'intro' is a `note`, which holds no value (Form IR §2.1), and it is marked `required`. Nothing can ever answer it, so this submission could never be finalised and the enumerator would be sent to a screen with nothing on it (Form IR §10.2, §6.2)."
+  ]
+}

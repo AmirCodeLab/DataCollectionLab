@@ -415,7 +415,13 @@ class Builder:
             raise AssertionError(kind)
         self.count(kind)
 
-        if self.rng.percent(70):
+        # A `note` holds no value (Form IR §2.1), so `required` on one can never
+        # be satisfied and §10.2 refuses it. This generator marked 70% of its
+        # questions required and did not think of the one type that stores
+        # nothing — which is exactly how an author writes it, and is where
+        # `docs/known-defects.md` 31 came from. The exemption is here so the
+        # fixture obeys the rule it caused; the rule itself is the artefact.
+        if kind != "note" and self.rng.percent(70):
             cells["required"] = "yes"
 
         if cells["type"] == "integer":
