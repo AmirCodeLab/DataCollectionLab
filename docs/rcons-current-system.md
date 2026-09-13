@@ -174,6 +174,21 @@ This was the entry on this list most likely to change the phase's scope. The
 reading it invited was "pick a member from the roster", which would have been
 cross-repeat referencing and a genuine feature gap. It is not that.
 
+> **Correction, 13 September 2026.** The paragraph above is right about
+> `Person Id` and wrong as a general statement, and it reads like one. Building
+> MICS6's `HL` module in the builder found the thing it describes as
+> hypothetical: **HL14 records the line number of a member's natural mother**,
+> who is another row of the same roster, and HL18 and HL20 do the same. A row
+> index in Form IR must be a literal, so none of it is expressible —
+> `docs/known-defects.md` 32, `docs/builder-audit-2026-09-13.md` §3.
+>
+> So: right about RCons's 73 questions, and it closed the question one module
+> early. "Person Id is not a roster reference" is a fact about their
+> questionnaire; "nothing needs a roster reference" was never checked against
+> one that did. The difference matters because this entry was read as settling
+> the feature, and a household listing survey — which is the kind of survey
+> this platform is being sold for — needs it on the first module.
+
 The `Custom` prefixes need a look at the section code to see what behaviour they
 carry.
 

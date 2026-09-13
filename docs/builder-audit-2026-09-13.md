@@ -212,14 +212,18 @@ Named so the result is not read as wider than it is:
 
 ## 7. What follows
 
-1. **`labelArgs` needs an editor.** Twelve of twenty MICS6 HL questions say
-   `(name)`. Without it, the single most common pattern in household listing
-   instruments reaches an enumerator as literal parentheses. This is the
-   cheapest high-value thing this audit found.
+1. ~~**`labelArgs` needs an editor.**~~ **Built, 13 September 2026.**
+   `web/src/builder/properties/InterpolationArgs.tsx` edits `labelArgs`,
+   `constraintMessageArgs` and `summaryLabelArgs`, emitting AST through the
+   same `ExpressionEditor` the code field uses and reading no slots itself; the
+   engines gained a §10.3 warning for a slot with no argument behind it, so the
+   server does the reading. Breaks 233–236, and `sensitivity-008` — a
+   `labelArgs` leak had no vector until an editor made it one click.
 2. **Cross-row reference is a real gap and now has a real instrument behind
-   it.** It is an IR question before it is a builder question — §3 — and
-   `docs/rcons-current-system.md` §5's conclusion should be read as "not needed
-   *by RCons's Person Id*", not "not needed".
+   it.** Filed as `docs/known-defects.md` 32, and
+   `docs/rcons-current-system.md` §5 now carries the correction: right about
+   RCons's 73 `Person Id` questions, and it closed the question one module
+   early.
 3. **Half two should watch the visual expression editor above all**, since this
    run could not.
 4. The scroll-position and wrong-remedy observations in §5 are small and would

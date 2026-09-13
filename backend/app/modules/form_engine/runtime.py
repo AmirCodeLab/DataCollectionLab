@@ -297,6 +297,32 @@ class CompiledForm:
         self.topo_order = self._topological_order()
         self._lint()
 
+    def _warn_unfilled_slots(
+        self,
+        node_id: str,
+        key: str,
+        args_key: str,
+        strings: dict[str, Any],
+        arg_count: int,
+    ) -> None:
+        """A template slot with no argument behind it (§7.1, §10.3).
+
+        One sentence per node rather than one per language: an author writes
+        the slot once and translates around it, so three languages naming the
+        same missing argument is three copies of one problem.
+        """
+        missing: set[int] = set()
+        for template in strings.values():
+            if isinstance(template, str):
+                missing |= {i for i in slot_indices(template) if i >= arg_count}
+        if missing:
+            self.warnings.append(
+                f"{node_id}: {key} uses slot "
+                + ", ".join(f"{{{i}}}" for i in sorted(missing))
+                + f" and {args_key} has {arg_count} argument(s), so the slot is "
+                "shown to a respondent as written"
+            )
+
     def _check_interpolation(self) -> None:
         """Slots and arguments agree, and no argument reads a row (§7.1).
 
@@ -310,9 +336,19 @@ class CompiledForm:
                 ("constraintMessage", "constraintMessageArgs"),
             ):
                 args = compiled.node.get(args_key) or []
-                if not args:
-                    continue
                 strings = compiled.node.get(key) or {}
+                if not args:
+                    # §7.1: "a document with no `…Args` is substituted not at
+                    # all", so this is legal and the label reads `{0}` to a
+                    # respondent. §7.1 argues the visible brace is the point,
+                    # and it is — of a renderer that ignores the arguments, not
+                    # of an author who forgot them, and nothing told the two
+                    # apart. A warning, not an error, because the spec permits
+                    # the document (§10.3). Found by building a real MICS6
+                    # module: twelve of its twenty questions interpolate a name
+                    # (docs/builder-audit-2026-09-13.md §4).
+                    self._warn_unfilled_slots(field_id, key, args_key, strings, 0)
+                    continue
                 for language, template in strings.items():
                     if not isinstance(template, str):
                         continue
@@ -337,9 +373,12 @@ class CompiledForm:
         # in a sentence on a handset.
         for repeat_id, node in self.repeats.items():
             args = node.get("summaryLabelArgs") or []
-            if not args:
-                continue
             strings = node.get("summaryLabel") or {}
+            if not args:
+                self._warn_unfilled_slots(
+                    repeat_id, "summaryLabel", "summaryLabelArgs", strings, 0
+                )
+                continue
             for language, template in strings.items():
                 if not isinstance(template, str):
                     continue
