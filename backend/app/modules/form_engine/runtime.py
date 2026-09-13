@@ -6,6 +6,7 @@ Spec: specs/form-ir-v0.1.md sections 2.3, 4.2, 5.
 from __future__ import annotations
 
 import dataclasses
+import heapq
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -381,16 +382,33 @@ class CompiledForm:
                     dependents[base].append(path)
                     indegree[path] += 1
 
-        ready = [p for p in self.order if indegree[p] == 0]
+        # The tie-break is "lowest document position wins", so the ready set is
+        # a min-heap keyed on that position and never a list that is re-sorted.
+        #
+        # The shape this replaces was `ready.sort(key=self.order.index)` inside
+        # the loop, and it is worth naming because it was correct and it did
+        # not scale: `self.order` is a list, so `.index` is a linear scan, and
+        # the scan ran once per ready element per iteration. On every form this
+        # repository had ever been shown — three screens — that is free. On a
+        # 2,128-question questionnaire it was **16.3 seconds**, against 10 ms
+        # here, and it was the whole cost of an import and of every compile.
+        #
+        # No vector could see it. The order this produces is identical, which
+        # is the entire reach of a conformance vector; the Kotlin twin has
+        # always kept its document index in a **map**, so the two engines
+        # differed by three orders of magnitude while agreeing exactly.
+        # docs/scale-run-2026-09-12-sindh.md, break 226.
+        position = {p: i for i, p in enumerate(self.order)}
+        ready = [position[p] for p in self.order if indegree[p] == 0]
+        heapq.heapify(ready)
         result: list[str] = []
         while ready:
-            ready.sort(key=self.order.index)
-            current = ready.pop(0)
+            current = self.order[heapq.heappop(ready)]
             result.append(current)
             for dep in dependents[current]:
                 indegree[dep] -= 1
                 if indegree[dep] == 0:
-                    ready.append(dep)
+                    heapq.heappush(ready, position[dep])
 
         if len(result) != len(self.fields):
             cyclic = sorted(set(self.fields) - set(result))

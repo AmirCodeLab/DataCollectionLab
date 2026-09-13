@@ -32,15 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** The question types this slice renders. Everything else is skipped. */
-private val SUPPORTED_TYPES = setOf(
-    "text", "integer", "decimal", "select_one", "date",
-    // Media (encryption envelope §6, sync §9). `audio`, `video` and `file` are
-    // in the IR and are deliberately NOT here: capture for those is not built,
-    // and rendering a widget that cannot answer the question would be worse
-    // than skipping it, because the enumerator would think they had.
-    "image", "signature", "geopoint",
-)
-
 /** How long typed input may sit before its op is committed. Keystrokes within
  * this window coalesce into one `set` op — ops record answers, not keystrokes. */
 private const val TYPING_COMMIT_DELAY_MS = 400L
@@ -916,7 +907,23 @@ class CollectionViewModel(
         lang: String,
         showErrors: Boolean,
     ): QuestionUi? {
-        if (node.dataType !in SUPPORTED_TYPES) return null
+        // There is no type gate here, deliberately, and there used to be.
+        //
+        // `SUPPORTED_TYPES` was a second hand-maintained list of what this app
+        // can collect, beside `specs/collectable-types-v0.1.json` and beside
+        // `CollectionScreen`'s `when`. It had drifted: `select_multiple` and
+        // `note` were absent, so `questionUi` returned null for them and the
+        // screen rendered **nothing at all** — not the label, not a message,
+        // an empty page under a section heading. On the Sindh-scale form that
+        // was 154 of 2,128 questions (`docs/known-defects.md` 30).
+        //
+        // `CollectableTypesTest` could not see it: it drives the composable
+        // with a `QuestionUi` it constructs itself, and this is the function
+        // that decides whether a `QuestionUi` exists. Break 57's lesson applies
+        // exactly — remove the choice rather than test it. One place decides
+        // what a type renders as, and it is the `when` in `CollectionScreen`,
+        // whose `else` says "this build cannot ask you this" instead of
+        // silently dropping the question.
         val fieldState = instance.states[path] ?: return null
         if (!fieldState.relevant) return null
         val inside = path != node.id

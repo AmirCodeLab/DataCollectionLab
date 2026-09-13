@@ -749,7 +749,53 @@ for a container.
 | **Why not fixed** | Both read the same engine state; the difference is presentation. The preview shows "This answer is required" the moment a screen opens, the handset after the enumerator has been at the field. Neither is wrong about the form, and the preview's choice is the more honest one for an author — but it is not what the enumerator sees, and §2.1 of the pilot scope is about the author seeing what the enumerator sees |
 | **Blocks** | Nothing; an author may read a fresh screen as already failing |
 
+## 29. The Updates screen tells a handset a form is "tens of kilobytes"
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/src/commonMain/kotlin/com/amr/data_collection_lab/collection/UpdatesScreen.kt:101` — `text = "A form is tens of kilobytes."`, a constant |
+| **Status** | Open — found 12 September 2026 on a Pixel 6 Pro, `docs/scale-run-2026-09-12-sindh.md` §6.3 |
+| **What happens** | The Sindh-scale form's IR is **1.53 MB**. The card offering to download it says tens of kilobytes: wrong by about fifty times, on the first real questionnaire the screen has been shown |
+| **Why it matters** | Item 4 is the item that made every card on this screen state what the tap will cost, because the person holding the handset decides whether to spend a village connection on it (`docs/phase3-item4-separate-sync.md`). The reference-data cards do exactly that — "Full download — about 11.3 MB", measured off rows this device holds. The forms card is the one that does not, and a constant is how a cost statement goes stale without anything going red |
+| **Why not fixed** | The size is not in the manifest. `GET /sync/pull?limit=0&scope=forms` reports which versions are deployed and not held; it does not report how large their IR is, so the fix is a field on the manifest entry and a migration of the sync contract, not a string change. Worth doing with the next sync-contract change rather than on its own |
+| **Blocks** | Nothing refuses; an enumerator on a metered connection is told a wrong number and cannot find out the right one |
+
+## 31. A `note` marked `required` can never be answered, so the form can never be finalised
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/form_engine/runtime.py` and `shared/form-engine/.../Runtime.kt` evaluate `required` for any field; §2.1 says a `note` has no value. Neither the XLSForm importer nor `check_publishable` refuses the combination |
+| **Status** | Open — found 12 September 2026 on the Sindh-scale re-walk, `docs/scale-run-2026-09-12-sindh.md` §6.6 |
+| **What happens** | A note is display-only and can never acquire a value, so a `required` note is permanently blocking. Reproduced on the Python reference: `required=True, value=None, errors=[{'kind': 'required'}]`, `blocking_fields == ['n1']`, `can_finalize == False`. The enumerator gets a Finalize that refuses and, via `goToFirstBlocking`, a screen holding a sentence and nothing to do |
+| **How it got in** | The scale form marks 70% of its questions required and did not exempt the one type that stores no value. An author would make the same mistake. It imported with no diagnostic and published with no refusal, and reached a handset, where the note renders with a `*` |
+| **Not defect 15** | Same family — a blocking field nobody can answer — different shape. Defect 15 is a `calculate`, which has **no screen** at all, so there is nowhere to send anyone. This has a screen; there is simply nothing on it |
+| **Why not fixed** | Because the right fix is a §10 rule rather than a patch, and a §10 rule is a piece of spec work. Unlike collectability (defect 28) this **is** a property of the document — "a question that stores no value cannot be required" is true wherever the document is read — so it belongs in `check_publishable`, in `Reachability`'s neighbourhood, with a Kotlin twin and a conformance vector so the two engines cannot disagree about which forms publish. Patching one engine would create exactly the divergence `docs/project-conventions.md` warns about under "The refusals no vector format can express" |
+| **Blocks** | Any form carrying one. On the device the reference-data gate refused first, so the answer gate was never reached and this was **not** observed on hardware — only on the Python reference |
+
 ## Closed
+
+### 30. Every `select_multiple` and every `note` rendered a blank screen
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/.../CollectionViewModel.kt`: `private val SUPPORTED_TYPES = setOf("text", "integer", "decimal", "select_one", "date", "image", "signature", "geopoint")`, and `questionUi` returning null for anything outside it |
+| **Status** | **Closed 12 September 2026**, the day it was found — on the handset walk this run owed, `docs/scale-run-2026-09-12-sindh.md` §6.4 |
+| **What happened** | A `select_multiple` or `note` question was dropped before a widget was chosen, so the collection screen drew **nothing at all**: no label, no control, not even the "this build cannot ask you this" message the composable's `else` branch exists for. A section heading with empty space under it, Next still working, and no error anywhere. Watched on two different questions at screens 297 and 300 of 2,096, with a `select_one` rendering correctly on either side |
+| **How big** | 154 of 2,128 questions in the scale form. In RCons's real census it is `Multiple Selection` (65) plus `Custom Multiple Selection` (88) plus `Note` (1) — **154 questions, 7% of the instrument, silently blank** |
+| **Why nothing caught it** | Three things lined up. The seed form has no `select_multiple` and no `note`, so five end-to-end runs walked past it. `CollectableTypesTest` drives the real composable in both directions — the right idea — but constructs its own `QuestionUi`, and `questionUi` is the function that decides whether a `QuestionUi` exists at all; the gap was *between* two tested things, which is break 57's shape exactly. And the registry lists `select_multiple` as collectable, so the importer told authors the question was fine. It was fine everywhere except on the screen |
+| **What fixed it** | `SUPPORTED_TYPES` deleted, not synchronised — break 57's lesson, that removing the choice beats testing it. One place decides what a type renders as: the `when` in `CollectionScreen`, whose `else` says so out loud. `OneCollectableGateTest` is the guard and it is a **lint**, because what is being asserted is that a piece of code does not exist. Break 230 |
+| **What is not verified** | The fix is verified by test and by build, **not by a second handset walk**. The phone became unavailable before the rebuilt APK could be walked. That re-walk is owed — `docs/scale-run-2026-09-12-sindh.md` §9 |
+
+### 28. The publish gate never asked whether a question can be collected
+
+| | |
+|---|---|
+| **Where** | `backend/app/modules/forms/service.py` `check_publishable` ran every Form IR §10 check and never consulted the collectable registry. That registry was read by the XLSForm importer and by nothing else |
+| **Status** | **Closed 12 September 2026**, the same day it was found — `docs/scale-run-2026-09-12-sindh.md` §5.1 |
+| **What happened** | The importer **refused** a `time` or `geoshape` question by name: "That is a valid Form IR type, but no client can present it yet, so an enumerator would see a question they cannot answer." The same document, handed to `POST /forms/versions`, published — 201, deployed to two environments, no warning. Watched on the Sindh-scale form: three such questions, refused at import, published and deployed anyway. Defect 7 one layer out — the guarantee held for exactly one route in |
+| **What fixed it** | `app/modules/forms/collectability.py`: `check_collectability` joins §10's checks in `check_publishable`, and the importer now says the sentence that module owns rather than its own copy — two texts is how the two gates came to decide differently. `test_collectability_gate.py` is the guard and break 228 is this defect restored, watched to fail |
+| **The decision inside it** | It is deliberately **not** in `form_engine` and **not** a §10 rule. §10 is a statement about a document, true wherever it is read, which is why both engines implement it and why `conformance/reachability` can compare them. Collectability is a statement about an **app version**, which is why the registry is versioned — putting it in the engine would make one implementation's build date part of the spec. So it has no Kotlin twin, no vector can express it, and the refusal names the registry version it refused against |
+| **What it does not close** | A self-hosted install running an older APK than its server: the form publishes here and still arrives unanswerable there. Nothing can close that from this side — a device would have to report its build's registry version at registration (sync §4, and the registry file's own comment already names that as the shape left open) |
 
 ### 27. A submission that reaches a review state can never leave it
 

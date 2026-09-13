@@ -51,3 +51,8 @@ backend/tests/fixtures/xlsform/ucl-biomass-datasets/
 
 # Import reports — regenerable output of scripts/import_xlsform.py --out.
 reports/
+
+# The Sindh listing scale probe — deterministic output of
+# scripts/generate_sindh_scale_form.py, ~2.9 MB. Same rule as the UCL CSVs:
+# the generator is committed and says what is real and what is invented.
+backend/tests/fixtures/xlsform/sindh-scale/
