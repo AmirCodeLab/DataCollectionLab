@@ -25,6 +25,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.modules.entities.rows import check_keys, content_address
+from app.modules.form_engine.answerability import (
+    VALUELESS_TYPES,
+    required_valueless_message,
+)
 from app.modules.forms.collectability import (
     uncollectable_type_message as collectability_message,
 )
@@ -1430,6 +1434,50 @@ class _Importer:
             if cell is None:
                 continue
             text = cell.value.strip().lower()
+            # §10.2: a type that holds no value cannot be `required`. The
+            # publish gate refuses this too — `form_engine.answerability` —
+            # and says the same sentence; what an import adds is the cell,
+            # which is the difference between "somewhere in your form" and
+            # "this row". Defect 31 is how it arrives: an author marks most
+            # questions required and does not think of the one type that
+            # stores nothing.
+            #
+            # The severity follows the DOCUMENT, not the cell, because the
+            # rule is about the document. A cell that puts `required` into the
+            # IR is the §10.2 error and is imported anyway — stripping it would
+            # leave the report and the document disagreeing, which is the class
+            # of bug defect 28 was. A cell reading `no` or blank produces no
+            # `required` at all, so the IR is clean and the gate would publish
+            # it: refusing that here would be the importer enforcing a stricter
+            # rule than the spec, the same disagreement pointing the other way.
+            # It is still worth saying — `no` is one keystroke from `yes` — so
+            # it is a warning.
+            if key == "required" and node.get("dataType") in VALUELESS_TYPES:
+                blank = text in ("no", "false", "false()", "0", "")
+                remedy = (
+                    "Clear the `required` cell on this row. A note is read out, not "
+                    "answered, so there is nothing for `required` to mean."
+                )
+                if blank:
+                    self.log.warning(
+                        "required_on_valueless_question",
+                        f"`{name}` is a `{node['dataType']}`, which holds no value "
+                        "(Form IR §2.1), so its `required` cell does nothing. Nothing "
+                        "is wrong with this form.",
+                        ref=cell.ref,
+                        cell_value=cell.value,
+                        node_id=name,
+                        remedy=remedy,
+                    )
+                else:
+                    self.log.error(
+                        "required_valueless_question",
+                        required_valueless_message(name, str(node["dataType"])),
+                        ref=cell.ref,
+                        cell_value=cell.value,
+                        node_id=name,
+                        remedy=remedy,
+                    )
             if text in ("yes", "true", "true()", "1"):
                 node[key] = True
                 self.ledger.consume(cell.ref)

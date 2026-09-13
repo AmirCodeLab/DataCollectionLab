@@ -1,0 +1,74 @@
+{
+  "id": "answerability-004",
+  "type": "answerability",
+  "description": "Inside a repeat, and reported by id in document order alongside a second one",
+  "spec": "form-ir 10.2, 2.1, 6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "a4",
+    "version": 1,
+    "title": {
+      "en": "a4"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "count",
+        "dataType": "integer",
+        "label": {
+          "en": "count"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "members"
+        },
+        "countExpr": {
+          "op": "ref",
+          "path": "count"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "member_note",
+            "dataType": "note",
+            "label": {
+              "en": "member_note"
+            },
+            "required": true
+          },
+          {
+            "type": "question",
+            "id": "member_name",
+            "dataType": "text",
+            "label": {
+              "en": "member_name"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "closing",
+        "dataType": "note",
+        "label": {
+          "en": "closing"
+        },
+        "required": {
+          "op": "ref",
+          "path": "count"
+        }
+      }
+    ]
+  },
+  "expectedViolations": [
+    "'member_note' is a `note`, which holds no value (Form IR §2.1), and it is marked `required`. Nothing can ever answer it, so this submission could never be finalised and the enumerator would be sent to a screen with nothing on it (Form IR §10.2, §6.2).",
+    "'closing' is a `note`, which holds no value (Form IR §2.1), and it is marked `required`. Nothing can ever answer it, so this submission could never be finalised and the enumerator would be sent to a screen with nothing on it (Form IR §10.2, §6.2)."
+  ]
+}

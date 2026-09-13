@@ -1,0 +1,38 @@
+{
+  "id": "answerability-002",
+  "type": "answerability",
+  "description": "A note with no `required` is the ordinary case and publishes",
+  "spec": "form-ir 10.2, 2.1, 6.2",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "a2",
+    "version": 1,
+    "title": {
+      "en": "a2"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "intro",
+        "dataType": "note",
+        "label": {
+          "en": "intro"
+        }
+      },
+      {
+        "type": "question",
+        "id": "name",
+        "dataType": "text",
+        "label": {
+          "en": "name"
+        },
+        "required": true
+      }
+    ]
+  },
+  "expectedViolations": []
+}
