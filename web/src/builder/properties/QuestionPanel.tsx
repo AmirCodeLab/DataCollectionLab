@@ -13,6 +13,7 @@ import {
 import { QuestionTrace } from "@/builder/preview/QuestionTrace";
 import { useBuilder } from "@/builder/store";
 import { ChoicesEditor } from "./ChoicesEditor";
+import { InterpolationArgs } from "./InterpolationArgs";
 import {
   Checkbox,
   Field,
@@ -81,7 +82,15 @@ export function QuestionPanel({
         value={node.label}
         languages={ir.languages}
         onChange={(next) => set("label", next)}
-        hint="{0}, {1} slots interpolate labelArgs, edited as IR (§7.1)"
+        hint="{0}, {1} slots are filled from labelArgs, below (§7.1)"
+      />
+      <InterpolationArgs
+        ir={ir}
+        nodeId={node.id}
+        argsKey="labelArgs"
+        fills="label"
+        value={node.labelArgs}
+        onChange={(next) => set("labelArgs", next)}
       />
       <I18nField
         label="hint"
@@ -132,6 +141,15 @@ export function QuestionPanel({
         value={node.constraintMessage}
         languages={ir.languages}
         onChange={(next) => set("constraintMessage", next)}
+        hint="{0}, {1} slots are filled from constraintMessageArgs, below (§7.1)"
+      />
+      <InterpolationArgs
+        ir={ir}
+        nodeId={node.id}
+        argsKey="constraintMessageArgs"
+        fills="constraint message"
+        value={node.constraintMessageArgs}
+        onChange={(next) => set("constraintMessageArgs", next)}
       />
       <Select
         label="severity"

@@ -10,6 +10,7 @@
  */
 
 import { ExpressionEditor } from "@/builder/expressions/ExpressionEditor";
+import { InterpolationArgs } from "./InterpolationArgs";
 import {
   fields,
   isRepeat,
@@ -157,7 +158,15 @@ export function RepeatPanel({ ir, node }: { ir: FormIr; node: RepeatNode }) {
         value={node.summaryLabel}
         languages={ir.languages}
         onChange={(next) => set("summaryLabel", next)}
-        hint="tells one row from another in the roster; {0} slots need summaryLabelArgs, edited as IR (§2.3, §7.1)"
+        hint="tells one row from another in the roster; {0} slots are filled from summaryLabelArgs, below (§2.3, §7.1)"
+      />
+      <InterpolationArgs
+        ir={ir}
+        nodeId={node.id}
+        argsKey="summaryLabelArgs"
+        fills="row summary label"
+        value={node.summaryLabelArgs}
+        onChange={(next) => set("summaryLabelArgs", next)}
       />
     </section>
   );

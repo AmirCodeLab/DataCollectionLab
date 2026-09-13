@@ -1,0 +1,68 @@
+{
+  "id": "reachability-007",
+  "type": "reachability",
+  "description": "A label slot with no argument is a warning, not a refusal: the respondent is shown '{0}' as written (§7.1, §10.3)",
+  "shape": "unfilled interpolation slot",
+  "spec": "form-ir 7.1, 10.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p7",
+    "version": 1,
+    "title": {
+      "en": "p7"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en",
+      "ur"
+    ],
+    "children": [
+      {
+        "type": "question",
+        "id": "member_name",
+        "dataType": "text",
+        "label": {
+          "en": "Name",
+          "ur": "نام"
+        }
+      },
+      {
+        "type": "question",
+        "id": "asked",
+        "dataType": "note",
+        "label": {
+          "en": "Is {0} usually resident here?",
+          "ur": "کیا {0} یہاں رہتا ہے؟"
+        }
+      },
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members",
+          "ur": "افراد"
+        },
+        "summaryLabel": {
+          "en": "{0}, aged {1}"
+        },
+        "children": [
+          {
+            "type": "question",
+            "id": "age",
+            "dataType": "integer",
+            "label": {
+              "en": "Age",
+              "ur": "عمر"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [],
+  "expectedWarnings": [
+    "asked: label uses slot {0} and labelArgs has 0 argument(s), so the slot is shown to a respondent as written",
+    "members: summaryLabel uses slot {0}, {1} and summaryLabelArgs has 0 argument(s), so the slot is shown to a respondent as written"
+  ],
+  "expectedNeverShown": []
+}
