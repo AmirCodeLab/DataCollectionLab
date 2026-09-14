@@ -760,18 +760,6 @@ for a container.
 | **Why not fixed** | The size is not in the manifest. `GET /sync/pull?limit=0&scope=forms` reports which versions are deployed and not held; it does not report how large their IR is, so the fix is a field on the manifest entry and a migration of the sync contract, not a string change. Worth doing with the next sync-contract change rather than on its own |
 | **Blocks** | Nothing refuses; an enumerator on a metered connection is told a wrong number and cannot find out the right one |
 
-## 32. A roster row cannot refer to another row of the same roster
-
-| | |
-|---|---|
-| **Where** | Form IR §4.2 — a repeat instance path is `repeat[n].field` with `n` a **literal**. `${members[${line}].sex}` is a parse error, `unexpected character ']'`, and there is no other spelling. The reference picker, from inside a repeat, offers one section: "THIS INSTANCE" |
-| **Status** | Open — found 13 September 2026 building MICS6's HL module in the builder, `docs/builder-audit-2026-09-13.md` §3 |
-| **What it blocks** | **Three questions of twenty in a published international instrument.** MICS6 HL14 records the line number of a member's natural mother, HL18 the father's, HL20 copies HL14 or names a caretaker. All three point at another member of the same household — another row of the same roster. DHS's household schedule does the same thing, and so does every listing survey that records parentage or headship |
-| **What can be done today** | The aggregate form works and is not nothing: `${hl14_mother_line} <= count(${members[].hl2_name})` compiles, so the number can be bounded by how many members there are. What cannot be done is look at the row it names — so none of "is a member of this household", "is female", "is not this person", "is older than this person" is expressible. The question is collected as a plain integer nobody validates, which is what paper does |
-| **Why it was not found earlier** | `docs/rcons-current-system.md` §5 examined RCons's `Person Id` — 73 questions — and concluded it was *not* a reference into a roster, adding that such a thing "would have been cross-repeat referencing and a genuine feature gap". That conclusion was **right about RCons** and closed the question one module too early: it is a statement about their 73 questions, not about rosters. §5 now carries the correction |
-| **Why not fixed** | It is an IR question before it is a builder question, and not a small one. An index that is an expression makes a reference's target depend on an answer, so §5.1's dependency graph would have to admit an edge it cannot compute statically — which is the same objection that refused an answer-dependent `rowSource` filter (§2.3, §10.2). Resolving it needs a design, not a patch: candidates are a `lookup`-style function over a repeat keyed on a stable id, or the cross-repeat reference §9 of the pilot scope already lists as out of phase. Filed so the next person meets the argument rather than the surprise |
-| **Blocks** | Nothing in RCons's current corpus, on the evidence of §5. Any MICS or DHS household schedule, immediately |
-
 ## 34. A dangling row reference reads "Invalid answer"
 
 | | |
@@ -783,6 +771,17 @@ for a container.
 | **Blocks** | Nothing. The error is visible, red, and blocks finalisation; it is the sentence that is thin |
 
 ## Closed
+
+### 32. A roster row cannot refer to another row of the same roster
+
+| | |
+|---|---|
+| **Where** | Form IR §4.2 — a repeat instance path is `repeat[n].field` with `n` a **literal**. `${members[${line}].sex}` is a parse error, `unexpected character ']'`. Found 13 September 2026 building MICS6's HL module in the builder (`docs/builder-audit-2026-09-13.md` §3) |
+| **Status** | **Closed 14 September 2026** by Form IR §3.3, a third `choices.kind`: a question whose options are the rows of a repeat |
+| **What it blocked** | Three questions of twenty in a published international instrument — MICS6 HL14, HL18 and HL20, each pointing at another member of the same household |
+| **What closed it, and what deliberately did not** | A `select_one` with `{"kind": "rows", "repeat": "members", "excludeSelf": true}` stores the row's **identity** — the instance id — labels each option with §2.3's `summaryLabel` chain, and resolves per instance so the question on a member's own row offers everybody but them. Authored in the builder, walked in a browser and answered on a phone (`docs/e2e-run-2026-09-14-rows.md`). It does **not** add an index that is an expression, which is what the defect literally asked for and what the "why not fixed" note below argued against; §12 keeps the two halves it leaves out |
+| **Why the shape changed** | The defect described the XLSForm-shaped fix — make the index an expression — and `docs/proposal-answer-indexed-rows.md` §3 is the argument against building it: a **position is not stable**, so deleting a row renumbers every row below it and an answer that was correct becomes wrong retroactively, naming a different person, with nothing in an error state. Paper does not have that problem because paper does not delete rows. The objection this entry recorded — that an answer-dependent index makes a reference's target depend on an answer — stands, and identity answers it rather than working around it |
+| **What is still open from it** | Reading a field *through* the reference (`${members[@mother].sex}`) and an option that is not a row (HL20's reserved `90`). Both are Form IR §12 with what each would have to solve; HL20 is expressible today as a gate question and a `calculate` (`docs/decision-rows-self-exclusion.md` §5). Neither blocks the HL module |
 
 ### 33. §7.1's slot pattern killed the Android app on every form
 

@@ -1,12 +1,17 @@
 # Proposal: a question whose choices are the rows of a repeat
 
 **Date:** 14 September 2026
-**Status:** proposal. Nothing implemented, nothing scheduled.
+**Status:** **accepted and built, 14 September 2026** — Form IR §3.3, both
+engines, `repeat-016`/`repeat-017`, the builder and the collection screen (#66).
+Kept as written, because what it argued is the reason the thing has the shape it
+has. Two things it did not have, both found by checking §8 against the paper:
+the list is **per instance**, and `excludeSelf` is a flag rather than the §4.2
+grant §8 was weighing — `docs/decision-rows-self-exclusion.md` decides both.
 **Replaces:** `docs/proposal-answer-indexed-rows.md`, whose §3 is the argument
 for this one — positional addressing is the wrong key regardless of base,
 because deleting a row renumbers every row below it and an answer that was
 correct becomes wrong retroactively with nothing to see.
-**Closes, if accepted:** `docs/known-defects.md` 32.
+**Closed:** `docs/known-defects.md` 32.
 
 ---
 
