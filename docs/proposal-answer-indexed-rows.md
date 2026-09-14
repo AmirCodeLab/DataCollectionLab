@@ -1,8 +1,11 @@
 # Proposal: an answer-indexed reference into a roster
 
 **Date:** 14 September 2026
-**Status:** proposal. Nothing implemented, nothing scheduled.
-**Closes:** `docs/known-defects.md` 32, if accepted.
+**Status:** **not built, deliberately — 14 September 2026.** §1 and §2 stand as
+measured; §3 is why the mechanism they cost is the wrong one, and it is what
+`docs/proposal-row-choice-question.md` was written instead of. Defect 32 is
+closed by that one (Form IR §3.3), not by this.
+**Superseded by:** `docs/proposal-row-choice-question.md`.
 **Found by:** building MICS6's HL module in the builder
 (`docs/builder-audit-2026-09-13.md` §3). HL14 records the line number of a
 member's natural mother, HL18 the father's, HL20 copies HL14 — all three point
