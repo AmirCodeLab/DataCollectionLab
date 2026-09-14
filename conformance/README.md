@@ -59,6 +59,7 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 | `expect.summaryLabels` | What each row of the instance list says, in instance order, per language (§2.3) |
 | `expect.addLabels` | The text on a repeat's add control, per language — null where the form does not name it (§2.3) |
 | `expect.choices` | Expected option values, in order (§3.2) |
+| `expect.choiceInstances` | Expected options of a `rows` list, as **instance positions** (§3.3) |
 | `expect.labels` | Expected option labels, per language |
 | `expect.selector` | The selector **the source was asked for** (§3.2) |
 | `expect.selectorOrder` | The selector's column order — sorted, so two engines emit it identically |
@@ -67,6 +68,37 @@ A vector is a JSON file with a form IR and an ordered list of steps.
 
 A vector may also carry a top-level `datasets` block — `{key: [rows]}` — for the
 lists a `choices.kind = "dataset"` field chooses from.
+
+## Naming an instance, where a value is an instance
+
+A `rows` choice list stores an **instance id** (§3.3), and a minted id (`i3`)
+never appears in a vector: it is an engine's private counter, and pinning it
+would make the format assert something §2.3 does not promise. Vectors address
+instances by position everywhere else — `members[1].name`, `deleteInstance`,
+`enterInstance` — and this is the same rule one step further:
+
+```json
+{ "set":    { "mother": { "instance": { "repeat": "members", "index": 1 } } } },
+{ "expect": { "values": { "mother": { "instance": { "repeat": "members", "index": 0 } } },
+              "choiceInstances": { "members[1].mother_line": [0, 2] } } }
+```
+
+The translation happens in each runner, at the same boundary that already turns
+`members[1].name` into a canonical path, and **at the moment the step runs**.
+That is what makes the delete cases readable rather than cryptic: the answer
+that named position 1 before a delete names position 0 after it, and the vector
+says so in those words — an engine that stored a position would still read `1`
+and fail.
+
+`choiceInstances` asserts more than `expect.choices` could, which is why it is
+its own key rather than a list of literals: the comparison is against the
+repeat's instance list itself, so an engine returning positions, or labels, or
+the right ids in the wrong order fails it.
+
+**A path in `expect.choices`, `expect.choiceInstances` or `expect.labels` may
+name an instance** — `members[1].mother_line` — because a `rows` list is a
+function of (field, instance) and not of the field alone (§3.3). A bare field
+id still means what it always meant.
 
 ## Why `refuse` asserts nothing about the message
 

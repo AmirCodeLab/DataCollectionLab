@@ -106,6 +106,28 @@ def _instance_id(instance: FormInstance, repeat_id: str, index: int) -> str:
     return instance.instances[repeat_id][index]
 
 
+def _value(instance: FormInstance, spec: Any) -> Any:
+    """A vector's value, with `{"instance": {...}}` resolved to an instance id.
+
+    A `rows` choice list stores an instance id (§3.3), and a minted id never
+    appears in a vector — `_instance_id` says why. So a vector names the
+    instance the way it names one everywhere else, by position, and the
+    translation happens here at the same boundary:
+
+        {"set": {"members[1].mother": {"instance": {"repeat": "members",
+                                                    "index": 0}}}}
+
+    Resolved **at the moment the step runs**, which is what makes the delete
+    cases readable: the answer that named position 1 before a delete names
+    position 0 afterwards, and the vector says so in those words rather than in
+    an id neither engine promises.
+    """
+    if isinstance(spec, dict) and set(spec) == {"instance"}:
+        named = spec["instance"]
+        return _instance_id(instance, named["repeat"], int(named["index"]))
+    return spec
+
+
 def _want_position(instance: FormInstance, spec: Any, plan: Any) -> Position | None:
     """A vector's position spec as a Position: an int, `{screen, instanceIndex,
     instanceScreen}`, or null."""
@@ -139,7 +161,8 @@ def _check(
         got = _state(instance, path).relevant
         assert got == want, f"{where}: relevant[{path}] expected {want}, got {got}"
 
-    for path, want in expect.get("values", {}).items():
+    for path, want_spec in expect.get("values", {}).items():
+        want = _value(instance, want_spec)
         got = _state(instance, path).value
         assert got == want, f"{where}: values[{path}] expected {want!r}, got {got!r}"
 
@@ -238,13 +261,34 @@ def _check(
     # while the answer stays right.
 
     for path, want_values in expect.get("choices", {}).items():
-        got_values = [c["value"] for c in instance.choices(path)]
+        got_values = [c["value"] for c in instance.choices(instance._canonical(path))]
         assert got_values == want_values, (
             f"{where}: choices[{path}] expected {want_values}, got {got_values}"
         )
 
+    # §3.3: the options of a `rows` list are instances, so the vector names
+    # them by position and this translates — the same boundary `_instance_id`
+    # draws, for the same reason. It also asserts more than `choices` could: an
+    # engine that returned positions, or labels, or ids in the wrong order,
+    # fails here, because the comparison is against the instance list itself.
+    for path, want_positions in expect.get("choiceInstances", {}).items():
+        resolved = instance._canonical(path)
+        field_id = resolved.split("].")[-1]
+        rows_query = instance.form.fields[field_id].rows_query
+        assert rows_query is not None, (
+            f"{where}: choiceInstances[{path}] — that field has no rows list"
+        )
+        want_ids = [
+            _instance_id(instance, rows_query.repeat, index) for index in want_positions
+        ]
+        got_ids = [c["value"] for c in instance.choices(resolved)]
+        assert got_ids == want_ids, (
+            f"{where}: choiceInstances[{path}] expected instances {want_positions} "
+            f"({want_ids}), got {got_ids}"
+        )
+
     for path, want_labels in expect.get("labels", {}).items():
-        got_labels = [c["label"] for c in instance.choices(path)]
+        got_labels = [c["label"] for c in instance.choices(instance._canonical(path))]
         assert got_labels == want_labels, (
             f"{where}: labels[{path}] expected {want_labels}, got {got_labels}"
         )
@@ -488,7 +532,9 @@ def test_vector(vector_path: pathlib.Path) -> None:
         if "refuse" in step:
             _refuse(instance, step["refuse"], vector["id"], i)
         if "set" in step:
-            instance.set_many(step["set"])
+            instance.set_many(
+                {path: _value(instance, spec) for path, spec in step["set"].items()}
+            )
         if "goToScreen" in step:
             position = Position(int(step["goToScreen"]))
         if "enterInstance" in step:

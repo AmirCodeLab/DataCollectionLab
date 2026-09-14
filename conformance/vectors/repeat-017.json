@@ -1,0 +1,258 @@
+{
+  "id": "repeat-017",
+  "description": "MICS6 HL14's shape: a rows-choice question ON a member's own row, so every instance gets a DIFFERENT list — excludeSelf omits the member being answered and the filter omits the men. An engine resolving one list per field passes every other vector and fails this one (§3.3)",
+  "spec": "3.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "hl14",
+    "version": 1,
+    "title": {
+      "en": "hl14"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "summaryLabel": {
+          "en": "{0}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "name"
+          }
+        ],
+        "allowAdd": true,
+        "allowDelete": true,
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "sex",
+            "dataType": "select_one",
+            "label": {
+              "en": "Is (name) male or female?"
+            },
+            "choices": {
+              "kind": "inline",
+              "items": [
+                {
+                  "value": "m",
+                  "label": {
+                    "en": "Male"
+                  }
+                },
+                {
+                  "value": "f",
+                  "label": {
+                    "en": "Female"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "question",
+            "id": "mother_line",
+            "dataType": "select_one",
+            "label": {
+              "en": "Record the line number of mother"
+            },
+            "choices": {
+              "kind": "rows",
+              "repeat": "members",
+              "excludeSelf": true,
+              "filter": {
+                "op": "eq",
+                "args": [
+                  {
+                    "op": "ref",
+                    "path": "$row.sex"
+                  },
+                  {
+                    "op": "lit",
+                    "value": "f"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "Zubaida",
+        "members[0].sex": "f",
+        "members[1].name": "Bilal",
+        "members[1].sex": "m",
+        "members[2].name": "Amina",
+        "members[2].sex": "f"
+      },
+      "expect": {
+        "dependsOn": {
+          "mother_line": [
+            "name",
+            "sex"
+          ]
+        },
+        "choiceInstances": {
+          "members[0].mother_line": [
+            2
+          ],
+          "members[1].mother_line": [
+            0,
+            2
+          ],
+          "members[2].mother_line": [
+            0
+          ]
+        },
+        "labels": {
+          "members[1].mother_line": [
+            {
+              "en": "⁨Zubaida⁩"
+            },
+            {
+              "en": "⁨Amina⁩"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "set": {
+        "members[1].mother_line": {
+          "instance": {
+            "repeat": "members",
+            "index": 0
+          }
+        }
+      },
+      "expect": {
+        "valid": {
+          "members[1].mother_line": true
+        },
+        "errors": {
+          "members[1].mother_line": []
+        }
+      }
+    },
+    {
+      "set": {
+        "members[0].sex": "m"
+      },
+      "expect": {
+        "choiceInstances": {
+          "members[1].mother_line": [
+            2
+          ]
+        },
+        "errors": {
+          "members[1].mother_line": [
+            "choice"
+          ]
+        },
+        "valid": {
+          "members[1].mother_line": false
+        }
+      }
+    },
+    {
+      "set": {
+        "members[0].sex": "f"
+      },
+      "expect": {
+        "choiceInstances": {
+          "members[1].mother_line": [
+            0,
+            2
+          ]
+        },
+        "errors": {
+          "members[1].mother_line": []
+        },
+        "values": {
+          "members[1].mother_line": {
+            "instance": {
+              "repeat": "members",
+              "index": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 2
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "values": {
+          "members[1].mother_line": {
+            "instance": {
+              "repeat": "members",
+              "index": 0
+            }
+          }
+        },
+        "errors": {
+          "members[1].mother_line": []
+        },
+        "choiceInstances": {
+          "members[1].mother_line": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 0
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "choiceInstances": {
+          "members[0].mother_line": []
+        },
+        "errors": {
+          "members[0].mother_line": [
+            "choice"
+          ]
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

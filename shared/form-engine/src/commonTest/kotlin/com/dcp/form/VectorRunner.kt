@@ -7,6 +7,7 @@ package com.dcp.form
  */
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -124,6 +125,36 @@ class RecordingDatasetSource(
 fun instanceIdAt(instance: FormInstance, repeatId: String, index: Int): String =
     instance.instances.getValue(repeatId)[index]
 
+/**
+ * A vector's value, with `{"instance": {...}}` resolved to an instance id.
+ *
+ * A `rows` choice list stores an instance id (§3.3), and a minted id never
+ * appears in a vector — it is an engine's private counter, and pinning it would
+ * make the format assert something §2.3 does not promise. So a vector names the
+ * instance the way it names one everywhere else, by position:
+ *
+ * ```
+ * {"set": {"members[1].mother": {"instance": {"repeat": "members", "index": 0}}}}
+ * ```
+ *
+ * Resolved **at the moment the step runs**, which is what makes the delete
+ * cases readable: the answer that named position 1 before a delete names
+ * position 0 afterwards, and the vector says so in those words.
+ */
+fun vectorValue(instance: FormInstance, element: JsonElement): FormValue {
+    if (element is JsonObject && element.keys == setOf("instance")) {
+        val named = element.getValue("instance").jsonObject
+        return FormValue.Text(
+            instanceIdAt(
+                instance,
+                named.getValue("repeat").jsonPrimitive.content,
+                named.getValue("index").jsonPrimitive.content.toInt(),
+            )
+        )
+    }
+    return formValueFromJson(element)
+}
+
 /** A vector's position spec as a [Position]: an int, an object, or null. */
 fun wantPosition(
     instance: FormInstance,
@@ -184,7 +215,7 @@ fun runSteps(
             refuse(instance, op, where)
         }
         step["set"]?.jsonObject?.let { answers ->
-            instance.setMany(answers.mapValues { formValueFromJson(it.value) })
+            instance.setMany(answers.mapValues { vectorValue(instance, it.value) })
         }
         step["goToScreen"]?.jsonPrimitive?.let { target ->
             position = Position(target.content.toInt())
@@ -277,7 +308,7 @@ class VectorRunner {
         }
 
         expect["values"]?.jsonObject?.forEach { (path, wantJson) ->
-            val want = formValueFromJson(wantJson)
+            val want = vectorValue(instance, wantJson)
             val got = state(path).value
             assertTrue(
                 formValuesEqual(got, want),
@@ -389,12 +420,30 @@ class VectorRunner {
         // narrowing fails here while the answer stays right.
 
         expect["choices"]?.jsonObject?.forEach { (path, want) ->
-            val got = instance.choices(path).map { it.value }
+            val got = instance.choices(instance.canonical(path)).map { it.value }
             assertEquals(want.jsonArray.map { it.jsonPrimitive.content }, got, "$where: choices[$path]")
         }
 
+        // §3.3: the options of a `rows` list are instances, so the vector names
+        // them by position and this translates — the same boundary
+        // [instanceIdAt] draws, for the same reason. It asserts more than
+        // `choices` could: an engine that returned positions, or labels, or ids
+        // in the wrong order fails here, because the comparison is against the
+        // instance list itself.
+        expect["choiceInstances"]?.jsonObject?.forEach { (path, want) ->
+            val resolved = instance.canonical(path)
+            val fieldId = resolved.substringAfterLast("].")
+            val rowsQuery = instance.form.fields.getValue(fieldId).rowsQuery
+                ?: throw AssertionError("$where: choiceInstances[$path] — no rows list")
+            val wantIds = want.jsonArray.map {
+                instanceIdAt(instance, rowsQuery.repeat, it.jsonPrimitive.content.toInt())
+            }
+            val gotIds = instance.choices(resolved).map { it.value }
+            assertEquals(wantIds, gotIds, "$where: choiceInstances[$path]")
+        }
+
         expect["labels"]?.jsonObject?.forEach { (path, want) ->
-            val got = instance.choices(path).map { it.label ?: emptyMap() }
+            val got = instance.choices(instance.canonical(path)).map { it.label ?: emptyMap() }
             val wanted = want.jsonArray.map { entry ->
                 entry.jsonObject.mapValues { it.value.jsonPrimitive.content }
             }

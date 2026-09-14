@@ -214,6 +214,17 @@ data class Choices(
     val valueColumn: String? = null,
     val labelColumn: Map<String, String>? = null,
     @Serializable(ExprSerializer::class) val filter: Expr? = null,
+    /**
+     * The repeat whose instances are the options, for `kind: "rows"` (§3.3).
+     *
+     * There is no `valueColumn` or `labelColumn` beside it, and the asymmetry
+     * is deliberate: a dataset row has columns an author chooses between, an
+     * instance has an identity and a summary label, and both of those are
+     * already defined elsewhere in the specification.
+     */
+    val repeat: String? = null,
+    /** Omit the instance the field is being answered in (§3.3). */
+    val excludeSelf: Boolean = false,
 )
 
 @Serializable
