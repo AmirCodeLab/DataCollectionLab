@@ -181,7 +181,14 @@ class PreviewSession private constructor(
                     put("message", message?.let { JsonPrimitive(it) } ?: JsonNull)
                 }
             }))
-            put("choices", JsonArray(instance.choices(fieldId).map { choice ->
+            // By PATH, not by field id. A `rows` list is a function of (field,
+            // instance) — `excludeSelf` omits a different member on every row
+            // (§3.3) — so by field id every row of a roster is handed the FIRST
+            // row's list: on MICS6 HL14 the third member is offered herself as
+            // her own mother and the first member is missing. Found in the
+            // browser, on the preview, after both engines and the handset were
+            // already right; break 242.
+            put("choices", JsonArray(instance.choices(path).map { choice ->
                 buildJsonObject {
                     put("value", JsonPrimitive(choice.value))
                     put("label", JsonPrimitive(choice.label?.get(language) ?: choice.label?.values?.firstOrNull() ?: choice.value))
