@@ -1,0 +1,98 @@
+{
+  "id": "reachability-008",
+  "type": "reachability",
+  "description": "A rows choice list over a repeat with no summaryLabel offers bare position numbers: legal, correct, and a warning rather than a refusal (§3.3, §10.3)",
+  "shape": "rows list over an unlabelled roster",
+  "spec": "form-ir 3.3, 10.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "p8",
+    "version": 1,
+    "title": {
+      "en": "p8"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "allowAdd": true,
+        "allowDelete": true,
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          },
+          {
+            "type": "question",
+            "id": "mother_line",
+            "dataType": "select_one",
+            "label": {
+              "en": "Record the line number of mother"
+            },
+            "choices": {
+              "kind": "rows",
+              "repeat": "members",
+              "excludeSelf": true
+            }
+          }
+        ]
+      },
+      {
+        "type": "repeat",
+        "id": "visits",
+        "label": {
+          "en": "Visits"
+        },
+        "summaryLabel": {
+          "en": "{0}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "seen_on"
+          }
+        ],
+        "allowAdd": true,
+        "allowDelete": true,
+        "children": [
+          {
+            "type": "question",
+            "id": "seen_on",
+            "dataType": "text",
+            "label": {
+              "en": "Seen on"
+            }
+          },
+          {
+            "type": "question",
+            "id": "seen_by",
+            "dataType": "select_one",
+            "label": {
+              "en": "Which visit?"
+            },
+            "choices": {
+              "kind": "rows",
+              "repeat": "visits"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expectedViolations": [],
+  "expectedWarnings": [
+    "mother_line: chooses from the rows of repeat 'members', which has no summaryLabel, so the options are position numbers"
+  ],
+  "expectedNeverShown": []
+}
