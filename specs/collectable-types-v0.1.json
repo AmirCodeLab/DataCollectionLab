@@ -74,11 +74,22 @@
     "difference is size rather than kind: rendering 229 villages is ordinary",
     "and rendering 37,852 is not, so the screen picks a searchable lazy list",
     "above a threshold. That is a presentation decision and not a capability —",
-    "a client that got it wrong would be slow, not incorrect."
+    "a client that got it wrong would be slow, not incorrect.",
+    "",
+    "`rows` is Form IR §3.3: the options are the instances of a repeat, the",
+    "value is an instance id and the label is §2.3's chain. It joined this list",
+    "when `CollectionViewModel` began resolving the list from the question's",
+    "PATH rather than its field id — which is the whole of what this source",
+    "needs above the engine, and is not cosmetic: a rows list is a function of",
+    "(field, instance), so by field id every row of a roster gets the first",
+    "row's list. On MICS6 HL14 that offers the second member herself as her own",
+    "mother and omits the first. The list renders, the names are real, and it",
+    "is the wrong list."
   ],
   "choiceSources": [
     "inline",
-    "dataset"
+    "dataset",
+    "rows"
   ],
   "notes": {
     "note": "Display only — it has no value (§2.1), so it is 'collectable' in the sense that a client can present it correctly, not in the sense that it stores an answer.",
@@ -92,6 +103,7 @@
     "drawing": "In §2.1 as a media reference. The signature canvas is the same widget and could serve it; not wired.",
     "geotrace": "In §2.1, no widget yet.",
     "geoshape": "In §2.1, no widget yet.",
+    "rows choices": "Form IR §3.3. Resolved by both engines, rendered by the collection screen through `FormInstance.choices(path)` — by path, because `excludeSelf` and an answer-reading filter make the list differ per instance. `RowChoiceScopeTest` holds that; `conformance/vectors/repeat-017` holds the engines to it. The builder authors it as a repeat picker beside the dataset kind's key picker.",
     "dataset choices": "Form IR §3. Resolved by both engines (item 4 part 3), delivered to a device (part 4), and rendered by the collection screen through `FormInstance.choices` — so a form using one imports, pins its data, and is collectable. Measured on a Pixel at 37,852 villages: see §3.2."
   }
 }

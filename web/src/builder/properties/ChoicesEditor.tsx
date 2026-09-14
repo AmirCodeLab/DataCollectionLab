@@ -19,8 +19,10 @@ import type {
   FormIr,
   I18n,
   InlineChoices,
+  RowsChoices,
 } from "@/builder/ir";
-import { Field, I18nField, Select, TextField } from "./fields";
+import { find, repeats } from "@/builder/ir";
+import { Checkbox, Field, I18nField, Select, TextField } from "./fields";
 
 export function ChoicesEditor({
   ir,
@@ -36,6 +38,12 @@ export function ChoicesEditor({
   const palette = useQuery(paletteQuery());
   const sources = palette.data?.choiceSources ?? [];
   const kind = value?.kind ?? "";
+  const rosters = repeats(ir);
+  // The repeat this question sits in, if any. It is the default for a rows
+  // list because it is the case the feature exists for — MICS6 HL14 asks for
+  // the mother's line number ON the member's own row — and because it is the
+  // only placement where `excludeSelf` means anything (§10.2).
+  const here = find(ir, nodeId)?.repeat?.id ?? null;
 
   const switchTo = (next: string) => {
     if (next === "") onChange(undefined);
@@ -47,6 +55,8 @@ export function ChoicesEditor({
         valueColumn: "",
         labelColumn: {},
       });
+    } else if (next === "rows") {
+      onChange({ kind: "rows", repeat: here ?? rosters[0]?.id ?? "" });
     }
   };
 
@@ -88,6 +98,16 @@ export function ChoicesEditor({
         <DatasetSource
           ir={ir}
           nodeId={nodeId}
+          value={value}
+          onChange={onChange}
+        />
+      )}
+      {value?.kind === "rows" && (
+        <RowsSource
+          ir={ir}
+          nodeId={nodeId}
+          here={here}
+          rosters={rosters}
           value={value}
           onChange={onChange}
         />
@@ -245,6 +265,115 @@ function DatasetSource({
       <Field
         label="filter"
         hint="evaluated per candidate row; a bare name is a column of that row (§3.2)"
+      >
+        <ExpressionEditor
+          label="filter"
+          value={value.filter}
+          onChange={(next) => {
+            if (next === undefined) {
+              const { filter: _dropped, ...rest } = value;
+              onChange(rest);
+            } else {
+              onChange({ ...value, filter: next });
+            }
+          }}
+          ir={ir}
+          nodeId={nodeId}
+          rowScope
+        />
+      </Field>
+    </div>
+  );
+}
+
+/** Form IR §3.3: a repeat picker where the dataset kind has a key picker.
+ *
+ * Three controls and one rule. The repeat decides whose rows are offered; the
+ * answer stores the **instance id**, which is why there is nothing to pick a
+ * value column from. `excludeSelf` is offered only where it is legal — inside
+ * the repeat the list comes from — because outside it there is no instance to
+ * exclude and §10.2 refuses the document; showing the checkbox anyway would
+ * let an author build a form the publish gate rejects for a reason the screen
+ * never mentioned.
+ */
+function RowsSource({
+  ir,
+  nodeId,
+  here,
+  rosters,
+  value,
+  onChange,
+}: {
+  ir: FormIr;
+  nodeId: string;
+  here: string | null;
+  rosters: { id: string; label: string }[];
+  value: RowsChoices;
+  onChange: (next: RowsChoices) => void;
+}) {
+  const inside = here !== null && here === value.repeat;
+  const summarised = (repeatId: string): boolean => {
+    const node = find(ir, repeatId)?.node;
+    const label = (node as { summaryLabel?: I18n } | undefined)?.summaryLabel;
+    return label !== undefined && Object.keys(label).length > 0;
+  };
+
+  return (
+    <div className="space-y-2">
+      <Select
+        label="rows of"
+        value={value.repeat}
+        onChange={(next) => {
+          // Dropping a now-illegal excludeSelf rather than carrying it: the
+          // author changed which roster is offered, and the flag would be a
+          // §10.2 refusal at publish with nothing on this screen to explain it.
+          const next_inside = here !== null && here === next;
+          const { excludeSelf: _dropped, ...rest } = value;
+          onChange(
+            next_inside && value.excludeSelf === true
+              ? { ...rest, repeat: next, excludeSelf: true }
+              : { ...rest, repeat: next },
+          );
+        }}
+        hint="the answer stores the row's identity, so it still means the same person after another row is deleted (§3.3)"
+      >
+        {rosters.length === 0 && <option value="">this form has no repeat</option>}
+        {rosters.map((roster) => (
+          <option key={roster.id} value={roster.id}>
+            {roster.id} — {roster.label}
+          </option>
+        ))}
+      </Select>
+      {value.repeat !== "" && !summarised(value.repeat) && (
+        <p className="text-[11px] text-amber-700">
+          <code>{value.repeat}</code> has no summary label, so this question
+          will offer position numbers — 1, 2, 3 — rather than names (§10.3).
+          Set one on the repeat.
+        </p>
+      )}
+      {inside ? (
+        <Checkbox
+          label="not the person on this row"
+          checked={value.excludeSelf === true}
+          onChange={(next) => {
+            if (next) onChange({ ...value, excludeSelf: true });
+            else {
+              const { excludeSelf: _dropped, ...rest } = value;
+              onChange(rest);
+            }
+          }}
+          hint="MICS6 HL14: nobody is their own mother, and the paper form has no list to offer them from"
+        />
+      ) : (
+        <p className="text-[11px] text-slate-500">
+          “Not the person on this row” is offered only on a question inside the
+          repeat it lists, because outside one there is no row to exclude
+          (§10.2).
+        </p>
+      )}
+      <Field
+        label="filter"
+        hint="evaluated per candidate row; $row.field is that member's answer, a bare name is this row's (§3.3)"
       >
         <ExpressionEditor
           label="filter"

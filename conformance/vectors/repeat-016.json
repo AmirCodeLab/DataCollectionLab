@@ -1,0 +1,204 @@
+{
+  "id": "repeat-016",
+  "description": "A rows-choice field depends on the fields its option labels are made of, so renaming a member relabels the option that points at them — and deleting somebody ELSE leaves the answer naming the same person, while deleting the referent is one choice error (§3.3, §6.3)",
+  "spec": "3.3",
+  "form": {
+    "irVersion": "0.1",
+    "formId": "rowchoice",
+    "version": 1,
+    "title": {
+      "en": "rowchoice"
+    },
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ],
+    "children": [
+      {
+        "type": "repeat",
+        "id": "members",
+        "label": {
+          "en": "Members"
+        },
+        "summaryLabel": {
+          "en": "{0}"
+        },
+        "summaryLabelArgs": [
+          {
+            "op": "ref",
+            "path": "name"
+          }
+        ],
+        "allowAdd": true,
+        "allowDelete": true,
+        "children": [
+          {
+            "type": "question",
+            "id": "name",
+            "dataType": "text",
+            "label": {
+              "en": "Name"
+            }
+          }
+        ]
+      },
+      {
+        "type": "question",
+        "id": "mother",
+        "dataType": "select_one",
+        "label": {
+          "en": "Who is the mother?"
+        },
+        "choices": {
+          "kind": "rows",
+          "repeat": "members"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "addInstance": "members"
+    },
+    {
+      "set": {
+        "members[0].name": "Zubaida",
+        "members[1].name": "Bilal",
+        "members[2].name": "Amina"
+      }
+    },
+    {
+      "set": {
+        "mother": {
+          "instance": {
+            "repeat": "members",
+            "index": 1
+          }
+        }
+      },
+      "expect": {
+        "choiceInstances": {
+          "mother": [
+            0,
+            1,
+            2
+          ]
+        },
+        "labels": {
+          "mother": [
+            {
+              "en": "⁨Zubaida⁩"
+            },
+            {
+              "en": "⁨Bilal⁩"
+            },
+            {
+              "en": "⁨Amina⁩"
+            }
+          ]
+        },
+        "dependsOn": {
+          "mother": [
+            "name"
+          ]
+        },
+        "valid": {
+          "mother": true
+        }
+      }
+    },
+    {
+      "set": {
+        "members[1].name": "Bilquis"
+      },
+      "expect": {
+        "labels": {
+          "mother": [
+            {
+              "en": "⁨Zubaida⁩"
+            },
+            {
+              "en": "⁨Bilquis⁩"
+            },
+            {
+              "en": "⁨Amina⁩"
+            }
+          ]
+        },
+        "values": {
+          "mother": {
+            "instance": {
+              "repeat": "members",
+              "index": 1
+            }
+          }
+        },
+        "valid": {
+          "mother": true
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 0
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 2
+        },
+        "choiceInstances": {
+          "mother": [
+            0,
+            1
+          ]
+        },
+        "values": {
+          "mother": {
+            "instance": {
+              "repeat": "members",
+              "index": 0
+            }
+          }
+        },
+        "errors": {
+          "mother": []
+        },
+        "valid": {
+          "mother": true
+        }
+      }
+    },
+    {
+      "deleteInstance": {
+        "repeat": "members",
+        "index": 0
+      },
+      "expect": {
+        "instanceCount": {
+          "members": 1
+        },
+        "choiceInstances": {
+          "mother": [
+            0
+          ]
+        },
+        "errors": {
+          "mother": [
+            "choice"
+          ]
+        },
+        "valid": {
+          "mother": false
+        },
+        "formValid": false
+      }
+    }
+  ]
+}

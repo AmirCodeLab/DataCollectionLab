@@ -965,12 +965,20 @@ class CollectionViewModel(
             selectedValues = (fieldState.value as? FormValue.Sequence)
                 ?.items.orEmpty()
                 .mapNotNull { (it as? FormValue.Text)?.value },
-            // Through the engine, always. An inline list is `choices.items` and
-            // a dataset-backed one is a resolved, filtered lookup (§3.2) — and
+            // Through the engine, always. An inline list is `choices.items`,
+            // a dataset-backed one is a resolved, filtered lookup (§3.2), and
+            // a `rows` list is the roster's current instances (§3.3) — and
             // reading `items` directly is what made every dataset select render
             // with nothing under it, which is why the collectable registry
             // refused to publish one at all.
-            choices = instance.choices(node.id).map {
+            //
+            // **By path, not by field id.** A rows list is a function of
+            // (field, instance): `excludeSelf` omits a different member on
+            // every row, so asking by field id would hand this row the first
+            // row's list — her own name in it and his missing. The engine
+            // reads the instance off the path (§3.3), which is the same fix
+            // the label above is still waiting for.
+            choices = instance.choices(path).map {
                 ChoiceUi(it.value, it.label.resolve(lang) ?: it.value)
             },
             dateIso = textValue,

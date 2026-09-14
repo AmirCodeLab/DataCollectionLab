@@ -772,7 +772,28 @@ for a container.
 | **Why not fixed** | It is an IR question before it is a builder question, and not a small one. An index that is an expression makes a reference's target depend on an answer, so §5.1's dependency graph would have to admit an edge it cannot compute statically — which is the same objection that refused an answer-dependent `rowSource` filter (§2.3, §10.2). Resolving it needs a design, not a patch: candidates are a `lookup`-style function over a repeat keyed on a stable id, or the cross-repeat reference §9 of the pilot scope already lists as out of phase. Filed so the next person meets the argument rather than the surprise |
 | **Blocks** | Nothing in RCons's current corpus, on the evidence of §5. Any MICS or DHS household schedule, immediately |
 
+## 34. A dangling row reference reads "Invalid answer"
+
+| | |
+|---|---|
+| **Where** | `clients/composeApp/.../CollectionViewModel.kt` `questionUi`: every error that is not `required` renders as the form's constraint message, or as `UiStrings.invalidAnswer` when there is none. A §6.3 `choice` error has no constraint message, so it reads **"Invalid answer"** |
+| **Status** | Open — seen on a phone 14 September 2026 (`docs/e2e-run-2026-09-14-rows.md` §4), after deleting the member a rows question pointed at |
+| **What it costs** | The enumerator is told the answer is wrong and not *why*, on the one error where the reason is both specific and actionable: the person this question refers to is no longer on the list, so re-answer it. For a dataset-backed or inline select a `choice` error means a value the enumerator could not have picked — rare, and usually a sync or a form-version story. For a `rows` question it is an ordinary consequence of deleting a row, which happens in real interviews |
+| **Why not fixed here** | The engine already reports the kind; the client throws it away. The fix is a sentence per kind in `UiStrings` and one `when` arm, plus the same in the console's preview — small, and worth doing where the wording can be decided for every error kind at once rather than for this one in passing. It is a client-side wording change with no spec or engine part, so no vector reaches it either way |
+| **Blocks** | Nothing. The error is visible, red, and blocks finalisation; it is the sentence that is thin |
+
 ## Closed
+
+### 33. §7.1's slot pattern killed the Android app on every form
+
+| | |
+|---|---|
+| **Where** | `shared/form-engine/.../Text.kt`, `Interpolation.SLOT` — `Regex("""\{\{|}}|\{(\d+)}""")`, a bare `}}` alternative |
+| **Status** | **Closed 14 September 2026**, the day it was found, by escaping every brace: `\{\{|\}\}|\{(\d+)\}` means the same thing to every engine |
+| **What happened** | `java.util.regex` accepts an unescaped `}`; Android's `com.android.icu` refuses it — *"Syntax error in regexp pattern near index 6"*. The pattern is a `val` on an object, so the refusal arrived as `ExceptionInInitializerError` from the class initialiser: **the app died the moment it compiled any form**, on the tap that opens one, with no message. Found by opening a form on the emulator (`docs/e2e-run-2026-09-14-rows.md` §3) |
+| **Why it appeared now** | The pattern had been there since interpolation landed, and was only touched when a node *had* arguments. PR #64's §10.3 unfilled-slot warning calls `slotIndices` for **every node of every form**, so from 13 September the class initialised on every compile. The next handset run was the first one after that |
+| **Why nothing caught it** | `jvmTest` and `testAndroidHostTest` both run on the JVM's regex engine — androidHost is the *host*, which is what it is for — and `wasmJsNodeTest` runs on JavaScript's. All three compiled the pattern happily. The only engine that rejects it is the one on a device, and the only thing that runs that is a handset run. This is `docs/project-conventions.md`'s "a JVM-only stdlib call compiles there and nowhere else" with the platforms swapped: same spec, same source, a different runtime library |
+| **What guards it now** | `InterpolationRegexTest`, and it is a **source check** rather than a compile: a test that compiled the pattern would pass for precisely the reason the bug shipped. It asserts the rule that keeps ICU happy — every brace escaped — which is stricter than Java needs and legal in both |
 
 ### 31. A `note` marked `required` could never be answered
 

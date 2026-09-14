@@ -287,6 +287,13 @@ and `null` for an enumerator-added instance (`_` is reserved runtime metadata,
 supervisor see which sampled members were never interviewed. An instance id is
 internal and per submission; `_rowKey` is the identity the sample already had.
 
+**Internal is not the same as invisible.** A `rows` choice list (§3.3) stores an
+instance id as an answer, which is the one thing an instance id is *for*: it is
+the only identity every instance has, since `_rowKey` is null for the ones the
+enumerator added. What stays true is that it is per submission and means nothing
+outside one — an export joins repeat rows on `(submission_id, instance_id)` for
+that reason, and on `_rowKey` when joining back to the sample.
+
 **It is not yet an expression reference.** An earlier draft of this section
 wrote it as `members[.]._rowKey`, which §4.2 does not grant and no engine
 resolves: the engines record and report the key, and nothing evaluates a path to
@@ -394,7 +401,18 @@ Dataset-backed:
 }
 ```
 
-Choice filters evaluate per candidate row. The row's columns are addressable as `$row.column_name`.
+The rows of a repeat:
+
+```json
+"choices": {
+  "kind": "rows",
+  "repeat": "members",
+  "excludeSelf": true,
+  "filter": <expr>
+}
+```
+
+Choice filters evaluate per candidate row. The row's columns are addressable as `$row.column_name` — and for a `rows` list, whose candidates are repeat instances rather than dataset rows, `$row.field_id` is that instance's value of that field. Every other reference in a filter resolves from the scope the field is being answered in, which is what lets a filter compare the two: `$row.age > age`, inside a repeat, is *this candidate is older than the person whose row I am on*.
 
 ### 3.1 Dataset row identity
 
@@ -607,6 +625,136 @@ fixes the inputs; it cannot see a caller choosing them). Two clients would
 narrow differently, both would pass every vector, and the enumerator on one
 would be offered villages the other hides. The source is allowed to be fast.
 It is not allowed to be selective.
+
+### 3.3 Rows of a repeat as a choice list
+
+A `select_one` or `select_multiple` whose options are the **instances of a
+repeat**: *who is this child's mother*, answered by pointing at a row of the
+household roster rather than by writing a number into a box.
+
+```json
+{
+  "type": "question",
+  "id": "hl14_mother",
+  "dataType": "select_one",
+  "label": { "en": "Record the line number of mother" },
+  "choices": { "kind": "rows", "repeat": "members", "excludeSelf": true }
+}
+```
+
+**The value is the instance id and the label is §2.3's chain.** There is no
+`valueColumn` and no `labelColumn`, and the asymmetry with `kind: "dataset"` is
+deliberate: a dataset row has columns an author chooses between, while an
+instance has an identity and a summary label, both already defined elsewhere in
+this specification.
+
+#### Why the id, and what it is worth
+
+An instance id is minted once, on the device, and names that instance for the
+life of the submission (§2.3, §5.4). It survives a delete of any other
+instance, a sync, and a server rebuilding the form to read the submission back
+— `restore()` adopts the ids it is given precisely so that nothing renumbers a
+household's members. It is what an export keys a repeat row on.
+
+A **position** has none of those properties. `members[2]` means a different
+person after a delete above it, so an answer that was correct becomes wrong
+retroactively with nothing in an error state. That is the whole reason this is a
+kind of choice list rather than an index into one
+(`docs/proposal-answer-indexed-rows.md` §3).
+
+`_rowKey` is not the value either: it is null for an enumerator-added instance
+(§2.3), and a household's newborn has no sample row.
+
+#### The list is live, and it is per instance
+
+The list is resolved from the repeat's current instances **at the moment it is
+asked for**, in instance order (§2.3). An instance added after the question was
+answered appears; a deleted one disappears.
+
+**A `rows` list can differ between instances of the repeat the field is in**,
+which no other choice list does. `excludeSelf` makes it so by construction, and
+a `filter` reading answers makes it so wherever the answers differ. So the list
+is a function of `(field, instance)`, not of the field alone, and an engine's
+resolution call takes an **instance-qualified path** — `members[i2].hl14_mother`
+— in the same spelling every other address into a repeat already uses. A bare
+field id for a field inside a repeat resolves against the first instance, which
+is what it has always meant and is the reading a caller outside the repeat gets.
+
+#### `excludeSelf`
+
+`excludeSelf: true` omits the instance the field is being answered in.
+
+It is a **§10.2 semantic error** on a field that is not inside the repeat its
+list comes from: there is no "self" to exclude there, and a flag that silently
+did nothing would be a control that does nothing.
+
+It is a flag rather than an expression on purpose, and the reasoning — including
+the identity comparison it deliberately does **not** grant — is
+`docs/decision-rows-self-exclusion.md`. The short form: the predicate an
+instrument needs is *the candidate is not the answering instance*, an author
+writing that by hand would write `$row.name != name` sooner or later and be
+wrong for two members who share a name, and the failure is a list with one wrong
+option in it that nothing renders differently.
+
+Note that the other identity comparison a roster wants needs nothing new: *the
+father is not the same person as the mother* is `${hl14_mother} !=
+${hl18_father}`, two stored answers compared as ordinary values.
+
+#### Dependencies
+
+A `rows` field depends on:
+
+- every field the repeat's `summaryLabelArgs` reads — **because the option
+  labels are made of answers.** Without this edge the list is right and the
+  names in it are stale: a member renamed after the list was drawn still reads
+  by the old name, and nothing about the rendered list looks wrong;
+- every field its `filter` reads, both the `$row.` ones (a field of the
+  candidate instance) and the ones that resolve from the answering scope.
+
+The first is the edge this feature can fail silently on, which is why
+`conformance/vectors/repeat-016` asserts the edge itself rather than a
+rendering of it.
+
+It follows that a `rows` field whose labels or filter read a `sensitive` field
+and is not itself `sensitive` is a §10.2 leak, by the check that already walks
+`dependsOn` — the same path that catches an interpolated label.
+
+#### Membership (§6.3)
+
+Exact match on the instance id, and §6.3 applies unchanged. Two consequences
+worth stating because they are the behaviour this design exists for:
+
+- **Deleting the referenced instance** leaves an answer that is no longer in the
+  list: one `choice` error on the field, which §6.2 makes a bar to finalisation.
+  The enumerator is told that the person this refers to is no longer on the
+  list, on the device, at the moment it happens.
+- **Deleting any other instance** does not touch the answer. It still names the
+  same person.
+
+#### The performance contract
+
+> Resolving a `rows` list is **O(instances)** and never O(answers): one pass
+> over the repeat's instance list, one summary label per instance.
+>
+> Membership is a **lookup by id**, not a scan of rendered labels.
+
+Both are met by shape rather than by an optimisation, and both are stated
+because an implementation could lose them without any vector noticing: a list of
+thirty rows is fast whatever an engine does to produce it. §3.2's contract is
+stated in the same spirit and for a list of 37,852; nothing here approaches
+that, and a roster large enough for the difference to show is not a roster.
+
+#### What a `rows` answer is not
+
+It is an identity, not a cursor. Reading a *field* of the chosen row —
+`${members[@mother].sex}` — is not in v0.1 (§12). An id-keyed reference of that
+shape is strictly safer than a positional one, and nothing in MICS6's HL module
+needs it: HL14 and HL18 record an identity and HL20 copies one.
+
+There is also no way to offer an option that is **not** a row. MICS6 HL20's
+reserved `90` ("No one", for a child 15–17) is authored as a gate question and a
+`calculate`; `docs/decision-rows-self-exclusion.md` §5 writes it out, and says
+what an `extra` list would have to solve before it could exist.
 
 ## 4. Expressions
 
@@ -1053,6 +1201,12 @@ whitespace can be cleaned once and reported, not at every comparison forever.
 did. An empty `select_multiple` is unanswered, not "a list containing nothing
 valid" (§4.4).
 
+**A `rows` list's values are instance ids** (§3.3), so membership answers a
+question the other two kinds cannot raise: the referenced instance was deleted.
+It is one `choice` error, by this section's ordinary rule and with no special
+case — which is the point, because the alternative design stored a position and
+had nothing to report.
+
 **A submission is validated against the form version it was collected under**
 (§9). An answer that was in v1's list and was removed in v2 stays valid for a
 submission collected under v1. Engines do not choose a version — they are given
@@ -1299,7 +1453,15 @@ a field-list group**, **a repeat carrying both `countExpr` and `rowSource`**, **
 outside its repeat**, **an inline `bind` naming `label`**, and **a `rowSource`
 with `kind: "dataset"`** while §2.3's two conditions are unmet,
 **a statically-unreachable container holding answerable questions**
-(§10.3), and **a `note` carrying `required`**.
+(§10.3), **a `note` carrying `required`**, and **an `excludeSelf` on a field
+that is not inside the repeat its list comes from**.
+
+**`excludeSelf` outside its own repeat** is refused because there is nothing for
+it to exclude. A field in `household` offering the rows of `members` is not
+answered in any instance of `members`, so the flag can only be a no-op — and a
+control that appears to do something and does nothing is a shape this repository
+has already paid for once. The author either named the wrong repeat or put the
+question in the wrong place, and both are worth being told.
 
 The four `rowSource` refusals are one reason wearing four hats: each is a form
 that would run, and run differently on two engines or on two days. Two row
@@ -1382,6 +1544,21 @@ Reported once per node rather than once per language: an author writes the slot
 once and translates around it, so three languages naming the same missing
 argument is three copies of one problem. `conformance/reachability-007` pins it
 on both engines.
+
+**A `rows` choice list over a repeat with no `summaryLabel`.** §2.3's chain
+falls through to the instance's 1-based position, so the question offers a list
+of bare numbers — `1`, `2`, `3` — which is exactly as much as the paper form it
+replaces offers and much less than the enumerator needs to pick the right
+person. The document is legal and the list is correct, so this is a warning.
+
+It is worth warning about because it used to be a limitation and is now an
+authoring choice: `summaryLabel` and its arguments have an editor, so the author
+who sees this can fix it where they are. One sentence per field, naming the
+repeat.
+
+A repeat whose `summaryLabel` exists but renders nothing for a given instance is
+**not** this case — that is the chain doing its job for a row nobody has named
+yet (§2.3), and it corrects itself on the next keystroke.
 
 Allow publish: missing translation, decimal equality comparison, unreachable
 relevance (statically false), repeat with no bound, unused calculate.
@@ -1710,6 +1887,18 @@ is a legal roster.
   pre-population* below rather than answering it: pre-population from a
   **dataset** is specified, from another form's **submission** is not.
 
+- **Reading a field through a row reference.** §3.3 stores the identity of a
+  chosen instance and nothing reads *through* it: `${members[@mother].sex}` has
+  no spelling. An id-keyed reference is strictly safer than the positional one
+  this specification does have, because ids do not renumber. Nothing in MICS6's
+  HL module needs it — HL14 and HL18 record an identity, HL20 copies one — and
+  the first form that does gets to bring the case
+- **An option in a `rows` list that is not a row.** MICS6 HL20 reserves `90` for
+  "No one"; adaptations use `00` for "not in this household". Authored today as
+  a gate question and a `calculate` (`docs/decision-rows-self-exclusion.md` §5).
+  The unsolved part is not the list but the values: an `extra` item colliding
+  with an instance id must be refused, and `restore()` deliberately adopts ids
+  from another minter, so the refusal cannot be a pattern match on `i<n>`
 - Whether aggregates should exclude non-relevant instances (currently they do not; only null values are ignored)
 - Cross-form references for case pre-population
 - Server-only expressions and where they are declared

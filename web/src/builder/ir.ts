@@ -47,7 +47,31 @@ export interface DatasetChoices {
   [key: string]: unknown;
 }
 
-export type ChoiceSource = InlineChoices | DatasetChoices;
+/** Form IR §3.3: the options are the instances of a repeat.
+ *
+ * No `valueColumn` and no `labelColumn`, and the asymmetry with
+ * {@link DatasetChoices} is the spec's: a dataset row has columns an author
+ * chooses between, an instance has an identity — the instance id, which is
+ * what the answer stores — and a summary label, which is §2.3's chain.
+ */
+export interface RowsChoices {
+  kind: "rows";
+  repeat: string;
+  excludeSelf?: boolean;
+  filter?: Expr;
+  [key: string]: unknown;
+}
+
+export type ChoiceSource = InlineChoices | DatasetChoices | RowsChoices;
+
+/** Every repeat in the form, in document order, for a rows list's picker. */
+export function repeats(ir: FormIr): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  walk(ir, ({ node }) => {
+    if (isRepeat(node)) out.push({ id: node.id, label: displayLabel(node, ir) });
+  });
+  return out;
+}
 
 export interface RowItem {
   value: string;

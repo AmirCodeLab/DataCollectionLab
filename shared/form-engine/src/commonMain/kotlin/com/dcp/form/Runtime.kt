@@ -60,6 +60,13 @@ class CompiledField(
      * every engine, and a vector asserts that it did.
      */
     val choiceQuery: ChoiceQuery? = null,
+    /**
+     * A `rows` choice list, compiled (§3.3). Null for every other kind. Held
+     * beside [choiceQuery] rather than inside it because the two share only the
+     * word "filter": a dataset list decomposes into a selector a store can
+     * index and a residual, and a rows list has nothing to push anywhere.
+     */
+    val rowsQuery: RowsQuery? = null,
 )
 
 /** A validated form with its dependency graph resolved. */
@@ -104,6 +111,7 @@ class CompiledForm(val ir: FormIr) {
         checkIrVersion(ir.irVersion)
 
         compile()
+        linkRowsChoices()
         checkInterpolation()
         checkReferences()
         topoOrder = topologicalOrder()
@@ -278,6 +286,34 @@ class CompiledForm(val ir: FormIr) {
                 containers[anc]?.relevant?.let { collectRefs(it, deps) }
             }
 
+            val rowsQuery = compileRowsChoices(question.choices)
+            if (rowsQuery != null) {
+                // §10.2: nothing to exclude from a list the field is not
+                // answered inside. The flag could only be a no-op, and a
+                // control that appears to do something and does nothing is two
+                // claims wearing one assertion.
+                if (rowsQuery.excludeSelf && rowsQuery.repeat !in enclosingRepeats) {
+                    throw CompileException(
+                        "${node.id}: choices.excludeSelf, but the question is not " +
+                            "inside repeat '${rowsQuery.repeat}', so there is no " +
+                            "instance to exclude (§3.3, §10.2)"
+                    )
+                }
+                // A filter reads answers of the candidate instance through
+                // `$row.field` and answers of the answering scope through
+                // everything else, and the field depends on both: changing any
+                // member's sex must re-resolve a list filtered on it, and
+                // re-check the member already chosen.
+                rowsQuery.filter?.let { filter ->
+                    collectRefs(filter, deps)
+                    for (path in refPaths(filter)) {
+                        if (path.startsWith(ROW_REF_PREFIX)) {
+                            deps.add(path.removePrefix(ROW_REF_PREFIX))
+                        }
+                    }
+                }
+            }
+
             val query = compileChoices(question.choices)
             if (query != null) {
                 // A selector expression reads answers, so the field depends on
@@ -299,8 +335,54 @@ class CompiledForm(val ir: FormIr) {
                 ancestors = ancestors,
                 repeat = enclosingRepeats.firstOrNull(),
                 choiceQuery = query,
+                rowsQuery = rowsQuery,
             )
             order.add(node.id)
+        }
+    }
+
+    /**
+     * Finish a `rows` list once every repeat has been walked (§3.3).
+     *
+     * Two things that cannot be done where the field is met, because a field
+     * may name a repeat the walk has not reached yet.
+     *
+     * **The repeat must exist.** A `rows` list over a name that is not a repeat
+     * is an unresolvable reference, and it is caught here with a message that
+     * says which — [checkReferences] reads `dependsOn`, and a repeat id is not
+     * a field, so it would never see this one.
+     *
+     * **The option labels are made of answers.** `summaryLabelArgs` is what a
+     * row of the list says (§2.3), so the field depends on every field those
+     * arguments read. Without this edge the list is right and the *labels in
+     * it* are stale: a member renamed after the list was drawn still reads by
+     * the old name, on a list that looks perfectly correct. That is break 56's
+     * shape, and `conformance/vectors/repeat-016` asserts the edge itself
+     * rather than a rendering, because every rendering is right on a fresh
+     * recalculation.
+     */
+    private fun linkRowsChoices() {
+        for (compiled in fields.values) {
+            val rowsQuery = compiled.rowsQuery ?: continue
+            if (rowsQuery.repeat !in repeats) {
+                throw CompileException(
+                    "${compiled.fieldId}: choices name repeat '${rowsQuery.repeat}', " +
+                        "which is not a repeat in this form"
+                )
+            }
+            val summary = containerExprDeps[rowsQuery.repeat]?.get("summaryLabelArgs")
+            if (summary != null) {
+                fields[compiled.fieldId] = CompiledField(
+                    fieldId = compiled.fieldId,
+                    node = compiled.node,
+                    dataType = compiled.dataType,
+                    dependsOn = compiled.dependsOn + summary,
+                    ancestors = compiled.ancestors,
+                    repeat = compiled.repeat,
+                    choiceQuery = compiled.choiceQuery,
+                    rowsQuery = compiled.rowsQuery,
+                )
+            }
         }
     }
 
@@ -487,6 +569,19 @@ class CompiledForm(val ir: FormIr) {
             // to guarantee they are never asked.
             if (staticallyFalse(f.node.relevant)) {
                 warnings.add("${f.fieldId}: unreachable relevance (statically false)")
+            }
+            // §10.3: a rows list over a repeat with no summaryLabel offers bare
+            // position numbers — §2.3's chain falling through to rule 3. The
+            // document is legal and the list is correct, so it is a warning; it
+            // is worth making because it stopped being a limitation when
+            // summaryLabelArgs got an editor and became an authoring choice.
+            val rowsQuery = f.rowsQuery
+            if (rowsQuery != null && repeats[rowsQuery.repeat]?.summaryLabel.isNullOrEmpty()) {
+                warnings.add(
+                    "${f.fieldId}: chooses from the rows of repeat " +
+                        "'${rowsQuery.repeat}', which has no summaryLabel, so the " +
+                        "options are position numbers"
+                )
             }
         }
     }
@@ -1022,17 +1117,130 @@ class FormInstance(
         }
     }
 
+    // -- rows-of-a-repeat choice lists (§3.3) ------------------------------
+
     /**
-     * The resolved option list for a field, in dataset order (§3.2).
+     * Split a resolution path into a field id and the instance to read it in.
+     *
+     * `members[i2].hl14_mother` is the field `hl14_mother` resolved in instance
+     * `i2` of `members`; a bare `hl14_mother` leaves the scope to [scopeOf] and
+     * means what it always meant.
+     *
+     * The bracket is an **instance id**, never a position. Positional
+     * addressing exists in expressions (§4.2) and deliberately not here: a
+     * choice list keyed on a position is the design §3.3 exists instead of.
+     */
+    private fun resolutionScope(path: String): Pair<String, Pair<String, String>?> {
+        val open = path.indexOf('[')
+        val close = path.indexOf("].")
+        if (open < 0 || close < open) return path to scopeOf(path)
+        val repeatId = path.substring(0, open)
+        val instanceId = path.substring(open + 1, close)
+        val fieldId = path.substring(close + 2)
+        val compiled = form.fields[fieldId] ?: throw CompileException("unknown field: $fieldId")
+        if (compiled.repeat != repeatId) {
+            throw CompileException("'$fieldId' is not a field of repeat '$repeatId'")
+        }
+        if (instanceId !in (instances[repeatId] ?: emptyList())) {
+            throw CompileException("repeat $repeatId has no instance '$instanceId'")
+        }
+        return fieldId to (repeatId to instanceId)
+    }
+
+    /**
+     * One instance's answers, as the mapping `${'$'}row.field` reads from.
+     *
+     * The same shape a dataset row has, which is why a filter over a `rows`
+     * list needs nothing new in the evaluator: `${'$'}row.age` is a lookup in
+     * this map whether the candidate came from a village dataset or from the
+     * household roster.
+     */
+    private fun instanceRow(repeatId: String, instanceId: String): Map<String, FormValue> =
+        fieldsOf(repeatId).associateWith { fieldId ->
+            values["$repeatId[$instanceId].$fieldId"] ?: FormValue.Null
+        }
+
+    /**
+     * This field's option list, as instance ids (§3.3).
+     *
+     * [equals] asks the membership question — is *this* id an option — and is
+     * answered as a **lookup**: the id is checked against the instance list and
+     * only that instance is filtered. §3.3's contract is that membership is a
+     * lookup by id and never a scan of rendered labels, and the labels are the
+     * expensive part.
+     */
+    private fun rowsInstances(
+        cf: CompiledField,
+        scope: Pair<String, String>?,
+        equals: String? = null,
+    ): List<String> {
+        val query = cf.rowsQuery ?: return emptyList()
+        val ordered = instances[query.repeat] ?: emptyList()
+        val candidates = if (equals != null) {
+            if (equals in ordered) listOf(equals) else emptyList()
+        } else {
+            ordered
+        }
+        return candidates.filter { instanceId ->
+            // `excludeSelf` is the answering instance's own row, and §10.2
+            // refuses the flag where there is no answering instance, so this
+            // can only be a no-op on a field the compiler already accepted.
+            if (query.excludeSelf && scope == query.repeat to instanceId) {
+                false
+            } else if (query.filter == null) {
+                true
+            } else {
+                // `nullIs = false` for the same reason §3.2's residual does it:
+                // a candidate a filter cannot decide about is not a permitted
+                // answer, which is the opposite of `constraint`'s coercion.
+                Evaluator.coerceBoolean(
+                    Evaluator.evaluate(
+                        query.filter,
+                        context(scope).copy(row = instanceRow(query.repeat, instanceId)),
+                    ),
+                    nullIs = false,
+                )
+            }
+        }
+    }
+
+    /**
+     * One option's label, per language — §2.3's chain, per §3.3.
+     *
+     * The same function the roster screen calls, so the option list reads
+     * exactly like the list the enumerator was just looking at.
+     */
+    private fun rowsLabel(repeatId: String, instanceId: String): Map<String, String> =
+        form.ir.languages.associateWith { summaryLabel(repeatId, instanceId, it) }
+
+    /**
+     * The resolved option list for a field, in dataset order (§3.2, §3.3).
      *
      * Inline lists are returned as they stand; a dataset-backed list is the
-     * selector's rows with the residual applied. A client renders both kinds
-     * the same way and so cannot end up implementing one of them itself.
+     * selector's rows with the residual applied; a `rows` list is the repeat's
+     * current instances. A client renders all three kinds the same way and so
+     * cannot end up implementing one of them itself.
+     *
+     * **The path may name an instance** — `members[i2].hl14_mother` — and for a
+     * `rows` list it usually must. That list is a function of (field, instance)
+     * rather than of the field alone: `excludeSelf` omits a different member on
+     * every row, and a filter reading answers narrows differently wherever the
+     * answers differ (§3.3). A bare field id inside a repeat still resolves
+     * against the first instance, which is what it has always meant.
      */
-    fun choices(fieldId: String): List<ChoiceItem> {
+    fun choices(path: String): List<ChoiceItem> {
+        val (fieldId, pathScope) = resolutionScope(path)
         val cf = form.fields.getValue(fieldId)
+
+        val rowsQuery = cf.rowsQuery
+        if (rowsQuery != null) {
+            return rowsInstances(cf, pathScope).map { instanceId ->
+                ChoiceItem(value = instanceId, label = rowsLabel(rowsQuery.repeat, instanceId))
+            }
+        }
+
         val query = cf.choiceQuery ?: return cf.node.choices?.items ?: emptyList()
-        val scope = scopeOf(fieldId)
+        val scope = pathScope
         return rowsAfterResidual(fieldId, candidateRows(fieldId, scope = scope), scope).map { row ->
             ChoiceItem(
                 value = (row[query.valueColumn] as? FormValue.Text)?.value
@@ -1058,6 +1266,20 @@ class FormInstance(
         value: FormValue,
         scope: Pair<String, String>?,
     ): List<String> {
+        if (cf.rowsQuery != null) {
+            // §6.3 over instance ids: the answer names an instance that is no
+            // longer in the list. Deleting the referenced member is exactly
+            // this, and it is one `choice` error naming the field — the inverse
+            // of the positional design, where deleting somebody ELSE silently
+            // repointed the answer at a different person.
+            val values =
+                if (cf.dataType == "select_multiple" && value is FormValue.Sequence) value.items
+                else listOf(value)
+            return values
+                .filter { rowsInstances(cf, scope, formValueAsText(it)).isEmpty() }
+                .map { formValueAsText(it) }
+        }
+
         cf.choiceQuery ?: return inlineValuesOutsideChoices(cf.node, value)
 
         val wanted =

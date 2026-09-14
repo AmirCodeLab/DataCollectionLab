@@ -148,6 +148,73 @@ class PreviewSessionTest {
         assertTrue("no `relevant`" in none.str("error"))
     }
 
+    /**
+     * MICS6 HL14 in the preview: the roster's own rows as the options, and a
+     * DIFFERENT list on every row (§3.3).
+     *
+     * The console's preview is the third place this decision is made — after
+     * the two engines and the handset's `CollectionViewModel` — and it was the
+     * one that was still wrong when the first three were right. Nothing below
+     * this file could see it: every vector passed, and the preview rendered a
+     * list of real names that was simply the wrong row's. Break 242.
+     */
+    @Test
+    fun `a rows question offers a different list on every row`() {
+        val session = PreviewSession.open(
+            """
+            {"irVersion":"0.1","formId":"hl","version":1,
+             "title":{"en":"HL"},"defaultLanguage":"en","languages":["en"],
+             "children":[
+               {"type":"repeat","id":"members","label":{"en":"Members"},
+                "summaryLabel":{"en":"{0}"},
+                "summaryLabelArgs":[{"op":"ref","path":"hl2_name"}],
+                "allowAdd":true,"allowDelete":true,
+                "children":[
+                  {"type":"question","id":"hl2_name","dataType":"text","label":{"en":"Name"}},
+                  {"type":"question","id":"hl14_mother_line","dataType":"select_one",
+                   "label":{"en":"Record the line number of mother"},
+                   "choices":{"kind":"rows","repeat":"members","excludeSelf":true}}]}]}
+            """.trimIndent(),
+            "2026-09-14",
+        )
+        for (name in listOf("Zubaida", "Bilal", "Amina")) {
+            val added = parse(session.addRow("members"))
+            val instance = added.getValue("inside").jsonObject.str("instanceId")
+            session.set("members[$instance].hl2_name", "\"$name\"")
+        }
+
+        fun optionsOn(row: Int): List<String> {
+            // Back out to the roster screen: adding a row enters it (§11.3).
+            session.leave()
+            val instances = parse(session.state()).getValue("roster").jsonObject
+                .getValue("rows").jsonArray.map { it.jsonObject.str("instanceId") }
+            session.enter("members", instances[row])
+            var state = parse(session.state())
+            while (state.getValue("questions").jsonArray.none {
+                    it.jsonObject.str("id") == "hl14_mother_line"
+                }
+            ) {
+                state = parse(session.next())
+            }
+            return state.getValue("questions").jsonArray
+                .first { it.jsonObject.str("id") == "hl14_mother_line" }
+                .jsonObject.getValue("choices").jsonArray
+                .map { it.jsonObject.str("label") }
+        }
+
+        // Isolated, as every §7.1 rendering is: the option label is the row's
+        // summary label, made by the same function the roster screen uses.
+        fun isolated(vararg names: String) = names.map {
+            "${Interpolation.FIRST_STRONG_ISOLATE}$it${Interpolation.POP_DIRECTIONAL_ISOLATE}"
+        }
+
+        assertEquals(isolated("Bilal", "Amina"), optionsOn(0))
+        assertEquals(isolated("Zubaida", "Amina"), optionsOn(1))
+        // The row that caught it in the browser: by field id this read
+        // "Bilal, Amina" — her own name, and the first member's missing.
+        assertEquals(isolated("Zubaida", "Bilal"), optionsOn(2))
+    }
+
     @Test
     fun `sessions are handles, and a wrong one is an error`() {
         val opened = parse(PreviewSessions.open(ir, "2026-09-07"))

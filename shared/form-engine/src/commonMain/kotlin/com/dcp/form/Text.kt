@@ -36,8 +36,21 @@ object Interpolation {
     const val FIRST_STRONG_ISOLATE = '⁨'
     const val POP_DIRECTIONAL_ISOLATE = '⁩'
 
-    /** `{0}`, with `{{` and `}}` for literal braces. */
-    private val SLOT = Regex("""\{\{|}}|\{(\d+)}""")
+    /** `{0}`, with `{{` and `}}` for literal braces.
+     *
+     * **Every brace is escaped, including the closing ones.** Java's regex
+     * engine accepts a bare `}` and Android's does not: `com.android.icu`
+     * refuses `}}` with "Syntax error in regexp pattern near index 6", and
+     * because this is a `val` on an object it throws
+     * `ExceptionInInitializerError` from the class initialiser — the app dies
+     * the moment it compiles any form. It went unseen because `jvmTest`,
+     * `wasmJsNodeTest` and `testAndroidHostTest` all run on a **host** regex
+     * engine; only a real device (or emulator) runs ICU's, and the §10.3
+     * unfilled-slot warning made this line reachable for every node of every
+     * form rather than only for nodes with arguments. `InterpolationRegexTest`
+     * is the guard, and it can only be a source check for the same reason.
+     */
+    private val SLOT = Regex("""\{\{|\}\}|\{(\d+)\}""")
 
     /** Every `{n}` the template refers to. `{{` is a literal and is not one. */
     fun slotIndices(template: String): Set<Int> =

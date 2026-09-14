@@ -24,12 +24,17 @@ from .expression import (
     evaluate,
     statically_false,
 )
+from .rows import RowsQuery, compile_rows_choices
 from .text import render_field_text, slot_indices
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 #: An instance id this engine minted. Ids from a device may look like
 #: anything else, and `_restore_instance` leaves those alone.
 SERIAL_ID = re.compile(r"i(\d+)")
+
+#: `members[i2].hl14_mother` — a field of one instance, the spelling every
+#: other address into a repeat already uses (§3.3).
+_QUALIFIED_PATH = re.compile(r"([a-z][a-z0-9_]*)\[([^\]]+)\]\.([a-z][a-z0-9_]*)")
 
 #: Distinguishes "no additional equality" from "equal to None", which are
 #: different questions to ask a source: the first returns the whole selected
@@ -73,6 +78,11 @@ class CompiledField:
     #: function of the IR: the same document must decompose the same way on
     #: every engine, and a vector asserts that it did.
     choice_query: ChoiceQuery | None = None
+    #: A `rows` choice list, compiled (§3.3). None for every other kind. Held
+    #: beside `choice_query` rather than inside it because the two share only
+    #: the word "filter": a dataset list decomposes into a selector a store can
+    #: index and a residual, and a rows list has nothing to push anywhere.
+    rows_query: RowsQuery | None = None
 
 
 class CompiledForm:
@@ -268,6 +278,29 @@ class CompiledForm:
 
             choices = node.get("choices")
             query = compile_choices(choices) if isinstance(choices, dict) else None
+            rows_query = compile_rows_choices(choices) if isinstance(choices, dict) else None
+            if rows_query is not None:
+                # §10.2: nothing to exclude from a list the field is not
+                # answered inside. The flag would be a no-op, and a control
+                # that appears to do something and does nothing is what
+                # `docs/project-conventions.md` calls two claims.
+                inside = rows_query.repeat in enclosing_repeats
+                if rows_query.exclude_self and not inside:
+                    raise CompileError(
+                        f"{node_id}: choices.excludeSelf, but the question is not "
+                        f"inside repeat {rows_query.repeat!r}, so there is no "
+                        "instance to exclude (§3.3, §10.2)"
+                    )
+                # A filter reads answers of the candidate instance through
+                # `$row.field` and answers of the answering scope through
+                # everything else, and the field depends on both: changing any
+                # member's sex must re-resolve a list filtered on it, and
+                # re-check the member already chosen.
+                if rows_query.filter is not None:
+                    collect_refs(rows_query.filter, deps)
+                    for path in _paths(rows_query.filter):
+                        if path.startswith("$row."):
+                            deps.add(path[len("$row.") :])
             if query is not None:
                 # A selector expression reads answers, so the field depends on
                 # them: changing the district must re-resolve the village list
@@ -289,9 +322,11 @@ class CompiledForm:
                 ancestors=list(ancestors),
                 repeat=enclosing_repeats[0] if enclosing_repeats else None,
                 choice_query=query,
+                rows_query=rows_query,
             )
             self.order.append(node_id)
 
+        self._link_rows_choices()
         self._check_interpolation()
         self._check_references()
         self.topo_order = self._topological_order()
@@ -322,6 +357,38 @@ class CompiledForm:
                 + f" and {args_key} has {arg_count} argument(s), so the slot is "
                 "shown to a respondent as written"
             )
+
+    def _link_rows_choices(self) -> None:
+        """Finish a `rows` list once every repeat has been walked (§3.3).
+
+        Two things that cannot be done where the field is met, because a field
+        may name a repeat the walk has not reached yet:
+
+        **The repeat must exist.** A `rows` list over a name that is not a
+        repeat is an unresolvable reference, and it is caught here with a
+        message that says which — `_check_references` reads `depends_on` and a
+        repeat id is not a field, so it would never see this one.
+
+        **The option labels are made of answers.** `summaryLabelArgs` is what a
+        row of the list says (§2.3), so the field depends on every field those
+        arguments read. Without this edge the list is right and the *labels in
+        it* are stale: a member renamed after the list was drawn still reads by
+        the old name, on a list that looks perfectly correct. That is break
+        56's shape, and `conformance/vectors/repeat-016` asserts the edge
+        itself rather than a rendering, because every rendering is right on a
+        fresh recalculation.
+        """
+        for compiled in self.fields.values():
+            rows_query = compiled.rows_query
+            if rows_query is None:
+                continue
+            if rows_query.repeat not in self.repeats:
+                raise CompileError(
+                    f"{compiled.field_id}: choices name repeat "
+                    f"{rows_query.repeat!r}, which is not a repeat in this form"
+                )
+            summary = self.container_expr_deps.get(rows_query.repeat, {})
+            compiled.depends_on |= set(summary.get("summaryLabelArgs", set()))
 
     def _check_interpolation(self) -> None:
         """Slots and arguments agree, and no argument reads a row (§7.1).
@@ -474,6 +541,19 @@ class CompiledForm:
             # nobody writes questions in order to guarantee they are never asked.
             if statically_false(f.node.get("relevant")):
                 self.warnings.append(f"{f.field_id}: unreachable relevance (statically false)")
+            # §10.3: a rows list over a repeat with no summaryLabel offers bare
+            # position numbers — §2.3's chain falling through to rule 3. The
+            # document is legal and the list is correct, so it is a warning;
+            # it is worth making because it stopped being a limitation when
+            # summaryLabelArgs got an editor and became an authoring choice.
+            if f.rows_query is not None:
+                repeat_node = self.repeats.get(f.rows_query.repeat) or {}
+                if not repeat_node.get("summaryLabel"):
+                    self.warnings.append(
+                        f"{f.field_id}: chooses from the rows of repeat "
+                        f"{f.rows_query.repeat!r}, which has no summaryLabel, so "
+                        "the options are position numbers"
+                    )
 
 
 def _paths(expr: Any) -> set[str]:
@@ -1041,21 +1121,152 @@ class FormInstance:
                 kept.append(row)
         return kept
 
-    def choices(self, field_id: str) -> list[dict[str, Any]]:
-        """The resolved option list for a field, in dataset order (§3.2).
+    # -- rows-of-a-repeat choice lists (§3.3) ------------------------------
+
+    def _resolution_scope(
+        self, path: str
+    ) -> tuple[str, tuple[str, str] | None | Any]:
+        """Split a resolution path into a field id and the instance to read in.
+
+        `members[i2].hl14_mother` is the field `hl14_mother` resolved in
+        instance `i2` of `members`; a bare `hl14_mother` leaves the scope to
+        `_scope_of` and means what it always meant.
+
+        The bracket is an **instance id**, never a position. Positional
+        addressing exists in expressions (§4.2) and deliberately not here: a
+        choice list keyed on a position is the design §3.3 exists instead of,
+        and offering one here would be a second way to say a thing whose whole
+        point is that there is only one.
+        """
+        matched = _QUALIFIED_PATH.fullmatch(path)
+        if matched is None:
+            return path, _UNSET
+        repeat_id, instance_id, field_id = matched.groups()
+        compiled = self.form.fields.get(field_id)
+        if compiled is None:
+            raise CompileError(f"unknown field: {field_id}")
+        if compiled.repeat != repeat_id:
+            raise CompileError(
+                f"{field_id!r} is not a field of repeat {repeat_id!r}"
+            )
+        if instance_id not in (self.instances.get(repeat_id) or []):
+            raise CompileError(
+                f"repeat {repeat_id} has no instance {instance_id!r}"
+            )
+        return field_id, (repeat_id, instance_id)
+
+    def _instance_row(self, repeat_id: str, instance_id: str) -> dict[str, Any]:
+        """One instance's answers, as the mapping `$row.field` reads from.
+
+        The same shape a dataset row has, which is why a filter over a `rows`
+        list needs nothing new in `expression.py`: `$row.age` is a lookup in
+        this mapping whether the candidate came from a village dataset or from
+        the household roster.
+        """
+        return {
+            field_id: self.values.get(f"{repeat_id}[{instance_id}].{field_id}")
+            for field_id in self._fields_of(repeat_id)
+        }
+
+    def _rows_instances(
+        self,
+        cf: CompiledField,
+        scope: tuple[str, str] | None | Any,
+        *,
+        equals: Any = _UNSET,
+    ) -> list[str]:
+        """This field's option list, as instance ids (§3.3).
+
+        `equals` asks the membership question — is *this* id an option — and is
+        answered as a **lookup**: the id is checked against the instance list
+        and only that instance is filtered. §3.3's contract is that membership
+        is a lookup by id and never a scan of rendered labels, and the labels
+        are the expensive part.
+        """
+        query = cf.rows_query
+        assert query is not None
+        if scope is _UNSET:
+            scope = self._scope_of(cf.field_id)
+        ordered = self.instances.get(query.repeat) or []
+
+        if equals is not _UNSET:
+            candidates = [equals] if equals in ordered else []
+        else:
+            candidates = list(ordered)
+
+        kept: list[str] = []
+        for instance_id in candidates:
+            # `excludeSelf` is the answering instance's own row, and §10.2
+            # refuses the flag where there is no answering instance, so this
+            # can only be a no-op on a field the compiler already accepted.
+            if query.exclude_self and scope == (query.repeat, instance_id):
+                continue
+            if query.filter is not None:
+                row = self._instance_row(query.repeat, instance_id)
+                # `null_is=False` for the same reason §3.2's residual does it:
+                # a candidate a filter cannot decide about is not a permitted
+                # answer, which is the opposite of `constraint`'s coercion.
+                if not coerce_boolean(
+                    evaluate(
+                        query.filter,
+                        dataclasses.replace(self._context(scope), row=row),
+                    ),
+                    null_is=False,
+                ):
+                    continue
+            kept.append(instance_id)
+        return kept
+
+    def _rows_label(self, repeat_id: str, instance_id: str) -> dict[str, str]:
+        """One option's label, per language — §2.3's chain, per §3.3.
+
+        The same function the roster screen calls, so the option list reads
+        exactly like the list the enumerator was just looking at. A row nobody
+        has named yet shows its 1-based position and shows a name on the
+        recalculation after one is typed; neither is this module's business.
+        """
+        return {
+            language: self.summary_label(repeat_id, instance_id, language)
+            for language in self.form.ir.get("languages", [])
+        }
+
+    def choices(self, path: str) -> list[dict[str, Any]]:
+        """The resolved option list for a field, in dataset order (§3.2, §3.3).
 
         Inline lists are returned as they stand; a dataset-backed list is the
-        selector's rows with the residual applied. Each entry is
-        `{"value": ..., "label": {lang: ...}}`, so a client renders both kinds
-        the same way and cannot end up implementing one of them itself.
+        selector's rows with the residual applied; a `rows` list is the
+        repeat's current instances. Each entry is
+        `{"value": ..., "label": {lang: ...}}`, so a client renders all three
+        kinds the same way and cannot end up implementing one of them itself.
+
+        **The path may name an instance** — `members[i2].hl14_mother` — and for
+        a `rows` list it usually must. That list is a function of (field,
+        instance) rather than of the field alone: `excludeSelf` omits a
+        different member on every row, and a filter reading answers narrows
+        differently wherever the answers differ (§3.3). A bare field id inside
+        a repeat still resolves against the first instance, which is what it
+        has always meant and is the reading a caller outside the repeat gets.
         """
+        field_id, scope = self._resolution_scope(path)
         cf = self.form.fields[field_id]
+
+        if cf.rows_query is not None:
+            return [
+                {
+                    "value": instance_id,
+                    "label": self._rows_label(cf.rows_query.repeat, instance_id),
+                }
+                for instance_id in self._rows_instances(cf, scope)
+            ]
+
         query = cf.choice_query
         if query is None:
             choices = cf.node.get("choices") or {}
             return [dict(item) for item in choices.get("items", [])]
 
-        rows = self._rows_after_residual(field_id, self.candidate_rows(field_id))
+        rows = self._rows_after_residual(
+            field_id, self.candidate_rows(field_id, scope=scope), scope
+        )
 
         return [
             {
@@ -1079,6 +1290,22 @@ class FormInstance:
         never "fetch the list, then search it" — that is the difference between
         a village select that works on a handset and one that does not.
         """
+        if cf.rows_query is not None:
+            # §6.3 over instance ids: the answer names an instance that is no
+            # longer in the list. Deleting the referenced member is exactly
+            # this, and it is one `choice` error naming the field — the inverse
+            # of the positional design, where deleting somebody ELSE silently
+            # repointed the answer at a different person
+            # (docs/proposal-answer-indexed-rows.md §3).
+            values = (
+                value
+                if cf.data_type == "select_multiple" and isinstance(value, list)
+                else [value]
+            )
+            return [
+                one for one in values if not self._rows_instances(cf, scope, equals=one)
+            ]
+
         query = cf.choice_query
         if query is None:
             return _inline_values(cf.node, value)
